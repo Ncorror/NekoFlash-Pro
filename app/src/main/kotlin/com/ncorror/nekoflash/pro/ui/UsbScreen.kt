@@ -37,6 +37,8 @@ fun UsbScreen(
     snapshot: UsbHostSnapshot,
     onRefresh: () -> Unit,
     onRequestAccess: (String) -> Unit,
+    onSaveLog: () -> Unit,
+    @StringRes exportNotice: Int? = null,
 ) {
     val palette = MaterialTheme.colorScheme
     Column(
@@ -121,6 +123,40 @@ fun UsbScreen(
         snapshot.devices.forEach { device ->
             UsbDeviceCard(device, onRequestAccess)
         }
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(18.dp),
+            color = palette.surface,
+            border = BorderStroke(1.dp, palette.outline),
+        ) {
+            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    text = stringResource(R.string.diagnostics_title),
+                    color = palette.onSurface,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = stringResource(R.string.diagnostics_hint),
+                    color = palette.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                OutlinedButton(
+                    onClick = onSaveLog,
+                    border = BorderStroke(1.dp, palette.primary),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = palette.primary),
+                ) {
+                    Text(stringResource(R.string.diagnostics_save))
+                }
+                if (exportNotice != null) {
+                    Text(
+                        text = stringResource(exportNotice),
+                        color = palette.secondary,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -186,6 +222,7 @@ private fun UsbScreenPreview() {
             )),
             onRefresh = {},
             onRequestAccess = {},
+            onSaveLog = {},
         )
     }
 }

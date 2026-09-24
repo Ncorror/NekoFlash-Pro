@@ -14,11 +14,13 @@ import android.os.Build
 import com.ncorror.nekoflash.pro.model.UsbDeviceSummary
 import com.ncorror.nekoflash.pro.model.UsbHostSnapshot
 import com.ncorror.nekoflash.pro.model.UsbNotice
+import java.util.Locale
 
 /** Enumerates USB devices and asks Android for access; never opens an interface. */
 class UsbHostController(
     private val activity: Activity,
     private val publish: (UsbHostSnapshot) -> Unit,
+    private val record: (String) -> Unit,
 ) {
     private val manager = activity.getSystemService(Context.USB_SERVICE) as UsbManager
     private val permissionAction = "${activity.packageName}.USB_PERMISSION"
@@ -28,21 +30,27 @@ class UsbHostController(
     private val permissionReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             if (intent.action != permissionAction) return
-            val requested = deviceFromIntent(intent) ?: return
-            if (!pending.remove(requested.deviceName)) return
+            val requested = deviceFromIntent(intent) ?: run {
+                record("USB permission callback without a device")
+                return
+            }
+            if (!pending.remove(requested.deviceName)) {
+                record("Unexpected USB permission callback for ${deviceLabel(requested)}")
+                return
+            }
 
             val connected = manager.deviceList[requested.deviceName]
                 ?.takeIf { it.deviceId == requested.deviceId }
             val granted = connected != null &&
                 intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false) &&
                 manager.hasPermission(connected)
-            refresh(
-                when {
-                    connected == null -> UsbNotice.DEVICE_DISCONNECTED
-                    granted -> UsbNotice.ACCESS_GRANTED
-                    else -> UsbNotice.ACCESS_DENIED
-                },
-            )
+            val notice = when {
+                connected == null -> UsbNotice.DEVICE_DISCONNECTED
+                granted -> UsbNotice.ACCESS_GRANTED
+                else -> UsbNotice.ACCESS_DENIED
+            }
+            record("USB permission result for ${deviceLabel(requested)}: $notice")
+            refresh(notice)
         }
     }
 
@@ -51,6 +59,10 @@ class UsbHostController(
             if (intent.action == UsbManager.ACTION_USB_DEVICE_ATTACHED ||
                 intent.action == UsbManager.ACTION_USB_DEVICE_DETACHED
             ) {
+                val action = if (intent.action == UsbManager.ACTION_USB_DEVICE_ATTACHED)
+                    "attached" else "detached"
+                val device = deviceFromIntent(intent)
+                record("USB $action${device?.let { " ${deviceLabel(it)}" } ?: ""}")
                 refresh(UsbNotice.DEVICE_CHANGED)
             }
         }
@@ -58,6 +70,7 @@ class UsbHostController(
 
     fun start() {
         if (started) return
+        record("USB observer starting")
         val filter = IntentFilter(permissionAction)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             activity.registerReceiver(permissionReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
@@ -76,6 +89,7 @@ class UsbHostController(
 
     fun stop() {
         if (!started) return
+        record("USB observer stopped")
         activity.unregisterReceiver(deviceReceiver)
         activity.unregisterReceiver(permissionReceiver)
         pending.clear()
@@ -93,6 +107,7 @@ class UsbHostController(
 
     private fun refresh(notice: UsbNotice?) {
         if (!activity.packageManager.hasSystemFeature(PackageManager.FEATURE_USB_HOST)) {
+            record("USB scan: host mode unavailable")
             publish(UsbHostSnapshot(supported = false, notice = notice))
             return
         }
@@ -101,6 +116,9 @@ class UsbHostController(
             compareBy<UsbDevice> { it.vendorId }.thenBy { it.productId }.thenBy { it.deviceId },
         )
         pending.retainAll(devices.map { it.deviceName }.toSet())
+        record("USB scan: ${devices.size} device(s); " + devices.joinToString { device ->
+            "${deviceLabel(device)} access=${manager.hasPermission(device)}"
+        })
         publish(UsbHostSnapshot(devices = devices.map { device ->
             UsbDeviceSummary(
                 key = device.deviceName,
@@ -115,14 +133,17 @@ class UsbHostController(
 
     fun requestAccess(deviceName: String) {
         val device = manager.deviceList[deviceName] ?: run {
+            record("USB access request: device already disconnected")
             refresh(UsbNotice.DEVICE_DISCONNECTED)
             return
         }
         if (manager.hasPermission(device)) {
+            record("USB access already allowed for ${deviceLabel(device)}")
             refresh(UsbNotice.ACCESS_GRANTED)
             return
         }
         if (!pending.add(deviceName)) return
+        record("USB access requested for ${deviceLabel(device)}")
         refresh()
 
         // UsbManager adds the device and permission result to the callback intent.
@@ -136,11 +157,20 @@ class UsbHostController(
         )
         try {
             manager.requestPermission(device, callback)
-        } catch (_: SecurityException) {
+        } catch (error: SecurityException) {
             pending.remove(deviceName)
+            record("USB access request failed for ${deviceLabel(device)}: ${error.javaClass.simpleName}: ${error.message}")
+            refresh(UsbNotice.REQUEST_UNAVAILABLE)
+        } catch (error: IllegalArgumentException) {
+            pending.remove(deviceName)
+            record("USB access request failed for ${deviceLabel(device)}: ${error.javaClass.simpleName}: ${error.message}")
             refresh(UsbNotice.REQUEST_UNAVAILABLE)
         }
     }
+
+    private fun deviceLabel(device: UsbDevice): String = String.format(
+        Locale.US, "VID=%04X PID=%04X id=%d", device.vendorId, device.productId, device.deviceId,
+    )
 
     @Suppress("DEPRECATION")
     private fun deviceFromIntent(intent: Intent): UsbDevice? =

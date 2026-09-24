@@ -28,21 +28,30 @@ jobs:
           cache-provider: basic
       - name: Test engine and Fastboot core, lint app, build debug APK
         run: bash ./gradlew :engine:test :core:fastboot:test :app:lintDebug :app:assembleDebug --no-daemon --stacktrace
+      - name: Summarize test results
+        if: always()
+        run: python3 scripts/ci-test-summary.py
       - name: Upload prototype APK
+        if: success()
         uses: actions/upload-artifact@v6
         with:
           name: NekoFlash-Pro-prototype-debug-${{ github.run_number }}
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 14
-      - name: Upload test reports on failure
-        if: failure()
+      - name: Upload test results and manual checklist
+        if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: Pro-test-reports-${{ github.run_number }}
+          name: NekoFlash-Pro-test-results-${{ github.run_number }}
           path: |
+            build/verification/test-summary.md
+            engine/build/test-results/test/TEST-*.xml
+            core/fastboot/build/test-results/test/TEST-*.xml
             engine/build/reports/tests/test/
             core/fastboot/build/reports/tests/test/
             app/build/reports/lint-results-debug.html
-          if-no-files-found: ignore
+            app/build/reports/lint-results-debug.xml
+            docs/02_Manual_Test_Plan.md
+          if-no-files-found: error
           retention-days: 14

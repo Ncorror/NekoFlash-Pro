@@ -3,6 +3,7 @@
     <uses-feature android:name="android.hardware.usb.host" android:required="false" />
 
     <application
+        android:name=".NekoFlashApplication"
         android:allowBackup="false"
         android:label="@string/app_name"
         android:theme="@style/Theme.NekoFlashPro">
