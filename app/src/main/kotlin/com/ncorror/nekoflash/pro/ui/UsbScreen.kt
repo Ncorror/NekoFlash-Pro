@@ -199,6 +199,34 @@ private fun UsbDeviceCard(device: UsbDeviceSummary, onRequestAccess: (String) ->
                 color = if (device.accessGranted) palette.secondary else palette.onSurfaceVariant,
                 style = MaterialTheme.typography.bodyMedium,
             )
+            if (device.interfaceInspectionFailed) {
+                Text(
+                    text = stringResource(R.string.usb_interface_inspection_failed),
+                    color = palette.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            } else if (device.interfaces.isEmpty()) {
+                Text(
+                    text = stringResource(R.string.usb_no_protocol_interface),
+                    color = palette.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            } else {
+                device.interfaces.forEach { usbInterface ->
+                    Text(
+                        text = stringResource(
+                            if (usbInterface.bulkPairAvailable) R.string.usb_protocol_bulk_pair
+                            else R.string.usb_protocol_no_bulk_pair,
+                            usbInterface.protocol.name,
+                            usbInterface.configurationIndex,
+                            usbInterface.id,
+                        ),
+                        color = if (usbInterface.bulkPairAvailable) palette.secondary
+                            else palette.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+            }
             if (!device.accessGranted) {
                 OutlinedButton(
                     onClick = { onRequestAccess(device.key) },

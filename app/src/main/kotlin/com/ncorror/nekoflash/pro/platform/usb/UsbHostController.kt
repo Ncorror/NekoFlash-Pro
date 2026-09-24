@@ -120,6 +120,16 @@ class UsbHostController(
             "${deviceLabel(device)} access=${manager.hasPermission(device)}"
         })
         publish(UsbHostSnapshot(devices = devices.map { device ->
+            val interfaces = try {
+                UsbInterfaceScanner.scan(device).also { detections ->
+                    detections.forEach {
+                        record("USB signature for ${deviceLabel(device)}: ${UsbInterfaceScanner.describe(it)}")
+                    }
+                }
+            } catch (error: RuntimeException) {
+                record("USB interface inspection failed for ${deviceLabel(device)}: ${error.javaClass.simpleName}")
+                null
+            }
             UsbDeviceSummary(
                 key = device.deviceName,
                 vendorId = device.vendorId,
@@ -127,6 +137,8 @@ class UsbHostController(
                 deviceId = device.deviceId,
                 accessGranted = manager.hasPermission(device),
                 accessPending = device.deviceName in pending,
+                interfaces = interfaces.orEmpty(),
+                interfaceInspectionFailed = interfaces == null,
             )
         }, notice = notice))
     }

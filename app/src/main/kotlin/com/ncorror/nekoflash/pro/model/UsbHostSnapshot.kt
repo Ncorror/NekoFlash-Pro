@@ -1,5 +1,7 @@
 package com.ncorror.nekoflash.pro.model
 
+import com.ncorror.nekoflash.pro.transport.UsbInterfaceDetection
+
 /** State the UI can render without depending on Android USB APIs. */
 data class UsbHostSnapshot(
     val supported: Boolean = true,
@@ -14,6 +16,8 @@ data class UsbDeviceSummary(
     val deviceId: Int,
     val accessGranted: Boolean,
     val accessPending: Boolean,
+    val interfaces: List<UsbInterfaceDetection> = emptyList(),
+    val interfaceInspectionFailed: Boolean = false,
 )
 
 enum class UsbNotice {
