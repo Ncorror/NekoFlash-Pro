@@ -50,12 +50,24 @@ Artifacts** после успешного запуска. Секреты и rele
 ```sh
 pkg install git gh
 gh auth status
+gh auth setup-git
 gh repo clone Ncorror/NekoFlash-Pro
 cd NekoFlash-Pro
 ```
 
 Если `gh auth status` показывает отсутствие авторизации, выполните
-`gh auth login` в Termux. Сборки и отчёты тестов доступны во вкладке
-**Actions** репозитория. Для отправки собственных изменений используйте
-обычные `git add`, `git commit` и `git push` после настройки `git user.name`
-и `git user.email`.
+`gh auth login` в Termux. Один раз задайте `git user.name` и `git user.email`,
+если они ещё не настроены. После изменения файлов отправьте только выбранные
+пути (папки тоже подходят):
+
+```sh
+git status --short
+bash scripts/termux-push.sh "Обновил README" README.md
+```
+
+Скрипт проверяет аккаунт и адрес репозитория, получает новые коммиты с GitHub,
+показывает файлы перед коммитом и ждёт подтверждения. Он не делает force push.
+Если файлы уже добавлены через `git add`, можно вызвать скрипт только с
+сообщением. После неудачного push повторный запуск отправит сохранённый
+локальный коммит. Сборка автоматически запускается при push в `main` и при
+pull request в `main`; APK и отчёты доступны во вкладке **Actions**.
