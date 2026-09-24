@@ -4,7 +4,7 @@
     <string name="usb_eyebrow">DEVICE ACCESS</string>
     <string name="usb_preview_title">Technical preview</string>
     <string name="usb_section_title">USB devices</string>
-    <string name="prototype_status">Technical preview: USB discovery, access permission and interface recognition. ADB, Fastboot and flashing are not connected.</string>
+    <string name="prototype_status">Technical preview: USB discovery and a fixed Fastboot version query. ADB commands and flashing are unavailable.</string>
     <string name="usb_refresh">Refresh USB devices</string>
     <string name="usb_hint">Connect a device with a USB OTG cable, then refresh the list.</string>
     <string name="usb_host_unsupported">USB host mode is unavailable on this phone.</string>
@@ -18,6 +18,11 @@
     <string name="usb_protocol_no_bulk_pair">%1$s (config %2$d, interface %3$d): no usable bulk IN/OUT pair.</string>
     <string name="usb_no_protocol_interface">No ADB or Fastboot USB interface detected.</string>
     <string name="usb_interface_inspection_failed">Could not inspect USB interfaces. Save a diagnostic ZIP.</string>
+    <string name="fastboot_probe_button">Read Fastboot version</string>
+    <string name="fastboot_probe_running">Reading the Fastboot version…</string>
+    <string name="fastboot_probe_version">Fastboot protocol version: %1$s</string>
+    <string name="fastboot_probe_rejected">Device rejected the version query: %1$s</string>
+    <string name="fastboot_probe_failed">Could not read the version. Save a diagnostic ZIP.</string>
     <string name="usb_request_permission">Request access</string>
     <string name="usb_permission_granted">USB access allowed. Command execution is still unavailable.</string>
     <string name="usb_permission_denied">USB access was not allowed.</string>

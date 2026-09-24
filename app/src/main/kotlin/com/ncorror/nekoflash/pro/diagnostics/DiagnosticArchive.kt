@@ -36,7 +36,8 @@ class DiagnosticArchive(context: Context, private val journal: DiagnosticJournal
         environment.txt: app version, Android version, phone model, USB host feature and battery.
         usb-descriptors.txt: connected USB device VID/PID, permission, configuration,
                              interface class/subclass/protocol, endpoints and ADB/Fastboot signatures.
-        events.log: recent app/USB events, at most 256 KiB, timestamps in UTC.
+        events.log: recent app/USB events and explicit Fastboot probe results,
+                    at most 256 KiB, timestamps in UTC.
 
         The archive does not list USB serial numbers, device file paths or device contents.
         It does not include Android system logcat; review exception messages before sharing.

@@ -11,8 +11,8 @@ android {
         applicationId = "com.ncorror.nekoflash.pro"
         minSdk = 26
         targetSdk = 36
-        versionCode = 4
-        versionName = "0.4.0-dev"
+        versionCode = 5
+        versionName = "0.5.0-dev"
     }
 
     compileOptions {
@@ -29,6 +29,7 @@ dependencies {
     implementation(project(":engine"))
     implementation(project(":core:diagnostics"))
     implementation(project(":core:transport"))
+    implementation(project(":core:fastboot"))
     val composeBom = platform("androidx.compose:compose-bom:2026.05.01")
     implementation(composeBom)
     implementation("androidx.compose.material3:material3")
