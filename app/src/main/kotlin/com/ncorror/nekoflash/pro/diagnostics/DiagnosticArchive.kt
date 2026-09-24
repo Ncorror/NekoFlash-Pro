@@ -66,7 +66,12 @@ class DiagnosticArchive(context: Context, private val journal: DiagnosticJournal
         } else {
             appContext.packageManager.getPackageInfo(appContext.packageName, 0)
         }
-        "${info.versionName ?: "unknown"} (${info.longVersionCode})"
+        val code = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            info.longVersionCode
+        } else {
+            info.versionCode.toLong()
+        }
+        "${info.versionName ?: "unknown"} ($code)"
     } catch (error: PackageManager.NameNotFoundException) {
         "unavailable (${error.javaClass.simpleName})"
     }
