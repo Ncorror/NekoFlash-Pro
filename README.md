@@ -42,21 +42,20 @@ Debug APK окажется в `app/build/outputs/apk/debug/`. Подписанн
 Artifacts** после успешного запуска. Секреты и release-ключ от legacy
 сюда не переносятся.
 
-## Первый репозиторий через Termux
+## Работа с репозиторием через Termux
 
-По умолчанию создаётся **приватный** репозиторий `NekoFlash-Pro` в текущем
-GitHub-аккаунте Termux. Скачайте архив проекта и выполните на телефоне:
+Приватный репозиторий: `https://github.com/Ncorror/NekoFlash-Pro`.
+На телефоне с авторизованным GitHub CLI можно получить исходники:
 
 ```sh
-pkg install git gh unzip
+pkg install git gh
 gh auth status
-unzip NekoFlash-Pro-stage2.zip
+gh repo clone Ncorror/NekoFlash-Pro
 cd NekoFlash-Pro
-bash scripts/publish-termux.sh
 ```
 
-Если `gh auth status` показывает, что GitHub CLI ещё не авторизован, выполните
-`gh auth login` в Termux. Перед запуском скрипта настройте `git user.name` и
-`git user.email` в своей системе. Скрипт останавливается, если репозиторий с
-таким именем уже существует или в папке есть `.git`: он не перезаписывает
-чужую историю. Токены и пароли в архив не записываются.
+Если `gh auth status` показывает отсутствие авторизации, выполните
+`gh auth login` в Termux. Сборки и отчёты тестов доступны во вкладке
+**Actions** репозитория. Для отправки собственных изменений используйте
+обычные `git add`, `git commit` и `git push` после настройки `git user.name`
+и `git user.email`.
