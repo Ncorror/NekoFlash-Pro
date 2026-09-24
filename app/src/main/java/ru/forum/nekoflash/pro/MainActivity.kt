@@ -1,5 +1,6 @@
 package ru.forum.nekoflash.pro
 
+import android.annotation.SuppressLint
 import android.app.Activity
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
@@ -79,7 +80,7 @@ class MainActivity : Activity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(permissionReceiver, permissionFilter, Context.RECEIVER_NOT_EXPORTED)
         } else {
-            registerReceiver(permissionReceiver, permissionFilter)
+            registerPermissionReceiverBeforeApi33(permissionFilter)
         }
 
         // This receiver listens exclusively for system USB broadcasts.
@@ -100,6 +101,13 @@ class MainActivity : Activity() {
         unregisterReceiver(permissionReceiver)
         pendingDevices.clear()
         super.onStop()
+    }
+
+    @SuppressLint("UnspecifiedRegisterReceiverFlag")
+    private fun registerPermissionReceiverBeforeApi33(filter: IntentFilter) {
+        // Export flags were added in API 33. The callback also checks the pending request
+        // and UsbManager.hasPermission, so a forged broadcast cannot grant USB access.
+        registerReceiver(permissionReceiver, filter)
     }
 
     private fun renderDevices() {
