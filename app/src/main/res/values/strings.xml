@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">NekoFlash Pro</string>
+    <string name="prototype_status">Technical preview: the command parser is under development. USB and command execution are not connected yet.</string>
+</resources>
