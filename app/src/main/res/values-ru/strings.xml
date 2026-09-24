@@ -4,7 +4,7 @@
     <string name="usb_eyebrow">ДОСТУП К УСТРОЙСТВУ</string>
     <string name="usb_preview_title">Техническая сборка</string>
     <string name="usb_section_title">USB-устройства</string>
-    <string name="prototype_status">Техническая сборка: поиск USB-устройств и два запроса сведений Fastboot. Команды ADB и прошивка пока недоступны.</string>
+    <string name="prototype_status">Техническая сборка: поиск USB, проверка первого ответа ADB и два запроса сведений Fastboot. Авторизация ADB, сервисы и прошивка пока недоступны.</string>
     <string name="usb_refresh">Обновить USB-устройства</string>
     <string name="usb_hint">Подключите устройство через USB OTG и обновите список.</string>
     <string name="usb_host_unsupported">Этот телефон не поддерживает USB host.</string>
@@ -18,6 +18,12 @@
     <string name="usb_protocol_no_bulk_pair">%1$s (конфигурация %2$d, интерфейс %3$d): нет подходящей пары bulk IN/OUT.</string>
     <string name="usb_no_protocol_interface">Интерфейс ADB или Fastboot не найден.</string>
     <string name="usb_interface_inspection_failed">Не удалось прочитать USB-интерфейсы. Сохраните диагностический ZIP.</string>
+    <string name="adb_probe_button">Проверить ответ ADB</string>
+    <string name="adb_probe_running">Ждём первый ответ ADB…</string>
+    <string name="adb_probe_connected">ADB ответил CNXN: версия %1$s, maxData %2$d. Диагностический сеанс закрыт.</string>
+    <string name="adb_probe_auth_required">ADB ответил AUTH: нужна авторизация ключом. Эта проверка не отправляет ключ и не вызывает диалог подтверждения.</string>
+    <string name="adb_probe_tls_required">ADB запросил TLS. Эта проверка не выполняет согласование TLS.</string>
+    <string name="adb_probe_failed">Сбой обмена ADB. Сохраните диагностический ZIP.</string>
     <string name="fastboot_probe_version_button">Прочитать версию протокола Fastboot</string>
     <string name="fastboot_probe_product_button">Прочитать код продукта Fastboot</string>
     <string name="fastboot_variable_version">версия протокола</string>
@@ -27,13 +33,13 @@
     <string name="fastboot_probe_rejected">Fastboot ответил FAIL для %1$s: %2$s. Обмен по USB состоялся.</string>
     <string name="fastboot_probe_failed">Сбой обмена по USB при запросе %1$s. Сохраните диагностический ZIP.</string>
     <string name="usb_request_permission">Запросить доступ</string>
-    <string name="usb_permission_granted">Доступ к USB разрешён. Для обнаруженного устройства Fastboot доступны информационные запросы.</string>
+    <string name="usb_permission_granted">Доступ к USB разрешён. Для распознанного ADB или Fastboot появятся кнопки проверки.</string>
     <string name="usb_permission_denied">Доступ к USB не разрешён.</string>
     <string name="usb_permission_unavailable">Android не смог запросить доступ к устройству.</string>
     <string name="usb_device_changed">Список USB-устройств изменился.</string>
     <string name="usb_device_disconnected">USB-устройство отключено.</string>
     <string name="diagnostics_title">Диагностика</string>
-    <string name="diagnostics_hint">После проверки подключения сохраните ZIP: события приложения, сведения об Android и USB-интерфейсы. Содержимое и серийные номера устройств не читаются.</string>
+    <string name="diagnostics_hint">После проверки подключения сохраните ZIP: события приложения, сведения об Android и USB-интерфейсы. Токены ADB, баннеры и серийные номера не сохраняются.</string>
     <string name="diagnostics_save_archive">Сохранить диагностический ZIP</string>
     <string name="diagnostics_save">Сохранить события в TXT</string>
     <string name="diagnostics_saved">Диагностический файл сохранён. Его можно прикрепить к сообщению.</string>

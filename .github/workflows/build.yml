@@ -27,7 +27,7 @@ jobs:
         with:
           cache-provider: basic
       - name: Test engine and core, lint app, build debug APK
-        run: bash ./gradlew :engine:test :core:transport:test :core:fastboot:test :core:diagnostics:test :app:lintDebug :app:assembleDebug --no-daemon --stacktrace
+        run: bash ./gradlew :engine:test :core:transport:test :core:fastboot:test :core:adb:test :core:diagnostics:test :app:lintDebug :app:assembleDebug --no-daemon --stacktrace
       - name: Summarize test results
         if: always()
         run: python3 scripts/ci-test-summary.py
@@ -49,10 +49,12 @@ jobs:
             engine/build/test-results/test/TEST-*.xml
             core/transport/build/test-results/test/TEST-*.xml
             core/fastboot/build/test-results/test/TEST-*.xml
+            core/adb/build/test-results/test/TEST-*.xml
             core/diagnostics/build/test-results/test/TEST-*.xml
             engine/build/reports/tests/test/
             core/transport/build/reports/tests/test/
             core/fastboot/build/reports/tests/test/
+            core/adb/build/reports/tests/test/
             core/diagnostics/build/reports/tests/test/
             app/build/reports/lint-results-debug.html
             app/build/reports/lint-results-debug.xml

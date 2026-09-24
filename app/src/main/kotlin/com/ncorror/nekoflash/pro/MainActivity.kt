@@ -9,8 +9,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.ncorror.nekoflash.pro.diagnostics.DiagnosticArchive
+import com.ncorror.nekoflash.pro.model.AdbProbePhase
+import com.ncorror.nekoflash.pro.model.AdbProbeState
+import com.ncorror.nekoflash.pro.model.FastbootProbePhase
 import com.ncorror.nekoflash.pro.model.FastbootProbeState
 import com.ncorror.nekoflash.pro.model.UsbHostSnapshot
+import com.ncorror.nekoflash.pro.platform.usb.AdbProbeController
 import com.ncorror.nekoflash.pro.platform.usb.FastbootProbeController
 import com.ncorror.nekoflash.pro.platform.usb.UsbHostController
 import com.ncorror.nekoflash.pro.ui.NekoFlashTheme
@@ -21,9 +25,11 @@ import java.time.format.DateTimeFormatter
 /** Android lifecycle entry point. USB policy and display live in separate packages. */
 class MainActivity : ComponentActivity() {
     private var usbSnapshot by mutableStateOf(UsbHostSnapshot())
+    private var adbProbeState by mutableStateOf<AdbProbeState?>(null)
     private var probeState by mutableStateOf<FastbootProbeState?>(null)
     private var exportNotice by mutableStateOf<Int?>(null)
     private lateinit var usbHost: UsbHostController
+    private lateinit var adbProbeController: AdbProbeController
     private lateinit var probeController: FastbootProbeController
     private val diagnostics get() = (application as NekoFlashApplication).diagnostics
     private val archive by lazy { DiagnosticArchive(this, diagnostics) }
@@ -59,8 +65,13 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         diagnostics.record("App opened")
+        adbProbeController = AdbProbeController(this, diagnostics::record) { adbProbeState = it }
         probeController = FastbootProbeController(this, diagnostics::record) { probeState = it }
         usbHost = UsbHostController(this, { snapshot ->
+            if (adbProbeState?.let { state -> snapshot.devices.none(state::matches) } == true) {
+                adbProbeController.cancel()
+                adbProbeState = null
+            }
             if (probeState?.let { state -> snapshot.devices.none(state::matches) } == true) {
                 probeController.cancel()
                 probeState = null
@@ -71,13 +82,19 @@ class MainActivity : ComponentActivity() {
             NekoFlashTheme {
                 UsbScreen(
                     snapshot = usbSnapshot,
+                    adbProbeState = adbProbeState,
                     probeState = probeState,
                     onRefresh = {
                         diagnostics.record("User refreshed USB devices")
                         usbHost.refresh()
                     },
                     onRequestAccess = usbHost::requestAccess,
-                    onProbeFastboot = probeController::probe,
+                    onProbeAdb = { device ->
+                        if (probeState?.phase != FastbootProbePhase.RUNNING) adbProbeController.probe(device)
+                    },
+                    onProbeFastboot = { device, variable ->
+                        if (adbProbeState?.phase != AdbProbePhase.RUNNING) probeController.probe(device, variable)
+                    },
                     onSaveLog = {
                         exportNotice = null
                         createLogFile.launch("NekoFlashPro-diagnostics-${timestamp()}.txt")
@@ -104,6 +121,8 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onStop() {
+        adbProbeController.cancel()
+        adbProbeState = null
         probeController.cancel()
         probeState = null
         usbHost.stop()

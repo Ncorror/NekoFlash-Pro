@@ -36,13 +36,14 @@ class DiagnosticArchive(context: Context, private val journal: DiagnosticJournal
         environment.txt: app version, Android version, phone model, USB host feature and battery.
         usb-descriptors.txt: connected USB device VID/PID, permission, configuration,
                              interface class/subclass/protocol, endpoints and ADB/Fastboot signatures.
-        events.log: recent app/USB events and explicit Fastboot probe results,
+        events.log: recent app/USB events and explicit ADB/Fastboot probe results,
                     at most 256 KiB, timestamps in UTC.
 
-        The archive does not list USB serial numbers, device file paths or device contents.
+        The archive does not list USB serial numbers, ADB banners/tokens, device file paths or device contents.
         It does not include Android system logcat; review exception messages before sharing.
-        A USB signature and bulk endpoints do not prove ADB authorization or connectivity.
-        The report only describes devices visible to the Android USB host API.
+        A USB signature and bulk endpoints do not prove ADB authorization or connectivity;
+        inspect events.log for an optional, short-lived CNXN/AUTH diagnostic response.
+        No ADB keys or service commands are sent by the diagnostic probe.
     """.trimIndent() + "\n"
 
     private fun environment() = buildString {
@@ -146,7 +147,7 @@ class DiagnosticArchive(context: Context, private val journal: DiagnosticJournal
             val interfaces = UsbInterfaceScanner.scan(device)
             appendLine("  Recognized USB interfaces: ${interfaces.size}")
             interfaces.forEach { appendLine("    ${UsbInterfaceScanner.describe(it)}") }
-            appendLine("  ADB authorization / protocol handshake: not checked")
+            appendLine("  ADB authorization: not established by this snapshot (see events.log for optional CNXN/AUTH probe)")
         } catch (error: RuntimeException) {
             journal.recordFailure("USB interface classification failed", error)
             appendLine("  USB interface classification failed: ${error.javaClass.simpleName}")

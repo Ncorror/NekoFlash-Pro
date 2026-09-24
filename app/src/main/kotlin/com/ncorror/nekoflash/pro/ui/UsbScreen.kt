@@ -28,6 +28,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.shape.RoundedCornerShape
 import com.ncorror.nekoflash.pro.R
 import com.ncorror.nekoflash.pro.fastboot.FastbootVariable
+import com.ncorror.nekoflash.pro.model.AdbProbePhase
+import com.ncorror.nekoflash.pro.model.AdbProbeState
 import com.ncorror.nekoflash.pro.model.FastbootProbePhase
 import com.ncorror.nekoflash.pro.model.FastbootProbeState
 import com.ncorror.nekoflash.pro.model.UsbDeviceSummary
@@ -39,9 +41,11 @@ import com.ncorror.nekoflash.pro.transport.UsbWireProtocol
 @Composable
 fun UsbScreen(
     snapshot: UsbHostSnapshot,
+    adbProbeState: AdbProbeState?,
     probeState: FastbootProbeState?,
     onRefresh: () -> Unit,
     onRequestAccess: (String) -> Unit,
+    onProbeAdb: (UsbDeviceSummary) -> Unit,
     onProbeFastboot: (UsbDeviceSummary, FastbootVariable) -> Unit,
     onSaveLog: () -> Unit,
     onSaveArchive: () -> Unit,
@@ -128,7 +132,7 @@ fun UsbScreen(
             )
         }
         snapshot.devices.forEach { device ->
-            UsbDeviceCard(device, probeState, onRequestAccess, onProbeFastboot)
+            UsbDeviceCard(device, adbProbeState, probeState, onRequestAccess, onProbeAdb, onProbeFastboot)
         }
         Surface(
             modifier = Modifier.fillMaxWidth(),
@@ -179,8 +183,10 @@ fun UsbScreen(
 @Composable
 private fun UsbDeviceCard(
     device: UsbDeviceSummary,
+    adbProbeState: AdbProbeState?,
     probeState: FastbootProbeState?,
     onRequestAccess: (String) -> Unit,
+    onProbeAdb: (UsbDeviceSummary) -> Unit,
     onProbeFastboot: (UsbDeviceSummary, FastbootVariable) -> Unit,
 ) {
     val palette = MaterialTheme.colorScheme
@@ -248,6 +254,39 @@ private fun UsbDeviceCard(
                     Text(stringResource(R.string.usb_request_permission))
                 }
             }
+            val probeBusy = adbProbeState?.phase == AdbProbePhase.RUNNING ||
+                probeState?.phase == FastbootProbePhase.RUNNING
+            val canProbeAdb = device.accessGranted && device.interfaces.count {
+                it.protocol == UsbWireProtocol.ADB && it.bulkPairAvailable && it.configurationIndex == 0
+            } == 1
+            if (canProbeAdb) {
+                OutlinedButton(
+                    onClick = { onProbeAdb(device) },
+                    enabled = !probeBusy,
+                    border = BorderStroke(1.dp, palette.primary),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = palette.primary),
+                ) {
+                    Text(stringResource(R.string.adb_probe_button))
+                }
+            }
+            val currentAdb = adbProbeState?.takeIf { it.matches(device) }
+            if (currentAdb != null) {
+                Text(
+                    text = when (currentAdb.phase) {
+                        AdbProbePhase.RUNNING -> stringResource(R.string.adb_probe_running)
+                        AdbProbePhase.CONNECTED -> stringResource(
+                            R.string.adb_probe_connected,
+                            currentAdb.protocolVersion?.let { "0x${it.toString(16).padStart(8, '0')}" } ?: "?",
+                            currentAdb.maxData ?: 0L,
+                        )
+                        AdbProbePhase.AUTH_REQUIRED -> stringResource(R.string.adb_probe_auth_required)
+                        AdbProbePhase.TLS_REQUIRED -> stringResource(R.string.adb_probe_tls_required)
+                        AdbProbePhase.FAILED -> stringResource(R.string.adb_probe_failed)
+                    },
+                    color = palette.secondary,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
             val canProbe = device.accessGranted && device.interfaces.count {
                 it.protocol == UsbWireProtocol.FASTBOOT && it.bulkPairAvailable &&
                     it.configurationIndex == 0
@@ -255,7 +294,7 @@ private fun UsbDeviceCard(
             if (canProbe) {
                 OutlinedButton(
                     onClick = { onProbeFastboot(device, FastbootVariable.VERSION) },
-                    enabled = probeState?.phase != FastbootProbePhase.RUNNING,
+                    enabled = !probeBusy,
                     border = BorderStroke(1.dp, palette.primary),
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = palette.primary),
                 ) {
@@ -263,7 +302,7 @@ private fun UsbDeviceCard(
                 }
                 OutlinedButton(
                     onClick = { onProbeFastboot(device, FastbootVariable.PRODUCT) },
-                    enabled = probeState?.phase != FastbootProbePhase.RUNNING,
+                    enabled = !probeBusy,
                     border = BorderStroke(1.dp, palette.primary),
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = palette.primary),
                 ) {
@@ -316,9 +355,11 @@ private fun UsbScreenPreview() {
             snapshot = UsbHostSnapshot(devices = listOf(
                 UsbDeviceSummary("preview", 0x18D1, 0x4EE0, 1, false, false),
             )),
+            adbProbeState = null,
             probeState = null,
             onRefresh = {},
             onRequestAccess = {},
+            onProbeAdb = {},
             onProbeFastboot = { _, _ -> },
             onSaveLog = {},
             onSaveArchive = {},

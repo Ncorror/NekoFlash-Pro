@@ -4,7 +4,7 @@
     <string name="usb_eyebrow">DEVICE ACCESS</string>
     <string name="usb_preview_title">Technical preview</string>
     <string name="usb_section_title">USB devices</string>
-    <string name="prototype_status">Technical preview: USB discovery and two fixed Fastboot information queries. ADB commands and flashing are unavailable.</string>
+    <string name="prototype_status">Technical preview: USB discovery, an ADB first-reply check and two fixed Fastboot information queries. ADB authorization, services and flashing are unavailable.</string>
     <string name="usb_refresh">Refresh USB devices</string>
     <string name="usb_hint">Connect a device with a USB OTG cable, then refresh the list.</string>
     <string name="usb_host_unsupported">USB host mode is unavailable on this phone.</string>
@@ -18,6 +18,12 @@
     <string name="usb_protocol_no_bulk_pair">%1$s (config %2$d, interface %3$d): no usable bulk IN/OUT pair.</string>
     <string name="usb_no_protocol_interface">No ADB or Fastboot USB interface detected.</string>
     <string name="usb_interface_inspection_failed">Could not inspect USB interfaces. Save a diagnostic ZIP.</string>
+    <string name="adb_probe_button">Check ADB response</string>
+    <string name="adb_probe_running">Waiting for the first ADB reply…</string>
+    <string name="adb_probe_connected">ADB replied CNXN: version %1$s, maxData %2$d. Diagnostic session closed.</string>
+    <string name="adb_probe_auth_required">ADB replied AUTH: key authorization is required. This check does not send keys or trigger an authorization prompt.</string>
+    <string name="adb_probe_tls_required">ADB requested TLS. This check does not negotiate TLS.</string>
+    <string name="adb_probe_failed">ADB exchange failed. Save a diagnostic ZIP.</string>
     <string name="fastboot_probe_version_button">Read Fastboot protocol version</string>
     <string name="fastboot_probe_product_button">Read Fastboot product</string>
     <string name="fastboot_variable_version">protocol version</string>
@@ -27,13 +33,13 @@
     <string name="fastboot_probe_rejected">Fastboot replied FAIL for %1$s: %2$s. USB exchange succeeded.</string>
     <string name="fastboot_probe_failed">USB exchange failed for %1$s. Save a diagnostic ZIP.</string>
     <string name="usb_request_permission">Request access</string>
-    <string name="usb_permission_granted">USB access allowed. Information queries appear for a detected Fastboot device.</string>
+    <string name="usb_permission_granted">USB access allowed. ADB and Fastboot diagnostic buttons appear for supported devices.</string>
     <string name="usb_permission_denied">USB access was not allowed.</string>
     <string name="usb_permission_unavailable">Android could not request access to this device.</string>
     <string name="usb_device_changed">USB device list changed.</string>
     <string name="usb_device_disconnected">The USB device was disconnected.</string>
     <string name="diagnostics_title">Diagnostics</string>
-    <string name="diagnostics_hint">After checking the connection, save a ZIP with app events, Android details and USB interface descriptors. It never reads USB device contents or serial numbers.</string>
+    <string name="diagnostics_hint">After checking the connection, save a ZIP with app events, Android details and USB interface descriptors. ADB tokens, device banners and serial numbers are not saved.</string>
     <string name="diagnostics_save_archive">Save diagnostic ZIP</string>
     <string name="diagnostics_save">Save events as TXT</string>
     <string name="diagnostics_saved">Diagnostic file saved. You can attach it to a message.</string>
