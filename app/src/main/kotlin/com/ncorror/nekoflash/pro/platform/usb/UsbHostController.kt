@@ -125,11 +125,14 @@ class UsbHostController(
         if (!pending.add(deviceName)) return
         refresh()
 
+        // UsbManager adds the device and permission result to the callback intent.
+        // Mutable is required for those extras; the intent is restricted to our package.
         val callback = PendingIntent.getBroadcast(
             activity,
             device.deviceId,
             Intent(permissionAction).setPackage(activity.packageName),
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) PendingIntent.FLAG_MUTABLE else 0) or
+                PendingIntent.FLAG_UPDATE_CURRENT,
         )
         try {
             manager.requestPermission(device, callback)
