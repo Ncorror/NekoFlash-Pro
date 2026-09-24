@@ -34,7 +34,7 @@ class FastbootVersionProbeTest {
         val info = mutableListOf<FastbootWireMessage>()
         assertEquals(FastbootWireResult.Okay("0.4"), FastbootVersionProbe(fake).read { info += it })
         assertEquals(listOf("getvar:version"), fake.sent)
-        assertEquals(listOf(FastbootWireMessage.Info("loading")), info)
+        assertEquals(listOf<FastbootWireMessage>(FastbootWireMessage.Info("loading")), info)
         assertTrue(fake.closed)
     }
 
