@@ -3,7 +3,8 @@ package com.ncorror.nekoflash.pro.platform.usb
 import android.app.Activity
 import android.content.Context
 import android.hardware.usb.UsbManager
-import com.ncorror.nekoflash.pro.fastboot.FastbootVersionProbe
+import com.ncorror.nekoflash.pro.fastboot.FastbootGetvarProbe
+import com.ncorror.nekoflash.pro.fastboot.FastbootVariable
 import com.ncorror.nekoflash.pro.fastboot.FastbootWireMessage
 import com.ncorror.nekoflash.pro.fastboot.FastbootWireResult
 import com.ncorror.nekoflash.pro.model.FastbootProbePhase
@@ -25,7 +26,7 @@ class FastbootProbeController(
     private var generation = 0L
     private var transport: FastbootUsbPacketTransport? = null
 
-    fun probe(summary: UsbDeviceSummary) {
+    fun probe(summary: UsbDeviceSummary, variable: FastbootVariable) {
         val currentGeneration = synchronized(lock) {
             if (active) {
                 record("Fastboot probe already running or closing")
@@ -35,9 +36,9 @@ class FastbootProbeController(
             cancelled = false
             ++generation
         }
-        record("Fastboot getvar:version requested for VID=${summary.vendorId.toString(16)} " +
+        record("Fastboot getvar:${variable.wireName} requested for VID=${summary.vendorId.toString(16)} " +
             "PID=${summary.productId.toString(16)} id=${summary.deviceId}")
-        publish(summary.state(FastbootProbePhase.RUNNING))
+        publish(summary.state(variable, FastbootProbePhase.RUNNING))
         Thread({
             val result = try {
                 val device = manager.deviceList[summary.key]?.takeIf {
@@ -59,21 +60,21 @@ class FastbootProbeController(
                     session.close()
                     throw IOException("Fastboot probe cancelled")
                 }
-                when (val answer = FastbootVersionProbe(session).read { message ->
+                when (val answer = FastbootGetvarProbe(session).read(variable) { message ->
                     val content = when (message) {
                         is FastbootWireMessage.Info -> message.text
                         is FastbootWireMessage.Text -> message.text
                     }
-                    record("Fastboot version response ${message.javaClass.simpleName}: ${safeText(content)}")
+                    record("Fastboot getvar:${variable.wireName} response ${message.javaClass.simpleName}: ${safeText(content)}")
                 }) {
-                    is FastbootWireResult.Okay -> summary.state(FastbootProbePhase.VERSION, safeText(answer.message))
-                    is FastbootWireResult.Fail -> summary.state(FastbootProbePhase.REJECTED, safeText(answer.reason))
+                    is FastbootWireResult.Okay -> summary.state(variable, FastbootProbePhase.VALUE, safeText(answer.message))
+                    is FastbootWireResult.Fail -> summary.state(variable, FastbootProbePhase.REJECTED, safeText(answer.reason))
                     is FastbootWireResult.DataPhaseRequired ->
-                        throw IOException("Unexpected Fastboot DATA response to getvar:version")
+                        throw IOException("Unexpected Fastboot DATA response to getvar:${variable.wireName}")
                 }
             } catch (error: Exception) {
-                record("Fastboot getvar:version failed: ${error.javaClass.simpleName}: ${safeText(error.message.orEmpty())}")
-                summary.state(FastbootProbePhase.FAILED)
+                record("Fastboot getvar:${variable.wireName} failed: ${error.javaClass.simpleName}: ${safeText(error.message.orEmpty())}")
+                summary.state(variable, FastbootProbePhase.FAILED)
             }
             val shouldPublish = synchronized(lock) {
                 transport = null
@@ -81,14 +82,14 @@ class FastbootProbeController(
                 !cancelled && generation == currentGeneration
             }
             if (shouldPublish) {
-                record("Fastboot getvar:version result=${result.phase} ${result.detail.orEmpty()}")
+                record("Fastboot getvar:${variable.wireName} result=${result.phase} ${result.detail.orEmpty()}")
                 activity.runOnUiThread {
                     if (synchronized(lock) { !cancelled && generation == currentGeneration }) {
                         publish(result)
                     }
                 }
             }
-        }, "fastboot-version-probe").start()
+        }, "fastboot-getvar-probe").start()
     }
 
     /** Closing the connection interrupts the bounded bulk read; stale replies are discarded. */
@@ -105,8 +106,8 @@ class FastbootProbeController(
         }
     }
 
-    private fun UsbDeviceSummary.state(phase: FastbootProbePhase, detail: String? = null) =
-        FastbootProbeState(key, deviceId, vendorId, productId, phase, detail)
+    private fun UsbDeviceSummary.state(variable: FastbootVariable, phase: FastbootProbePhase, detail: String? = null) =
+        FastbootProbeState(key, deviceId, vendorId, productId, variable, phase, detail)
 
     private fun safeText(value: String): String = value
         .replace(Regex("[\\p{Cntrl}]+"), " ")

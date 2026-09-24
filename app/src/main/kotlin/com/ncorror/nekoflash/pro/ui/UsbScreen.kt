@@ -27,6 +27,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.shape.RoundedCornerShape
 import com.ncorror.nekoflash.pro.R
+import com.ncorror.nekoflash.pro.fastboot.FastbootVariable
 import com.ncorror.nekoflash.pro.model.FastbootProbePhase
 import com.ncorror.nekoflash.pro.model.FastbootProbeState
 import com.ncorror.nekoflash.pro.model.UsbDeviceSummary
@@ -41,7 +42,7 @@ fun UsbScreen(
     probeState: FastbootProbeState?,
     onRefresh: () -> Unit,
     onRequestAccess: (String) -> Unit,
-    onProbeFastboot: (UsbDeviceSummary) -> Unit,
+    onProbeFastboot: (UsbDeviceSummary, FastbootVariable) -> Unit,
     onSaveLog: () -> Unit,
     onSaveArchive: () -> Unit,
     @StringRes exportNotice: Int? = null,
@@ -180,7 +181,7 @@ private fun UsbDeviceCard(
     device: UsbDeviceSummary,
     probeState: FastbootProbeState?,
     onRequestAccess: (String) -> Unit,
-    onProbeFastboot: (UsbDeviceSummary) -> Unit,
+    onProbeFastboot: (UsbDeviceSummary, FastbootVariable) -> Unit,
 ) {
     val palette = MaterialTheme.colorScheme
     Surface(
@@ -253,26 +254,36 @@ private fun UsbDeviceCard(
             } == 1
             if (canProbe) {
                 OutlinedButton(
-                    onClick = { onProbeFastboot(device) },
+                    onClick = { onProbeFastboot(device, FastbootVariable.VERSION) },
                     enabled = probeState?.phase != FastbootProbePhase.RUNNING,
                     border = BorderStroke(1.dp, palette.primary),
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = palette.primary),
                 ) {
-                    Text(stringResource(R.string.fastboot_probe_button))
+                    Text(stringResource(R.string.fastboot_probe_version_button))
+                }
+                OutlinedButton(
+                    onClick = { onProbeFastboot(device, FastbootVariable.PRODUCT) },
+                    enabled = probeState?.phase != FastbootProbePhase.RUNNING,
+                    border = BorderStroke(1.dp, palette.primary),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = palette.primary),
+                ) {
+                    Text(stringResource(R.string.fastboot_probe_product_button))
                 }
             }
             val currentProbe = probeState?.takeIf { it.matches(device) }
             if (currentProbe != null) {
+                val variableName = stringResource(currentProbe.variable.labelId())
                 Text(
                     text = when (currentProbe.phase) {
-                        FastbootProbePhase.RUNNING -> stringResource(R.string.fastboot_probe_running)
-                        FastbootProbePhase.VERSION -> stringResource(
-                            R.string.fastboot_probe_version, currentProbe.detail.orEmpty(),
+                        FastbootProbePhase.RUNNING -> stringResource(R.string.fastboot_probe_running, variableName)
+                        FastbootProbePhase.VALUE -> stringResource(
+                            R.string.fastboot_probe_value, variableName, currentProbe.detail.orEmpty(),
                         )
                         FastbootProbePhase.REJECTED -> stringResource(
-                            R.string.fastboot_probe_rejected, currentProbe.detail.orEmpty(),
+                            R.string.fastboot_probe_rejected, currentProbe.variable.wireName,
+                            currentProbe.detail.orEmpty(),
                         )
-                        FastbootProbePhase.FAILED -> stringResource(R.string.fastboot_probe_failed)
+                        FastbootProbePhase.FAILED -> stringResource(R.string.fastboot_probe_failed, variableName)
                     },
                     color = palette.secondary,
                     style = MaterialTheme.typography.bodyMedium,
@@ -280,6 +291,12 @@ private fun UsbDeviceCard(
             }
         }
     }
+}
+
+@StringRes
+private fun FastbootVariable.labelId(): Int = when (this) {
+    FastbootVariable.VERSION -> R.string.fastboot_variable_version
+    FastbootVariable.PRODUCT -> R.string.fastboot_variable_product
 }
 
 @StringRes
@@ -302,7 +319,7 @@ private fun UsbScreenPreview() {
             probeState = null,
             onRefresh = {},
             onRequestAccess = {},
-            onProbeFastboot = {},
+            onProbeFastboot = { _, _ -> },
             onSaveLog = {},
             onSaveArchive = {},
         )

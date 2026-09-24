@@ -1,12 +1,15 @@
 package com.ncorror.nekoflash.pro.model
 
-enum class FastbootProbePhase { RUNNING, VERSION, REJECTED, FAILED }
+import com.ncorror.nekoflash.pro.fastboot.FastbootVariable
+
+enum class FastbootProbePhase { RUNNING, VALUE, REJECTED, FAILED }
 
 data class FastbootProbeState(
     val deviceKey: String,
     val deviceId: Int,
     val vendorId: Int,
     val productId: Int,
+    val variable: FastbootVariable,
     val phase: FastbootProbePhase,
     val detail: String? = null,
 ) {

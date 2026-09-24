@@ -8,7 +8,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
-class FastbootVersionProbeTest {
+class FastbootGetvarProbeTest {
     private class FakeTransport(vararg response: String) : FastbootPacketTransport {
         val incoming = ArrayDeque(response.map { it.toByteArray(Charsets.US_ASCII) })
         val sent = mutableListOf<String>()
@@ -32,24 +32,35 @@ class FastbootVersionProbeTest {
     fun readsVersionOnlyAndClosesTransport() {
         val fake = FakeTransport("INFOloading", "OKAY0.4")
         val info = mutableListOf<FastbootWireMessage>()
-        assertEquals(FastbootWireResult.Okay("0.4"), FastbootVersionProbe(fake).read { info += it })
+        assertEquals(FastbootWireResult.Okay("0.4"),
+            FastbootGetvarProbe(fake).read(FastbootVariable.VERSION) { info += it })
         assertEquals(listOf("getvar:version"), fake.sent)
         assertEquals(listOf<FastbootWireMessage>(FastbootWireMessage.Info("loading")), info)
         assertTrue(fake.closed)
     }
 
     @Test
+    fun productIsTheOnlyAdditionalRequestAndFailIsADeviceReply() {
+        val fake = FakeTransport("FAILGetVar Variable Not found")
+        assertEquals(FastbootWireResult.Fail("GetVar Variable Not found"),
+            FastbootGetvarProbe(fake).read(FastbootVariable.PRODUCT))
+        assertEquals(listOf("getvar:product"), fake.sent)
+        assertTrue(fake.closed)
+    }
+
+    @Test
     fun refusesDataPhaseAndClosesBeforeAnyTransfer() {
         val fake = FakeTransport("DATA00001000")
-        assertEquals(FastbootWireResult.DataPhaseRequired(4096L), FastbootVersionProbe(fake).read())
-        assertEquals(listOf("getvar:version"), fake.sent)
+        assertEquals(FastbootWireResult.DataPhaseRequired(4096L),
+            FastbootGetvarProbe(fake).read(FastbootVariable.PRODUCT))
+        assertEquals(listOf("getvar:product"), fake.sent)
         assertTrue(fake.closed)
     }
 
     @Test
     fun disconnectAlsoReleasesOwnership() {
         val fake = FakeTransport()
-        assertFailsWith<EOFException> { FastbootVersionProbe(fake).read() }
+        assertFailsWith<EOFException> { FastbootGetvarProbe(fake).read(FastbootVariable.VERSION) }
         assertEquals(listOf("getvar:version"), fake.sent)
         assertTrue(fake.closed)
     }
