@@ -126,9 +126,9 @@ if [ ! -f "$CLASSPATH" ]; then
     fi
     die "ERROR: gradle/wrapper/gradle-wrapper.jar was not found.
 
-Either run the GitHub Actions workflow 'Установка Gradle Wrapper',
-install Gradle 8.4+ locally, or generate the official wrapper with:
-    gradle wrapper --gradle-version 8.4"
+Restore the committed wrapper JAR or install Gradle 9.5.0 locally.
+To regenerate the wrapper with Gradle 9.5.0:
+    gradle wrapper --gradle-version 9.5.0"
 fi
 
 

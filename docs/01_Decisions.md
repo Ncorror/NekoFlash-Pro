@@ -5,6 +5,21 @@
 `01_Project_Vision`, `02_Feature_Matrix`, `03_Architecture`, `09_Test_Plan` и
 `10_Legacy_Review` вместо противоречащих прежних формулировок.
 
+## Пакет, граница UI и палитра
+
+Новый `applicationId` и namespace: `com.ncorror.nekoflash.pro`. Исходники
+Kotlin располагаются в `src/main/kotlin/com/ncorror/nekoflash/pro/` и не
+используют ни пакет legacy `ru.forum.adbfastboottool`, ни временный пакет
+первого каркаса `ru.forum.nekoflash.pro`. Отдельный ID позволяет держать
+legacy и Pro на одном телефоне; технические APK с прежним ID можно удалить.
+
+Решение D2 из `03_Architecture`: Compose. UI принимает только неизменяемый
+`UsbHostSnapshot` и посылает действия. Пакет `platform.usb` изолирует Android
+USB API и разрешения; модули `:engine` и `:core` не зависят от Android. Экран
+устройств не открывает USB-сессию и не исполняет команды. Тема всегда тёмная;
+палитра по исходным значениям legacy: фон `#080D13`, карточка `#121A24`,
+основной оранжевый `#E9782B`, при нажатии `#CC5D18`, текст `#F3F6FA`.
+
 ## Выбор специалиста и правильный смысл команд
 
 Приложение не задаёт собственный список разрешённых разделов, слотов,

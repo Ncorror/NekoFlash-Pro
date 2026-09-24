@@ -14,9 +14,11 @@
 - `:core:transport` и `:core:fastboot` — порт транспорта и первая проверяемая
   часть Fastboot wire-протокола: ответы `INFO`, `TEXT`, `OKAY`, `FAIL`, `DATA`;
   неподдержанная DATA-фаза закрывает сессию. Android USB-адаптер пока отсутствует.
-- `:app` — устанавливаемая **техническая сборка** с новым `applicationId`.
-  Она показывает USB-устройства в режиме хоста и отдельно запрашивает доступ
-  к выбранному устройству. USB-соединение не открывает и команды не выполняет.
+- `:app` — устанавливаемая **техническая сборка** с `applicationId`
+  `com.ncorror.nekoflash.pro`. Экран написан заново на Compose; модель состояния,
+  UI и Android USB-адаптер лежат в отдельных пакетах. Приложение перечисляет
+  устройства и запрашивает доступ, но не открывает соединение и не выполняет
+  команды.
 - `.github/workflows/build.yml` — JVM-тесты, lint Android и debug APK
   на push, pull request и ручной запуск. APK доступен как artifact запуска.
 
@@ -30,7 +32,7 @@
 
 ## Сборка
 
-На машине с JDK 17, Android SDK 36 и доступом к Gradle и Maven:
+На машине с JDK 17, Android SDK 37 и доступом к Gradle и Maven:
 
 ```sh
 bash ./gradlew :engine:test :core:fastboot:test :app:lintDebug :app:assembleDebug
@@ -41,6 +43,17 @@ Debug APK окажется в `app/build/outputs/apk/debug/`. Подписанн
 автоматически; APK скачивается с вкладки **Actions → Pro prototype build →
 Artifacts** после успешного запуска. Секреты и release-ключ от legacy
 сюда не переносятся.
+
+Зафиксированы Gradle 9.5.0, Android Gradle Plugin 9.2.1, Kotlin/Compose
+Compiler 2.4.20 и Compose BOM 2026.09.00. `compileSdk` 37, `targetSdk` 36.
+Проверенные цвета legacy (`#080D13`, `#121A24`, `#E9782B`) используются в
+новой тёмной теме; layout-код legacy сюда не переносится.
+
+ID прежних технических APK был `ru.forum.nekoflash.pro`; новый APK с ID
+`com.ncorror.nekoflash.pro` устанавливается отдельно. Старую техническую
+сборку можно удалить. Каждый запуск CI пока подписывает debug APK временным
+ключом, поэтому для замены будущих debug-сборок может требоваться удаление
+предыдущей. Постоянная подпись релизов ещё не настроена.
 
 В установленном APK подключите устройство через USB OTG, откройте приложение
 и нажмите «Обновить USB-устройства». В списке видны VID:PID и текущее состояние

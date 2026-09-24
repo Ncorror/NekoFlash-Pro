@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Brand palette from the legacy NekoFlash color resources; no legacy UI code is reused. -->
+    <color name="bg_base">#080D13</color>
+    <color name="bg_card">#121A24</color>
+    <color name="bg_elevated">#192431</color>
+    <color name="stroke">#324052</color>
+    <color name="text_primary">#F3F6FA</color>
+    <color name="text_secondary">#AEB8C5</color>
+    <color name="text_muted">#738092</color>
+    <color name="accent">#E9782B</color>
+    <color name="accent_pressed">#CC5D18</color>
+    <color name="accent_soft">#F1A56D</color>
+    <color name="on_accent">#0A0D12</color>
+</resources>

@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">NekoFlash Pro</string>
+    <string name="usb_eyebrow">ДОСТУП К УСТРОЙСТВУ</string>
+    <string name="usb_preview_title">Техническая сборка</string>
+    <string name="usb_section_title">USB-устройства</string>
     <string name="prototype_status">Техническая сборка: только поиск USB-устройств и запрос доступа. ADB, Fastboot и прошивка пока не подключены.</string>
     <string name="usb_refresh">Обновить USB-устройства</string>
     <string name="usb_hint">Подключите устройство через USB OTG и обновите список.</string>

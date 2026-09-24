@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">NekoFlash Pro</string>
+    <string name="usb_eyebrow">DEVICE ACCESS</string>
+    <string name="usb_preview_title">Technical preview</string>
+    <string name="usb_section_title">USB devices</string>
     <string name="prototype_status">Technical preview: USB discovery and access permission only. ADB, Fastboot and flashing are not connected.</string>
     <string name="usb_refresh">Refresh USB devices</string>
     <string name="usb_hint">Connect a device with a USB OTG cable, then refresh the list.</string>

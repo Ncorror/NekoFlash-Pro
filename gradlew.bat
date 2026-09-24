@@ -81,9 +81,9 @@ goto end
 echo.
 echo ERROR: gradle\wrapper\gradle-wrapper.jar was not found.
 echo.
-echo Either run the GitHub Actions workflow "Установка Gradle Wrapper",
-echo install Gradle 8.4+ locally, or generate the official wrapper with:
-echo     gradle wrapper --gradle-version 8.4
+echo Restore the committed wrapper JAR or install Gradle 9.5.0 locally.
+echo To regenerate the wrapper with Gradle 9.5.0:
+echo     gradle wrapper --gradle-version 9.5.0
 echo.
 goto fail
 
