@@ -1,0 +1,48 @@
+name: Pro prototype build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
+      - uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-provider: basic
+      - name: Test engine and Fastboot core, lint app, build debug APK
+        run: bash ./gradlew :engine:test :core:fastboot:test :app:lintDebug :app:assembleDebug --no-daemon --stacktrace
+      - name: Upload prototype APK
+        uses: actions/upload-artifact@v6
+        with:
+          name: NekoFlash-Pro-prototype-debug-${{ github.run_number }}
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload test reports on failure
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: Pro-test-reports-${{ github.run_number }}
+          path: |
+            engine/build/reports/tests/test/
+            core/fastboot/build/reports/tests/test/
+            app/build/reports/lint-results-debug.html
+          if-no-files-found: ignore
+          retention-days: 14
