@@ -1,12 +1,14 @@
 package com.ncorror.nekoflash.pro
 
 import android.os.Bundle
+import android.net.Uri
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import com.ncorror.nekoflash.pro.diagnostics.DiagnosticArchive
 import com.ncorror.nekoflash.pro.model.UsbHostSnapshot
 import com.ncorror.nekoflash.pro.platform.usb.UsbHostController
 import com.ncorror.nekoflash.pro.ui.NekoFlashTheme
@@ -20,22 +22,34 @@ class MainActivity : ComponentActivity() {
     private var exportNotice by mutableStateOf<Int?>(null)
     private lateinit var usbHost: UsbHostController
     private val diagnostics get() = (application as NekoFlashApplication).diagnostics
+    private val archive by lazy { DiagnosticArchive(this, diagnostics) }
 
     private val createLogFile = registerForActivityResult(
         ActivityResultContracts.CreateDocument("text/plain"),
     ) { uri ->
-        if (uri != null) {
-            Thread({
-                val result = runCatching { diagnostics.export(uri) }
-                if (result.isFailure) {
-                    diagnostics.recordFailure("Diagnostic export failed", result.exceptionOrNull()!!)
-                }
-                runOnUiThread {
-                    exportNotice = if (result.isSuccess) R.string.diagnostics_saved
-                        else R.string.diagnostics_save_failed
-                }
-            }, "diagnostic-export").start()
-        }
+        if (uri != null) exportFile(uri, "TXT", diagnostics::export)
+    }
+
+    private val createArchiveFile = registerForActivityResult(
+        ActivityResultContracts.CreateDocument("application/zip"),
+    ) { uri ->
+        if (uri != null) exportFile(uri, "ZIP", archive::export)
+    }
+
+    private fun exportFile(uri: Uri, format: String, write: (Uri) -> Unit) {
+        Thread({
+            val result = runCatching {
+                diagnostics.record("Diagnostic export started: $format")
+                write(uri)
+            }
+            if (result.isFailure) {
+                diagnostics.recordFailure("Diagnostic export failed", result.exceptionOrNull()!!)
+            }
+            runOnUiThread {
+                exportNotice = if (result.isSuccess) R.string.diagnostics_saved
+                    else R.string.diagnostics_save_failed
+            }
+        }, "diagnostic-export").start()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -46,14 +60,18 @@ class MainActivity : ComponentActivity() {
             NekoFlashTheme {
                 UsbScreen(
                     snapshot = usbSnapshot,
-                    onRefresh = usbHost::refresh,
+                    onRefresh = {
+                        diagnostics.record("User refreshed USB devices")
+                        usbHost.refresh()
+                    },
                     onRequestAccess = usbHost::requestAccess,
                     onSaveLog = {
                         exportNotice = null
-                        val timestamp = LocalDateTime.now().format(
-                            DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss"),
-                        )
-                        createLogFile.launch("NekoFlashPro-diagnostics-$timestamp.txt")
+                        createLogFile.launch("NekoFlashPro-diagnostics-${timestamp()}.txt")
+                    },
+                    onSaveArchive = {
+                        exportNotice = null
+                        createArchiveFile.launch("NekoFlashPro-diagnostics-${timestamp()}.zip")
                     },
                     exportNotice = exportNotice,
                 )
@@ -68,6 +86,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        diagnostics.record("App resumed")
         usbHost.refresh()
     }
 
@@ -75,4 +94,8 @@ class MainActivity : ComponentActivity() {
         usbHost.stop()
         super.onStop()
     }
+
+    private fun timestamp(): String = LocalDateTime.now().format(
+        DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss"),
+    )
 }

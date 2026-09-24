@@ -16,7 +16,10 @@ class DiagnosticJournal(context: Context) {
     @Synchronized
     fun record(event: String) {
         try {
-            val line = "${Instant.now()} ${event.replace(Regex("[\\r\\n\\t]+"), " ").take(500)}\n"
+            val safeEvent = event.replace(USB_PATH, "[usb path]")
+                .replace(SERIAL_FIELD, "serial=[redacted]")
+                .replace(Regex("[\\r\\n\\t]+"), " ")
+            val line = "${Instant.now()} ${safeEvent.take(500)}\n"
             file.appendText(line, Charsets.UTF_8)
             if (file.length() > MAX_BYTES) trim()
         } catch (error: IOException) {
@@ -28,6 +31,10 @@ class DiagnosticJournal(context: Context) {
         record("$event: ${error.javaClass.name}: ${error.message}")
         error.stackTrace.take(24).forEach { record("at $it") }
     }
+
+    @Synchronized
+    fun snapshot(): String = if (file.exists()) file.readText(Charsets.UTF_8)
+        else "No events recorded yet.\n"
 
     /** Call from a background thread: the selected document provider can be slow. */
     @Synchronized
@@ -65,5 +72,7 @@ class DiagnosticJournal(context: Context) {
     private companion object {
         const val TAG = "NekoFlashDiagnostics"
         const val MAX_BYTES = 256 * 1024
+        val USB_PATH = Regex("/dev/bus/usb/\\d+/\\d+")
+        val SERIAL_FIELD = Regex("(?i)serial(?:number)?=[^\\s,;]+")
     }
 }

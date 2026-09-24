@@ -16,4 +16,4 @@ dependencyResolutionManagement {
 rootProject.name = "NekoFlash-Pro"
 include(":engine")
 include(":app")
-include(":core:transport", ":core:fastboot")
+include(":core:transport", ":core:fastboot", ":core:diagnostics")

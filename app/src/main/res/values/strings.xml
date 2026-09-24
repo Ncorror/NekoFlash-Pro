@@ -21,8 +21,9 @@
     <string name="usb_device_changed">USB device list changed.</string>
     <string name="usb_device_disconnected">The USB device was disconnected.</string>
     <string name="diagnostics_title">Diagnostics</string>
-    <string name="diagnostics_hint">Recent app and USB events are saved on this phone. Export a TXT file after checking the connection; choose where to save it.</string>
-    <string name="diagnostics_save">Save diagnostic log</string>
-    <string name="diagnostics_saved">Diagnostic log saved. You can attach the TXT file to a message.</string>
-    <string name="diagnostics_save_failed">Could not save the diagnostic log. Choose a different folder and try again.</string>
+    <string name="diagnostics_hint">After checking the connection, save a ZIP with app events, Android details and USB interface descriptors. It never reads USB device contents or serial numbers.</string>
+    <string name="diagnostics_save_archive">Save diagnostic ZIP</string>
+    <string name="diagnostics_save">Save events as TXT</string>
+    <string name="diagnostics_saved">Diagnostic file saved. You can attach it to a message.</string>
+    <string name="diagnostics_save_failed">Could not save the diagnostic file. Choose a different folder and try again.</string>
 </resources>

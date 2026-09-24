@@ -21,8 +21,9 @@
     <string name="usb_device_changed">Список USB-устройств изменился.</string>
     <string name="usb_device_disconnected">USB-устройство отключено.</string>
     <string name="diagnostics_title">Диагностика</string>
-    <string name="diagnostics_hint">Недавние события приложения и USB сохраняются на телефоне. После проверки подключения сохраните TXT-файл в выбранную папку.</string>
-    <string name="diagnostics_save">Сохранить журнал</string>
-    <string name="diagnostics_saved">Журнал сохранён. TXT-файл можно прикрепить к сообщению.</string>
-    <string name="diagnostics_save_failed">Не удалось сохранить журнал. Выберите другую папку и повторите попытку.</string>
+    <string name="diagnostics_hint">После проверки подключения сохраните ZIP с событиями, сведениями об Android и USB-интерфейсах. Данные и серийный номер подключённого устройства не читаются.</string>
+    <string name="diagnostics_save_archive">Сохранить ZIP-отчёт</string>
+    <string name="diagnostics_save">Только события в TXT</string>
+    <string name="diagnostics_saved">Файл диагностики сохранён. Его можно прикрепить к сообщению.</string>
+    <string name="diagnostics_save_failed">Не удалось сохранить файл диагностики. Выберите другую папку и повторите попытку.</string>
 </resources>

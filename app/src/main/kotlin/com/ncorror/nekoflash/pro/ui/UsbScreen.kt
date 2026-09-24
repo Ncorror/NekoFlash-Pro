@@ -38,6 +38,7 @@ fun UsbScreen(
     onRefresh: () -> Unit,
     onRequestAccess: (String) -> Unit,
     onSaveLog: () -> Unit,
+    onSaveArchive: () -> Unit,
     @StringRes exportNotice: Int? = null,
 ) {
     val palette = MaterialTheme.colorScheme
@@ -141,6 +142,15 @@ fun UsbScreen(
                     color = palette.onSurfaceVariant,
                     style = MaterialTheme.typography.bodyMedium,
                 )
+                Button(
+                    onClick = onSaveArchive,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = palette.primary,
+                        contentColor = palette.onPrimary,
+                    ),
+                ) {
+                    Text(stringResource(R.string.diagnostics_save_archive))
+                }
                 OutlinedButton(
                     onClick = onSaveLog,
                     border = BorderStroke(1.dp, palette.primary),
@@ -223,6 +233,7 @@ private fun UsbScreenPreview() {
             onRefresh = {},
             onRequestAccess = {},
             onSaveLog = {},
+            onSaveArchive = {},
         )
     }
 }
