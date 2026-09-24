@@ -1,5 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">NekoFlash Pro</string>
-    <string name="prototype_status">Technical preview: the command parser is under development. USB and command execution are not connected yet.</string>
+    <string name="prototype_status">Technical preview: USB discovery and access permission only. ADB, Fastboot and flashing are not connected.</string>
+    <string name="usb_refresh">Refresh USB devices</string>
+    <string name="usb_hint">Connect a device with a USB OTG cable, then refresh the list.</string>
+    <string name="usb_host_unsupported">USB host mode is unavailable on this phone.</string>
+    <string name="usb_no_devices">No USB devices found.</string>
+    <string name="usb_device_count">USB devices found: %1$d</string>
+    <string name="usb_device_label">USB %1$04X:%2$04X (ID %3$d)</string>
+    <string name="usb_access_granted">Access allowed</string>
+    <string name="usb_access_missing">Access not allowed</string>
+    <string name="usb_access_pending">Waiting for permission</string>
+    <string name="usb_request_permission">Request access</string>
+    <string name="usb_permission_granted">USB access allowed. Command execution is still unavailable.</string>
+    <string name="usb_permission_denied">USB access was not allowed.</string>
+    <string name="usb_permission_unavailable">Android could not request access to this device.</string>
+    <string name="usb_device_changed">USB device list changed.</string>
+    <string name="usb_device_disconnected">The USB device was disconnected.</string>
 </resources>
