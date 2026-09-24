@@ -33,7 +33,7 @@
 На машине с JDK 17, Android SDK 36 и доступом к Gradle и Maven:
 
 ```sh
-./gradlew :engine:test :core:fastboot:test :app:lintDebug :app:assembleDebug
+bash ./gradlew :engine:test :core:fastboot:test :app:lintDebug :app:assembleDebug
 ```
 
 Debug APK окажется в `app/build/outputs/apk/debug/`. Подписанный релиз и
