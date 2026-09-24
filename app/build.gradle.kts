@@ -5,7 +5,7 @@ plugins {
 
 android {
     namespace = "com.ncorror.nekoflash.pro"
-    compileSdk = 37
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.ncorror.nekoflash.pro"
@@ -27,7 +27,7 @@ android {
 
 dependencies {
     implementation(project(":engine"))
-    val composeBom = platform("androidx.compose:compose-bom:2026.09.00")
+    val composeBom = platform("androidx.compose:compose-bom:2026.05.01")
     implementation(composeBom)
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.ui:ui-tooling-preview")

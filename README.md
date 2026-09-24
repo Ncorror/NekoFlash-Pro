@@ -32,7 +32,7 @@
 
 ## Сборка
 
-На машине с JDK 17, Android SDK 37 и доступом к Gradle и Maven:
+На машине с JDK 17, Android SDK 36 и доступом к Gradle и Maven:
 
 ```sh
 bash ./gradlew :engine:test :core:fastboot:test :app:lintDebug :app:assembleDebug
@@ -45,7 +45,7 @@ Artifacts** после успешного запуска. Секреты и rele
 сюда не переносятся.
 
 Зафиксированы Gradle 9.5.0, Android Gradle Plugin 9.2.1, Kotlin/Compose
-Compiler 2.4.20 и Compose BOM 2026.09.00. `compileSdk` 37, `targetSdk` 36.
+Compiler 2.4.20 и Compose BOM 2026.05.01. `compileSdk` 36, `targetSdk` 36.
 Проверенные цвета legacy (`#080D13`, `#121A24`, `#E9782B`) используются в
 новой тёмной теме; layout-код legacy сюда не переносится.
 
