@@ -93,11 +93,15 @@ class AdbProductProbeTest {
 
     @Test
     fun rejectsMultilineOrLongOutputInsteadOfExposingIt() {
-        for (text in listOf("vayu\nsecret\n", "x".repeat(129), "vayu\u0000")) {
+        for ((text, expected) in listOf(
+            "vayu\nsecret\n" to "Invalid ADB product code",
+            "x".repeat(129) to "Invalid ADB property stream packet",
+            "vayu\u0000" to "Invalid ADB product code",
+        )) {
             val fake = FakeTransport(*(connected() + opened() +
                 packet(AdbWire.WRTE, 2, 1, text) + closed()).toTypedArray())
             val failure = assertFailsWith<AdbProtocolException> { AdbProductProbe(fake, FakeKey()).read {} }
-            assertTrue(failure.message.orEmpty().startsWith("Invalid ADB property"))
+            assertEquals(expected, failure.message)
             assertTrue(!failure.message.orEmpty().contains("secret"))
             assertTrue(fake.closed)
         }
