@@ -7,6 +7,8 @@ import com.ncorror.nekoflash.pro.adb.AdbHandshakeProbe
 import com.ncorror.nekoflash.pro.adb.AdbHandshakeResult
 import com.ncorror.nekoflash.pro.adb.AdbAuthorizationSession
 import com.ncorror.nekoflash.pro.adb.AdbAuthenticationPath
+import com.ncorror.nekoflash.pro.adb.AdbProductProbe
+import com.ncorror.nekoflash.pro.adb.AdbProductResult
 import com.ncorror.nekoflash.pro.model.AdbProbeKind
 import com.ncorror.nekoflash.pro.model.AdbProbePhase
 import com.ncorror.nekoflash.pro.model.AdbProbeState
@@ -14,7 +16,7 @@ import com.ncorror.nekoflash.pro.model.UsbDeviceSummary
 import com.ncorror.nekoflash.pro.transport.UsbWireProtocol
 import java.io.IOException
 
-/** Read-only first-reply check and ADB authorization after USB access or manual retry. */
+/** Owns the exclusive ADB USB session for connection and explicit read-only checks. */
 class AdbProbeController(
     private val activity: Activity,
     private val record: (String) -> Unit,
@@ -26,18 +28,21 @@ class AdbProbeController(
     private var cancelled = false
     private var generation = 0L
     private var transport: AdbUsbByteTransport? = null
-    private data class Queued(val summary: UsbDeviceSummary, val authorize: Boolean, val generation: Long)
+    private enum class Mode { FIRST_REPLY, CONNECTION, PRODUCT }
+    private data class Queued(val summary: UsbDeviceSummary, val mode: Mode, val generation: Long)
     private var queued: Queued? = null
 
-    fun probe(summary: UsbDeviceSummary) = start(summary, authorize = false)
+    fun probe(summary: UsbDeviceSummary) = start(summary, Mode.FIRST_REPLY)
 
-    fun authorize(summary: UsbDeviceSummary) = start(summary, authorize = true)
+    fun authorize(summary: UsbDeviceSummary) = start(summary, Mode.CONNECTION)
 
-    private fun start(summary: UsbDeviceSummary, authorize: Boolean) {
+    fun readProduct(summary: UsbDeviceSummary) = start(summary, Mode.PRODUCT)
+
+    private fun start(summary: UsbDeviceSummary, mode: Mode) {
         val currentGeneration = synchronized(lock) {
             if (active) {
                 if (cancelled) {
-                    queued = Queued(summary, authorize, generation)
+                    queued = Queued(summary, mode, generation)
                     record("ADB request queued until prior USB session closes")
                 } else {
                     record("ADB probe already running or closing")
@@ -48,11 +53,19 @@ class AdbProbeController(
             cancelled = false
             ++generation
         }
-        val event = if (authorize) "ADB authorization" else "ADB CNXN"
+        val event = when (mode) {
+            Mode.FIRST_REPLY -> "ADB CNXN"
+            Mode.CONNECTION -> "ADB authorization"
+            Mode.PRODUCT -> "ADB product property"
+        }
         record("$event requested for VID=${summary.vendorId.toString(16)} " +
             "PID=${summary.productId.toString(16)} id=${summary.deviceId}")
-        val kind = if (authorize) AdbProbeKind.CONNECTION else AdbProbeKind.FIRST_REPLY
-        publish(summary.state(if (authorize) AdbProbePhase.AUTHORIZING else AdbProbePhase.RUNNING,
+        val kind = when (mode) {
+            Mode.FIRST_REPLY -> AdbProbeKind.FIRST_REPLY
+            Mode.CONNECTION -> AdbProbeKind.CONNECTION
+            Mode.PRODUCT -> AdbProbeKind.PRODUCT
+        }
+        publish(summary.state(if (mode == Mode.FIRST_REPLY) AdbProbePhase.RUNNING else AdbProbePhase.AUTHORIZING,
             kind = kind))
         Thread({
             val result = try {
@@ -65,7 +78,7 @@ class AdbProbeController(
                     it.protocol == UsbWireProtocol.ADB && it.bulkPairAvailable && it.configurationIndex == 0
                 }
                 if (matches.size != 1) throw IOException("Expected exactly one usable ADB interface")
-                val key = if (authorize) AdbKeystoreHostKey.getOrCreate() else null
+                val key = if (mode == Mode.FIRST_REPLY) null else AdbKeystoreHostKey.getOrCreate()
                 if (synchronized(lock) { cancelled || generation != currentGeneration }) {
                     throw IOException("ADB request cancelled")
                 }
@@ -78,8 +91,7 @@ class AdbProbeController(
                     session.close()
                     throw IOException("ADB probe cancelled")
                 }
-                val answer = if (key == null) AdbHandshakeProbe(session).read()
-                else AdbAuthorizationSession(session, key).connect {
+                val awaitingApproval = {
                     record("ADB signature not accepted; public key offered; awaiting device confirmation")
                     activity.runOnUiThread {
                         if (synchronized(lock) { !cancelled && generation == currentGeneration }) {
@@ -87,15 +99,26 @@ class AdbProbeController(
                         }
                     }
                 }
-                when (answer) {
-                    is AdbHandshakeResult.Connected -> summary.state(
-                        AdbProbePhase.CONNECTED, answer.protocolVersion, answer.maxData,
-                        kind, answer.authentication,
-                    )
-                    AdbHandshakeResult.AuthorizationRequired -> summary.state(AdbProbePhase.AUTH_REQUIRED,
-                        kind = kind)
-                    AdbHandshakeResult.TlsRequired -> summary.state(AdbProbePhase.TLS_REQUIRED,
-                        kind = kind)
+                if (mode == Mode.PRODUCT) {
+                    when (val answer = AdbProductProbe(session, checkNotNull(key)).read(awaitingApproval)) {
+                        is AdbProductResult.Value -> summary.state(AdbProbePhase.VALUE,
+                            kind = kind, authentication = answer.connection.authentication,
+                            productCode = answer.productCode)
+                        AdbProductResult.TlsRequired -> summary.state(AdbProbePhase.TLS_REQUIRED, kind = kind)
+                    }
+                } else {
+                    val answer = if (key == null) AdbHandshakeProbe(session).read()
+                    else AdbAuthorizationSession(session, key).connect(awaitingApproval)
+                    when (answer) {
+                        is AdbHandshakeResult.Connected -> summary.state(
+                            AdbProbePhase.CONNECTED, answer.protocolVersion, answer.maxData,
+                            kind, answer.authentication,
+                        )
+                        AdbHandshakeResult.AuthorizationRequired -> summary.state(AdbProbePhase.AUTH_REQUIRED,
+                            kind = kind)
+                        AdbHandshakeResult.TlsRequired -> summary.state(AdbProbePhase.TLS_REQUIRED,
+                            kind = kind)
+                    }
                 }
             } catch (error: Exception) {
                 record("$event failed: ${error.javaClass.simpleName}: ${safeText(error.message.orEmpty())}")
@@ -110,7 +133,8 @@ class AdbProbeController(
             }
             if (shouldPublish) {
                 record("$event result=${result.phase}" +
-                    (if (result.phase == AdbProbePhase.CONNECTED)
+                    (if (result.phase == AdbProbePhase.VALUE)
+                        " product=${result.productCode} auth=${result.authentication?.name}" else if (result.phase == AdbProbePhase.CONNECTED)
                         " version=${result.protocolVersion?.toString(16)} maxData=${result.maxData}" +
                             (result.authentication?.let { " auth=${it.name}" } ?: "") else ""))
                 activity.runOnUiThread {
@@ -122,7 +146,7 @@ class AdbProbeController(
             if (next != null) {
                 activity.runOnUiThread {
                     if (synchronized(lock) { !active && generation == next.generation }) {
-                        start(next.summary, next.authorize)
+                        start(next.summary, next.mode)
                     }
                 }
             }
@@ -149,7 +173,8 @@ class AdbProbeController(
         maxData: Long? = null,
         kind: AdbProbeKind = AdbProbeKind.CONNECTION,
         authentication: AdbAuthenticationPath? = null,
-    ) = AdbProbeState(key, deviceId, vendorId, productId, phase, version, maxData, kind, authentication)
+        productCode: String? = null,
+    ) = AdbProbeState(key, deviceId, vendorId, productId, phase, version, maxData, kind, authentication, productCode)
 
     private fun safeText(value: String): String = value
         .replace(Regex("[\\p{Cntrl}]+"), " ")

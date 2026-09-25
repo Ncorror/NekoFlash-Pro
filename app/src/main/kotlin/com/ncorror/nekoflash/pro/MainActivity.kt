@@ -33,6 +33,7 @@ class MainActivity : ComponentActivity() {
     private var usbSnapshot by mutableStateOf(UsbHostSnapshot())
     private var adbProbeState by mutableStateOf<AdbProbeState?>(null)
     private var adbFirstReplyState by mutableStateOf<AdbProbeState?>(null)
+    private var adbProductState by mutableStateOf<AdbProbeState?>(null)
     private var probeState by mutableStateOf<FastbootProbeState?>(null)
     private var exportNotice by mutableStateOf<Int?>(null)
     private lateinit var usbHost: UsbHostController
@@ -77,6 +78,7 @@ class MainActivity : ComponentActivity() {
             when (state.kind) {
                 AdbProbeKind.CONNECTION -> adbProbeState = state
                 AdbProbeKind.FIRST_REPLY -> adbFirstReplyState = state
+                AdbProbeKind.PRODUCT -> adbProductState = state
             }
         }
         probeController = FastbootProbeController(this, diagnostics::record) { probeState = it }
@@ -87,13 +89,19 @@ class MainActivity : ComponentActivity() {
             val diagnosticGone = adbFirstReplyState?.let { state ->
                 snapshot.devices.none(state::matches)
             } == true
+            val productGone = adbProductState?.let { state ->
+                snapshot.devices.none(state::matches)
+            } == true
             if (connectionGone && adbProbeState?.phase in setOf(AdbProbePhase.AUTHORIZING,
                     AdbProbePhase.WAITING_CONFIRMATION) ||
-                diagnosticGone && adbFirstReplyState?.phase == AdbProbePhase.RUNNING) {
+                diagnosticGone && adbFirstReplyState?.phase == AdbProbePhase.RUNNING ||
+                productGone && adbProductState?.phase in setOf(AdbProbePhase.AUTHORIZING,
+                    AdbProbePhase.WAITING_CONFIRMATION)) {
                 adbProbeController.cancel()
             }
             if (connectionGone) adbProbeState = null
             if (diagnosticGone) adbFirstReplyState = null
+            if (productGone) adbProductState = null
             if (probeState?.let { state -> snapshot.devices.none(state::matches) } == true) {
                 probeController.cancel()
                 probeState = null
@@ -132,6 +140,10 @@ class MainActivity : ComponentActivity() {
                 adbProbeController.cancel()
                 adbFirstReplyState = null
             }
+            if (adbProductState?.deviceKey == key && adbProductState?.deviceId == id) {
+                adbProbeController.cancel()
+                adbProductState = null
+            }
             if (probeState?.deviceKey == key && probeState?.deviceId == id) {
                 probeController.cancel()
                 probeState = null
@@ -143,6 +155,7 @@ class MainActivity : ComponentActivity() {
                     snapshot = usbSnapshot,
                     adbProbeState = adbProbeState,
                     adbFirstReplyState = adbFirstReplyState,
+                    adbProductState = adbProductState,
                     probeState = probeState,
                     onRefresh = {
                         diagnostics.record("User refreshed USB devices")
@@ -155,15 +168,21 @@ class MainActivity : ComponentActivity() {
                     onAuthorizeAdb = { device ->
                         if (probeState?.phase != FastbootProbePhase.RUNNING) adbProbeController.authorize(device)
                     },
+                    onReadAdbProduct = { device ->
+                        if (probeState?.phase != FastbootProbePhase.RUNNING) adbProbeController.readProduct(device)
+                    },
                     onCancelAdbAuthorization = {
                         diagnostics.record("User cancelled ADB authorization")
                         adbProbeController.cancel()
                         adbProbeState = null
+                        adbProductState = null
                     },
                     onProbeFastboot = { device, variable ->
                         if (adbProbeState?.phase !in setOf(AdbProbePhase.RUNNING,
                                 AdbProbePhase.AUTHORIZING, AdbProbePhase.WAITING_CONFIRMATION) &&
-                            adbFirstReplyState?.phase != AdbProbePhase.RUNNING) {
+                            adbFirstReplyState?.phase != AdbProbePhase.RUNNING &&
+                            adbProductState?.phase !in setOf(AdbProbePhase.AUTHORIZING,
+                                AdbProbePhase.WAITING_CONFIRMATION)) {
                             probeController.probe(device, variable)
                         }
                     },
@@ -204,6 +223,7 @@ class MainActivity : ComponentActivity() {
         adbProbeController.cancel()
         adbProbeState = null
         adbFirstReplyState = null
+        adbProductState = null
         probeController.cancel()
         probeState = null
         usbHost.stop()

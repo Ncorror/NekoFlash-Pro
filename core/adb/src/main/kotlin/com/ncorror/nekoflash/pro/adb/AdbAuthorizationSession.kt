@@ -10,20 +10,24 @@ interface AdbHostKey {
 
 /** Starts after Android grants USB access, or when the user retries the ADB connection. */
 class AdbAuthorizationSession(private val transport: AdbByteTransport, private val key: AdbHostKey) {
-    fun connect(onAwaitingApproval: () -> Unit): AdbHandshakeResult = transport.use { session ->
-        val wire = AdbWire(session)
+    fun connect(onAwaitingApproval: () -> Unit): AdbHandshakeResult =
+        transport.use { handshake(onAwaitingApproval) }
+
+    /** The caller owns the transport when a service must follow CNXN in the same session. */
+    internal fun handshake(onAwaitingApproval: () -> Unit): AdbHandshakeResult {
+        val wire = AdbWire(transport)
         wire.sendHello()
         var signed = false
         var publicKeySent = false
         while (true) {
             val reply = wire.receive(awaitApproval = publicKeySent)
             when (reply.command) {
-                AdbWire.CNXN -> return@use wire.connected(reply).copy(authentication = when {
+                AdbWire.CNXN -> return wire.connected(reply).copy(authentication = when {
                     publicKeySent -> AdbAuthenticationPath.PUBLIC_KEY
                     signed -> AdbAuthenticationPath.SIGNATURE
                     else -> AdbAuthenticationPath.NO_CHALLENGE
                 })
-                AdbWire.STLS -> return@use wire.tls(reply)
+                AdbWire.STLS -> return wire.tls(reply)
                 AdbWire.AUTH -> {
                     val token = wire.token(reply)
                     when {

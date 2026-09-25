@@ -4,7 +4,7 @@
     <string name="usb_eyebrow">DEVICE ACCESS</string>
     <string name="usb_preview_title">Technical preview</string>
     <string name="usb_section_title">USB devices</string>
-    <string name="prototype_status">When a supported device is connected, the app requests USB access and connects to ADB. If the key is not trusted yet, confirm USB debugging on the connected device. Fastboot queries require a button press; flashing is unavailable.</string>
+    <string name="prototype_status">When a supported device is connected, the app requests USB access and connects to ADB. If the key is not trusted yet, confirm USB debugging on the connected device. Read-only ADB product and Fastboot queries require a button press; flashing is unavailable.</string>
     <string name="usb_refresh">Refresh USB devices</string>
     <string name="usb_hint">Connect a device with a USB OTG cable, then refresh the list.</string>
     <string name="usb_host_unsupported">USB host mode is unavailable on this phone.</string>
@@ -22,8 +22,12 @@
     <string name="adb_probe_explanation">Separate protocol check: AUTH is possible here even after a successful connection.</string>
     <string name="adb_probe_first_reply_connected">First ADB reply: CNXN; diagnostic session closed.</string>
     <string name="adb_probe_running">Waiting for the first ADB reply…</string>
-    <string name="adb_authorize_hint">ADB connects automatically after USB permission. If it failed or was cancelled, retry manually. No ADB commands will be run.</string>
+    <string name="adb_authorize_hint">ADB connects automatically after USB permission. If it failed or was cancelled, retry manually. The separate product button reads one fixed property.</string>
     <string name="adb_authorize_button">Retry ADB connection</string>
+    <string name="adb_product_button">Read device code via ADB</string>
+    <string name="adb_product_running">Connecting and reading the device code…</string>
+    <string name="adb_product_value">ADB device code: %1$s</string>
+    <string name="adb_product_failed">Could not read the ADB device code. Save a diagnostic ZIP.</string>
     <string name="adb_cancel_authorization">Cancel waiting</string>
     <string name="adb_authorizing">Preparing the key and exchanging ADB messages…</string>
     <string name="adb_waiting_confirmation">Key sent. Confirm USB debugging on the connected device (up to 2 minutes), or cancel waiting.</string>
@@ -49,7 +53,7 @@
     <string name="usb_device_changed">USB device list changed.</string>
     <string name="usb_device_disconnected">The USB device was disconnected.</string>
     <string name="diagnostics_title">Diagnostics</string>
-    <string name="diagnostics_hint">After checking the connection, save a ZIP with app events, Android details and USB interface descriptors. ADB keys and tokens, device banners and serial numbers are not saved.</string>
+    <string name="diagnostics_hint">After checking the connection, save a ZIP with app events, Android details and USB interface descriptors. A validated device code may appear in events; ADB keys, tokens, banners and serial numbers are not saved.</string>
     <string name="diagnostics_save_archive">Save diagnostic ZIP</string>
     <string name="diagnostics_save">Save events as TXT</string>
     <string name="diagnostics_saved">Diagnostic file saved. You can attach it to a message.</string>

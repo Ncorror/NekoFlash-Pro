@@ -3,10 +3,10 @@ package com.ncorror.nekoflash.pro.model
 import com.ncorror.nekoflash.pro.adb.AdbAuthenticationPath
 
 enum class AdbProbePhase {
-    RUNNING, AUTHORIZING, WAITING_CONFIRMATION, CONNECTED, AUTH_REQUIRED, TLS_REQUIRED, FAILED,
+    RUNNING, AUTHORIZING, WAITING_CONFIRMATION, CONNECTED, VALUE, AUTH_REQUIRED, TLS_REQUIRED, FAILED,
 }
 
-enum class AdbProbeKind { CONNECTION, FIRST_REPLY }
+enum class AdbProbeKind { CONNECTION, FIRST_REPLY, PRODUCT }
 
 data class AdbProbeState(
     val deviceKey: String,
@@ -18,6 +18,7 @@ data class AdbProbeState(
     val maxData: Long? = null,
     val kind: AdbProbeKind = AdbProbeKind.CONNECTION,
     val authentication: AdbAuthenticationPath? = null,
+    val productCode: String? = null,
 ) {
     fun matches(device: UsbDeviceSummary): Boolean =
         deviceKey == device.key && deviceId == device.deviceId &&

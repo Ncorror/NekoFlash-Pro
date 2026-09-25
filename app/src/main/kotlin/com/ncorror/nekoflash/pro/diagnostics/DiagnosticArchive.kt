@@ -40,13 +40,15 @@ class DiagnosticArchive(context: Context, private val journal: DiagnosticJournal
                     at most 256 KiB, timestamps in UTC.
 
         The archive does not list USB serial numbers, ADB keys/signatures/banners/tokens,
-        device file paths or device contents.
+        device file paths or arbitrary device contents. A validated product code can appear in events.log.
         It does not include Android system logcat; review exception messages before sharing.
         A USB signature and bulk endpoints do not prove ADB authorization or connectivity;
         inspect events.log for the explicit ADB response check or authorization result.
         The first-reply check sends no keys, so AUTH can appear even for an already trusted key.
         After USB permission, ADB authorization starts automatically for one recognized device;
         a manual retry is also available. Neither mode runs ADB services.
+        The separate ADB product button opens a fixed read-only shell service after authorization
+        in the same session and records only a short validated product code or a failure reason.
         An auth=PUBLIC_KEY result means the key was offered in that session. Only
         auth=SIGNATURE on a later connection shows that the device accepted its signature.
     """.trimIndent() + "\n"

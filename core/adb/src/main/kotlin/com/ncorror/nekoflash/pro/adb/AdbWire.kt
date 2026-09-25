@@ -76,5 +76,9 @@ internal class AdbWire(private val transport: AdbByteTransport) {
         const val CNXN = 0x4e584e43
         const val AUTH = 0x48545541
         const val STLS = 0x534c5453
+        const val OPEN = 0x4e45504f
+        const val OKAY = 0x59414b4f
+        const val WRTE = 0x45545257
+        const val CLSE = 0x45534c43
     }
 }
