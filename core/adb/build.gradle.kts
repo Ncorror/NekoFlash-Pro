@@ -7,6 +7,7 @@ kotlin {
 }
 
 dependencies {
+    implementation(project(":engine"))
     implementation(project(":core:transport"))
     testImplementation(platform("org.junit:junit-bom:5.12.2"))
     testImplementation(kotlin("test-junit5"))

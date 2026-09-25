@@ -25,6 +25,23 @@ class TerminalPlanCompilerTest {
     }
 
     @Test
+    fun adbProductUsesOneFixedReadOnlyService() {
+        val ready = assertIs<TerminalPlanResult.Ready>(
+            compiler.compile(TerminalParser.Tool.ADB, "shell getprop ro.product.device")
+        )
+        assertEquals(listOf(TerminalPlanStep.AdbProduct), ready.plan.steps)
+        assertEquals(listOf("ADB: read ro.product.device"), ready.plan.preview())
+        for (line in listOf(
+            "shell getprop ro.product.device; reboot",
+            "shell getprop ro.product.serialno",
+            "shell -t getprop ro.product.device",
+            "raw shell:getprop ro.product.device",
+        )) {
+            assertIs<TerminalPlanResult.Unavailable>(compiler.compile(TerminalParser.Tool.ADB, line), line)
+        }
+    }
+
+    @Test
     fun hostCommandsAndAnyUnimplementedOptionsAreUnavailable() {
         for (command in listOf(
             "fastboot --force getvar product",

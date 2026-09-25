@@ -5,5 +5,7 @@ package com.ncorror.nekoflash.pro.transport
  * Closing it must interrupt an outstanding read. */
 interface FastbootPacketTransport : AutoCloseable {
     fun writePacket(packet: ByteArray)
+    /** DATA payload may span several USB transfers. Commands remain one packet. */
+    fun writeData(bytes: ByteArray) = writePacket(bytes)
     fun readPacket(maxBytes: Int): ByteArray
 }

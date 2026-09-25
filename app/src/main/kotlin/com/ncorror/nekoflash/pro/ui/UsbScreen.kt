@@ -29,6 +29,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import com.ncorror.nekoflash.pro.R
 import com.ncorror.nekoflash.pro.adb.AdbAuthenticationPath
 import com.ncorror.nekoflash.pro.fastboot.FastbootVariable
+import com.ncorror.nekoflash.pro.engine.TerminalPlan
 import com.ncorror.nekoflash.pro.model.AdbProbePhase
 import com.ncorror.nekoflash.pro.model.AdbProbeState
 import com.ncorror.nekoflash.pro.model.FastbootProbePhase
@@ -53,6 +54,7 @@ fun UsbScreen(
     onReadAdbProduct: (UsbDeviceSummary) -> Unit,
     onCancelAdbAuthorization: () -> Unit,
     onProbeFastboot: (UsbDeviceSummary, FastbootVariable) -> Unit,
+    onRunPlan: (UsbDeviceSummary, TerminalPlan) -> Unit,
     onSaveLog: () -> Unit,
     onSaveArchive: () -> Unit,
     @StringRes exportNotice: Int? = null,
@@ -142,6 +144,16 @@ fun UsbScreen(
                 onRequestAccess, onProbeAdb,
                 onAuthorizeAdb, onReadAdbProduct, onCancelAdbAuthorization, onProbeFastboot)
         }
+        TerminalPanel(
+            snapshot = snapshot,
+            busy = adbProbeState?.phase in setOf(AdbProbePhase.RUNNING,
+                AdbProbePhase.AUTHORIZING, AdbProbePhase.WAITING_CONFIRMATION) ||
+                adbFirstReplyState?.phase == AdbProbePhase.RUNNING ||
+                adbProductState?.phase in setOf(AdbProbePhase.AUTHORIZING,
+                    AdbProbePhase.WAITING_CONFIRMATION) ||
+                probeState?.phase == FastbootProbePhase.RUNNING,
+            onRunPlan = onRunPlan,
+        )
         Surface(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(18.dp),
@@ -477,6 +489,7 @@ private fun UsbScreenPreview() {
             onReadAdbProduct = {},
             onCancelAdbAuthorization = {},
             onProbeFastboot = { _, _ -> },
+            onRunPlan = { _, _ -> },
             onSaveLog = {},
             onSaveArchive = {},
         )

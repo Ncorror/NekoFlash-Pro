@@ -28,6 +28,17 @@ class FastbootUsbPacketTransport private constructor(
         if (count != packet.size) throw IOException("Fastboot USB write incomplete: $count/${packet.size}")
     }
 
+    override fun writeData(bytes: ByteArray) {
+        check(!closed.get()) { "Fastboot USB session is closed" }
+        require(bytes.size in 1..MAX_COMMAND_BYTES)
+        var offset = 0
+        while (offset < bytes.size) {
+            val count = connection.bulkTransfer(output, bytes, offset, bytes.size - offset, TRANSFER_TIMEOUT_MS)
+            if (count <= 0) throw IOException("Fastboot USB data transfer failed or timed out ($count)")
+            offset += count
+        }
+    }
+
     override fun readPacket(maxBytes: Int): ByteArray {
         check(!closed.get()) { "Fastboot USB session is closed" }
         require(maxBytes in 4..MAX_REPLY_BYTES) { "Fastboot probe accepts responses up to 256 bytes" }

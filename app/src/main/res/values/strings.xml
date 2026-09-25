@@ -46,6 +46,15 @@
     <string name="fastboot_probe_value">Fastboot %1$s: %2$s</string>
     <string name="fastboot_probe_rejected">Fastboot replied FAIL for %1$s: %2$s. USB exchange succeeded.</string>
     <string name="fastboot_probe_failed">USB exchange failed for %1$s. Save a diagnostic ZIP.</string>
+    <string name="terminal_title">Command and preview</string>
+    <string name="terminal_hint">Review the plan first. Only getvar version/product and reading the ADB device code can run now; other commands await their executor.</string>
+    <string name="terminal_command_label">Command</string>
+    <string name="terminal_preview">Plan: %1$s</string>
+    <string name="terminal_connect_hint">Connect one device in the indicated mode and allow USB access to run the plan.</string>
+    <string name="terminal_invalid">Incomplete or invalid command.</string>
+    <string name="terminal_unavailable">This command or its options do not have an executor yet.</string>
+    <string name="terminal_execute">Run plan</string>
+    <string name="terminal_result_hint">The device card shows the result; details are available in the diagnostic ZIP.</string>
     <string name="usb_request_permission">Request access</string>
     <string name="usb_permission_granted">USB access allowed. ADB and Fastboot diagnostic buttons appear for supported devices.</string>
     <string name="usb_permission_denied">USB access was not allowed.</string>

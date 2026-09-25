@@ -11,6 +11,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.ncorror.nekoflash.pro.diagnostics.DiagnosticArchive
+import com.ncorror.nekoflash.pro.engine.TerminalPlanStep
 import com.ncorror.nekoflash.pro.model.AdbProbePhase
 import com.ncorror.nekoflash.pro.model.AdbProbeKind
 import com.ncorror.nekoflash.pro.model.AdbProbeState
@@ -25,6 +26,7 @@ import com.ncorror.nekoflash.pro.ui.UsbScreen
 import com.ncorror.nekoflash.pro.transport.UsbAutoAction
 import com.ncorror.nekoflash.pro.transport.UsbAutoCandidate
 import com.ncorror.nekoflash.pro.transport.UsbAutoConnectPlanner
+import com.ncorror.nekoflash.pro.transport.UsbSessionGate
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 
@@ -40,6 +42,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var adbProbeController: AdbProbeController
     private lateinit var probeController: FastbootProbeController
     private val autoConnect = UsbAutoConnectPlanner()
+    private val usbSessionGate = UsbSessionGate()
     private val diagnostics get() = (application as NekoFlashApplication).diagnostics
     private val archive by lazy { DiagnosticArchive(this, diagnostics) }
 
@@ -74,14 +77,14 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         diagnostics.record("App opened")
-        adbProbeController = AdbProbeController(this, diagnostics::record) { state ->
+        adbProbeController = AdbProbeController(this, usbSessionGate, diagnostics::record) { state ->
             when (state.kind) {
                 AdbProbeKind.CONNECTION -> adbProbeState = state
                 AdbProbeKind.FIRST_REPLY -> adbFirstReplyState = state
                 AdbProbeKind.PRODUCT -> adbProductState = state
             }
         }
-        probeController = FastbootProbeController(this, diagnostics::record) { probeState = it }
+        probeController = FastbootProbeController(this, usbSessionGate, diagnostics::record) { probeState = it }
         usbHost = UsbHostController(this, { snapshot ->
             val connectionGone = adbProbeState?.let { state ->
                 snapshot.devices.none(state::matches)
@@ -184,6 +187,20 @@ class MainActivity : ComponentActivity() {
                             adbProductState?.phase !in setOf(AdbProbePhase.AUTHORIZING,
                                 AdbProbePhase.WAITING_CONFIRMATION)) {
                             probeController.probe(device, variable)
+                        }
+                    },
+                    onRunPlan = { device, plan ->
+                        val adbBusy = adbProbeState?.phase in setOf(AdbProbePhase.RUNNING,
+                            AdbProbePhase.AUTHORIZING, AdbProbePhase.WAITING_CONFIRMATION) ||
+                            adbFirstReplyState?.phase == AdbProbePhase.RUNNING ||
+                            adbProductState?.phase in setOf(AdbProbePhase.AUTHORIZING,
+                                AdbProbePhase.WAITING_CONFIRMATION)
+                        if (!adbBusy && probeState?.phase != FastbootProbePhase.RUNNING) {
+                            when (plan.steps.singleOrNull()) {
+                                is TerminalPlanStep.FastbootGetvar -> probeController.probePlan(device, plan)
+                                TerminalPlanStep.AdbProduct -> adbProbeController.readProductPlan(device, plan)
+                                else -> Unit
+                            }
                         }
                     },
                     onSaveLog = {

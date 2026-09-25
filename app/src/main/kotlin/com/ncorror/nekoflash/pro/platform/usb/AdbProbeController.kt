@@ -7,18 +7,24 @@ import com.ncorror.nekoflash.pro.adb.AdbHandshakeProbe
 import com.ncorror.nekoflash.pro.adb.AdbHandshakeResult
 import com.ncorror.nekoflash.pro.adb.AdbAuthorizationSession
 import com.ncorror.nekoflash.pro.adb.AdbAuthenticationPath
-import com.ncorror.nekoflash.pro.adb.AdbProductProbe
 import com.ncorror.nekoflash.pro.adb.AdbProductResult
+import com.ncorror.nekoflash.pro.adb.AdbPlanExecutor
+import com.ncorror.nekoflash.pro.adb.AdbPlanExecution
+import com.ncorror.nekoflash.pro.engine.TerminalPlan
+import com.ncorror.nekoflash.pro.engine.TerminalPlanResult
+import com.ncorror.nekoflash.pro.engine.TerminalPlanStep
 import com.ncorror.nekoflash.pro.model.AdbProbeKind
 import com.ncorror.nekoflash.pro.model.AdbProbePhase
 import com.ncorror.nekoflash.pro.model.AdbProbeState
 import com.ncorror.nekoflash.pro.model.UsbDeviceSummary
 import com.ncorror.nekoflash.pro.transport.UsbWireProtocol
+import com.ncorror.nekoflash.pro.transport.UsbSessionGate
 import java.io.IOException
 
 /** Owns the exclusive ADB USB session for connection and explicit read-only checks. */
 class AdbProbeController(
     private val activity: Activity,
+    private val gate: UsbSessionGate,
     private val record: (String) -> Unit,
     private val publish: (AdbProbeState) -> Unit,
 ) {
@@ -29,20 +35,27 @@ class AdbProbeController(
     private var generation = 0L
     private var transport: AdbUsbByteTransport? = null
     private enum class Mode { FIRST_REPLY, CONNECTION, PRODUCT }
-    private data class Queued(val summary: UsbDeviceSummary, val mode: Mode, val generation: Long)
+    private data class Queued(val summary: UsbDeviceSummary, val mode: Mode,
+                              val generation: Long, val plan: TerminalPlan?)
     private var queued: Queued? = null
 
     fun probe(summary: UsbDeviceSummary) = start(summary, Mode.FIRST_REPLY)
 
     fun authorize(summary: UsbDeviceSummary) = start(summary, Mode.CONNECTION)
 
-    fun readProduct(summary: UsbDeviceSummary) = start(summary, Mode.PRODUCT)
+    fun readProduct(summary: UsbDeviceSummary) = readProductPlan(summary,
+        TerminalPlan(listOf(TerminalPlanStep.AdbProduct)))
 
-    private fun start(summary: UsbDeviceSummary, mode: Mode) {
+    fun readProductPlan(summary: UsbDeviceSummary, plan: TerminalPlan) {
+        if (plan.steps != listOf(TerminalPlanStep.AdbProduct)) return
+        start(summary, Mode.PRODUCT, plan)
+    }
+
+    private fun start(summary: UsbDeviceSummary, mode: Mode, plan: TerminalPlan? = null) {
         val currentGeneration = synchronized(lock) {
             if (active) {
                 if (cancelled) {
-                    queued = Queued(summary, mode, generation)
+                    queued = Queued(summary, mode, generation, plan)
                     record("ADB request queued until prior USB session closes")
                 } else {
                     record("ADB probe already running or closing")
@@ -68,6 +81,7 @@ class AdbProbeController(
         publish(summary.state(if (mode == Mode.FIRST_REPLY) AdbProbePhase.RUNNING else AdbProbePhase.AUTHORIZING,
             kind = kind))
         Thread({
+            var lease: UsbSessionGate.Lease? = null
             val result = try {
                 val device = manager.deviceList[summary.key]?.takeIf {
                     it.deviceId == summary.deviceId && it.vendorId == summary.vendorId &&
@@ -82,6 +96,7 @@ class AdbProbeController(
                 if (synchronized(lock) { cancelled || generation != currentGeneration }) {
                     throw IOException("ADB request cancelled")
                 }
+                lease = gate.tryAcquire() ?: throw IOException("USB session is already in use")
                 val session = AdbUsbByteTransport.open(manager, device, matches.single())
                 val stopRequested = synchronized(lock) {
                     if (!cancelled) transport = session
@@ -100,7 +115,16 @@ class AdbProbeController(
                     }
                 }
                 if (mode == Mode.PRODUCT) {
-                    when (val answer = AdbProductProbe(session, checkNotNull(key)).read(awaitingApproval)) {
+                    val execution = AdbPlanExecutor({ checkNotNull(key) }, { session })
+                        .execute(TerminalPlanResult.Ready(checkNotNull(plan)), awaitingApproval)
+                    val answer = when (execution) {
+                        is AdbPlanExecution.Reply -> execution.result
+                        is AdbPlanExecution.Refused -> {
+                            session.close()
+                            throw IOException("ADB plan refused: ${execution.reason}")
+                        }
+                    }
+                    when (answer) {
                         is AdbProductResult.Value -> summary.state(AdbProbePhase.VALUE,
                             kind = kind, authentication = answer.connection.authentication,
                             productCode = answer.productCode)
@@ -123,6 +147,13 @@ class AdbProbeController(
             } catch (error: Exception) {
                 record("$event failed: ${error.javaClass.simpleName}: ${safeText(error.message.orEmpty())}")
                 summary.state(AdbProbePhase.FAILED, kind = kind)
+            } finally {
+                try {
+                    synchronized(lock) { transport }?.close()
+                } catch (error: RuntimeException) {
+                    record("ADB USB cleanup failed: ${error.javaClass.simpleName}")
+                }
+                lease?.close()
             }
             val (shouldPublish, next) = synchronized(lock) {
                 transport = null
@@ -146,7 +177,7 @@ class AdbProbeController(
             if (next != null) {
                 activity.runOnUiThread {
                     if (synchronized(lock) { !active && generation == next.generation }) {
-                        start(next.summary, next.mode)
+                        start(next.summary, next.mode, next.plan)
                     }
                 }
             }

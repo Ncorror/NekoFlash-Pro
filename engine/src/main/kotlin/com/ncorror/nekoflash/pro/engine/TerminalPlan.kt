@@ -7,6 +7,7 @@ enum class PlannedFastbootVariable(val wireName: String) {
 
 sealed interface TerminalPlanStep {
     data class FastbootGetvar(val variable: PlannedFastbootVariable) : TerminalPlanStep
+    data object AdbProduct : TerminalPlanStep
 }
 
 /** Preview is derived from these exact steps; executors receive the same plan. */
@@ -20,6 +21,7 @@ class TerminalPlan(steps: List<TerminalPlanStep>) {
     fun preview(): List<String> = steps.map { step ->
         when (step) {
             is TerminalPlanStep.FastbootGetvar -> "Fastboot: read getvar:${step.variable.wireName}"
+            TerminalPlanStep.AdbProduct -> "ADB: read ro.product.device"
         }
     }
 }
@@ -34,6 +36,8 @@ sealed interface TerminalPlanResult {
 class TerminalPlanCompiler(private val parser: TerminalParser = TerminalParser()) {
     fun compile(line: String): TerminalPlanResult = compile(parser.parse(line))
 
+    fun compile(tool: TerminalParser.Tool, line: String): TerminalPlanResult = compile(parser.parse(tool, line))
+
     fun compile(parsed: TerminalParseResult): TerminalPlanResult = when (parsed) {
         is TerminalParseResult.Parsed -> compile(parsed.invocation)
         is TerminalParseResult.Invalid -> TerminalPlanResult.Invalid(parsed.reason)
@@ -41,7 +45,13 @@ class TerminalPlanCompiler(private val parser: TerminalParser = TerminalParser()
     }
 
     fun compile(invocation: TerminalInvocation): TerminalPlanResult = when (invocation) {
-        is TerminalInvocation.Adb -> TerminalPlanResult.Unavailable("ADB command has no execution plan")
+        is TerminalInvocation.Adb -> when (val command = invocation.command) {
+            is AdbCommand.Shell -> if (command.command == "getprop ro.product.device" &&
+                command.tty == null && !command.noExitCode) {
+                TerminalPlanResult.Ready(TerminalPlan(listOf(TerminalPlanStep.AdbProduct)))
+            } else TerminalPlanResult.Unavailable("ADB command has no execution plan")
+            else -> TerminalPlanResult.Unavailable("ADB command has no execution plan")
+        }
         is TerminalInvocation.Fastboot -> {
             if (invocation.options != FastbootOptions()) {
                 TerminalPlanResult.Unavailable("Fastboot options have no execution plan")
