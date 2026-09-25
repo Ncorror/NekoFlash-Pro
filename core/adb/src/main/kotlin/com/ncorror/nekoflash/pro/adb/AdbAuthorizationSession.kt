@@ -8,7 +8,7 @@ interface AdbHostKey {
     fun publicKeyText(): ByteArray
 }
 
-/** Invoked only after the user explicitly chooses to authorize the connected ADB device. */
+/** Starts after Android grants USB access, or when the user retries the ADB connection. */
 class AdbAuthorizationSession(private val transport: AdbByteTransport, private val key: AdbHostKey) {
     fun connect(onAwaitingApproval: () -> Unit): AdbHandshakeResult = transport.use { session ->
         val wire = AdbWire(session)

@@ -2,6 +2,8 @@ package com.ncorror.nekoflash.pro
 
 import android.os.Bundle
 import android.net.Uri
+import android.content.Intent
+import android.hardware.usb.UsbManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -19,6 +21,9 @@ import com.ncorror.nekoflash.pro.platform.usb.FastbootProbeController
 import com.ncorror.nekoflash.pro.platform.usb.UsbHostController
 import com.ncorror.nekoflash.pro.ui.NekoFlashTheme
 import com.ncorror.nekoflash.pro.ui.UsbScreen
+import com.ncorror.nekoflash.pro.transport.UsbAutoAction
+import com.ncorror.nekoflash.pro.transport.UsbAutoCandidate
+import com.ncorror.nekoflash.pro.transport.UsbAutoConnectPlanner
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 
@@ -31,6 +36,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var usbHost: UsbHostController
     private lateinit var adbProbeController: AdbProbeController
     private lateinit var probeController: FastbootProbeController
+    private val autoConnect = UsbAutoConnectPlanner()
     private val diagnostics get() = (application as NekoFlashApplication).diagnostics
     private val archive by lazy { DiagnosticArchive(this, diagnostics) }
 
@@ -77,7 +83,40 @@ class MainActivity : ComponentActivity() {
                 probeState = null
             }
             usbSnapshot = snapshot
-        }, diagnostics::record)
+            val candidates = snapshot.devices.map { device ->
+                val usable = device.interfaces.filter {
+                    it.configurationIndex == 0 && it.bulkPairAvailable
+                }.singleOrNull()
+                UsbAutoCandidate(device.key, device.deviceId, usable?.protocol,
+                    device.accessGranted, device.accessPending)
+            }
+            when (val next = autoConnect.observe(candidates)) {
+                is UsbAutoAction.RequestAccess -> {
+                    diagnostics.record("Auto USB access request for recognized device")
+                    usbHost.requestAccess(next.key)
+                }
+                is UsbAutoAction.AuthorizeAdb -> {
+                    val device = snapshot.devices.singleOrNull {
+                        it.key == next.key && it.deviceId == next.deviceId
+                    }
+                    if (device != null) {
+                        diagnostics.record("Auto ADB authorization after USB access")
+                        adbProbeController.authorize(device)
+                    }
+                }
+                null -> Unit
+            }
+        }, diagnostics::record, { key, id ->
+            autoConnect.forget(key, id)
+            if (adbProbeState?.deviceKey == key && adbProbeState?.deviceId == id) {
+                adbProbeController.cancel()
+                adbProbeState = null
+            }
+            if (probeState?.deviceKey == key && probeState?.deviceId == id) {
+                probeController.cancel()
+                probeState = null
+            }
+        })
         setContent {
             NekoFlashTheme {
                 UsbScreen(
@@ -123,6 +162,14 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         usbHost.start()
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        if (intent.action == UsbManager.ACTION_USB_DEVICE_ATTACHED) {
+            diagnostics.record("USB attachment opened existing activity")
+            usbHost.refresh()
+        }
     }
 
     override fun onResume() {

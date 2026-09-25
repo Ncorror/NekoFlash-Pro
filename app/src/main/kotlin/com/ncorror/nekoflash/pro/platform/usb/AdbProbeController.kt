@@ -12,7 +12,7 @@ import com.ncorror.nekoflash.pro.model.UsbDeviceSummary
 import com.ncorror.nekoflash.pro.transport.UsbWireProtocol
 import java.io.IOException
 
-/** Read-only first-reply check and a separate, user-initiated ADB authorization. */
+/** Read-only first-reply check and ADB authorization after USB access or manual retry. */
 class AdbProbeController(
     private val activity: Activity,
     private val record: (String) -> Unit,
@@ -24,6 +24,8 @@ class AdbProbeController(
     private var cancelled = false
     private var generation = 0L
     private var transport: AdbUsbByteTransport? = null
+    private data class Queued(val summary: UsbDeviceSummary, val authorize: Boolean, val generation: Long)
+    private var queued: Queued? = null
 
     fun probe(summary: UsbDeviceSummary) = start(summary, authorize = false)
 
@@ -32,7 +34,12 @@ class AdbProbeController(
     private fun start(summary: UsbDeviceSummary, authorize: Boolean) {
         val currentGeneration = synchronized(lock) {
             if (active) {
-                record("ADB probe already running or closing")
+                if (cancelled) {
+                    queued = Queued(summary, authorize, generation)
+                    record("ADB request queued until prior USB session closes")
+                } else {
+                    record("ADB probe already running or closing")
+                }
                 return
             }
             active = true
@@ -87,10 +94,12 @@ class AdbProbeController(
                 record("$event failed: ${error.javaClass.simpleName}: ${safeText(error.message.orEmpty())}")
                 summary.state(AdbProbePhase.FAILED)
             }
-            val shouldPublish = synchronized(lock) {
+            val (shouldPublish, next) = synchronized(lock) {
                 transport = null
                 active = false
-                !cancelled && generation == currentGeneration
+                val pending = queued
+                queued = null
+                (!cancelled && generation == currentGeneration) to pending
             }
             if (shouldPublish) {
                 record("$event result=${result.phase}" +
@@ -102,6 +111,13 @@ class AdbProbeController(
                     }
                 }
             }
+            if (next != null) {
+                activity.runOnUiThread {
+                    if (synchronized(lock) { !active && generation == next.generation }) {
+                        start(next.summary, next.authorize)
+                    }
+                }
+            }
         }, "adb-handshake-probe").start()
     }
 
@@ -109,6 +125,7 @@ class AdbProbeController(
         val previous = synchronized(lock) {
             cancelled = true
             ++generation
+            queued = null
             transport
         }
         try {

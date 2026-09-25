@@ -44,8 +44,9 @@ class DiagnosticArchive(context: Context, private val journal: DiagnosticJournal
         It does not include Android system logcat; review exception messages before sharing.
         A USB signature and bulk endpoints do not prove ADB authorization or connectivity;
         inspect events.log for the explicit ADB response check or authorization result.
-        The first-reply check sends no keys. The separate authorization button sends a host key
-        and waits for the connected device to confirm it. Neither mode runs ADB services.
+        The first-reply check sends no keys, so AUTH can appear even for an already trusted key.
+        After USB permission, ADB authorization starts automatically for one recognized device;
+        a manual retry is also available. Neither mode runs ADB services.
     """.trimIndent() + "\n"
 
     private fun environment() = buildString {

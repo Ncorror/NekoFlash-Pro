@@ -26,7 +26,7 @@ internal class AdbKeystoreHostKey private constructor(
     companion object {
         private const val ALIAS = "nekoflash-adb-host-v1"
 
-        /** Called only from the background thread after the authorize button was pressed. */
+        /** Called only from the background ADB connection thread after USB access is granted. */
         fun getOrCreate(): AdbKeystoreHostKey {
             val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
             if (!store.containsAlias(ALIAS)) {

@@ -21,6 +21,7 @@ class UsbHostController(
     private val activity: Activity,
     private val publish: (UsbHostSnapshot) -> Unit,
     private val record: (String) -> Unit,
+    private val onDetached: (String, Int) -> Unit,
 ) {
     private val manager = activity.getSystemService(Context.USB_SERVICE) as UsbManager
     private val permissionAction = "${activity.packageName}.USB_PERMISSION"
@@ -63,6 +64,9 @@ class UsbHostController(
                     "attached" else "detached"
                 val device = deviceFromIntent(intent)
                 record("USB $action${device?.let { " ${deviceLabel(it)}" } ?: ""}")
+                if (intent.action == UsbManager.ACTION_USB_DEVICE_DETACHED && device != null) {
+                    onDetached(device.deviceName, device.deviceId)
+                }
                 refresh(UsbNotice.DEVICE_CHANGED)
             }
         }
