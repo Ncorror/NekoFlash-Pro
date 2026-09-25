@@ -59,7 +59,8 @@ class AdbAuthorizationSessionTest {
         var waiting = 0
         val answer = AdbAuthorizationSession(fake, key).connect { waiting++ }
 
-        assertEquals(AdbHandshakeResult.Connected(AdbWire.VERSION.toLong(), 262144), answer)
+        assertEquals(AdbHandshakeResult.Connected(AdbWire.VERSION.toLong(), 262144,
+            AdbAuthenticationPath.PUBLIC_KEY), answer)
         assertEquals(1, waiting)
         assertEquals(1, fake.waitingReads)
         assertContentEquals(first, key.signedChallenge)
@@ -78,9 +79,20 @@ class AdbAuthorizationSessionTest {
         val fake = FakeTransport(*tokenPacket(token),
             header(AdbWire.CNXN, AdbWire.VERSION, 4096, byteArrayOf()))
         val answer = AdbAuthorizationSession(fake, FakeKey()).connect { error("must not wait") }
-        assertEquals(AdbHandshakeResult.Connected(AdbWire.VERSION.toLong(), 4096), answer)
+        assertEquals(AdbHandshakeResult.Connected(AdbWire.VERSION.toLong(), 4096,
+            AdbAuthenticationPath.SIGNATURE), answer)
         assertEquals(4, fake.sent.size)
         assertEquals(0, fake.waitingReads)
+        assertTrue(fake.closed)
+    }
+
+    @Test
+    fun peerCanConnectWithoutRequestingHostAuthentication() {
+        val fake = FakeTransport(header(AdbWire.CNXN, AdbWire.VERSION, 4096, byteArrayOf()))
+        val answer = AdbAuthorizationSession(fake, FakeKey()).connect { error("must not wait") }
+        assertEquals(AdbHandshakeResult.Connected(AdbWire.VERSION.toLong(), 4096,
+            AdbAuthenticationPath.NO_CHALLENGE), answer)
+        assertEquals(2, fake.sent.size)
         assertTrue(fake.closed)
     }
 

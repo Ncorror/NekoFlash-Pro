@@ -12,6 +12,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.ncorror.nekoflash.pro.diagnostics.DiagnosticArchive
 import com.ncorror.nekoflash.pro.model.AdbProbePhase
+import com.ncorror.nekoflash.pro.model.AdbProbeKind
 import com.ncorror.nekoflash.pro.model.AdbProbeState
 import com.ncorror.nekoflash.pro.model.FastbootProbePhase
 import com.ncorror.nekoflash.pro.model.FastbootProbeState
@@ -31,6 +32,7 @@ import java.time.format.DateTimeFormatter
 class MainActivity : ComponentActivity() {
     private var usbSnapshot by mutableStateOf(UsbHostSnapshot())
     private var adbProbeState by mutableStateOf<AdbProbeState?>(null)
+    private var adbFirstReplyState by mutableStateOf<AdbProbeState?>(null)
     private var probeState by mutableStateOf<FastbootProbeState?>(null)
     private var exportNotice by mutableStateOf<Int?>(null)
     private lateinit var usbHost: UsbHostController
@@ -71,13 +73,27 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         diagnostics.record("App opened")
-        adbProbeController = AdbProbeController(this, diagnostics::record) { adbProbeState = it }
+        adbProbeController = AdbProbeController(this, diagnostics::record) { state ->
+            when (state.kind) {
+                AdbProbeKind.CONNECTION -> adbProbeState = state
+                AdbProbeKind.FIRST_REPLY -> adbFirstReplyState = state
+            }
+        }
         probeController = FastbootProbeController(this, diagnostics::record) { probeState = it }
         usbHost = UsbHostController(this, { snapshot ->
-            if (adbProbeState?.let { state -> snapshot.devices.none(state::matches) } == true) {
+            val connectionGone = adbProbeState?.let { state ->
+                snapshot.devices.none(state::matches)
+            } == true
+            val diagnosticGone = adbFirstReplyState?.let { state ->
+                snapshot.devices.none(state::matches)
+            } == true
+            if (connectionGone && adbProbeState?.phase in setOf(AdbProbePhase.AUTHORIZING,
+                    AdbProbePhase.WAITING_CONFIRMATION) ||
+                diagnosticGone && adbFirstReplyState?.phase == AdbProbePhase.RUNNING) {
                 adbProbeController.cancel()
-                adbProbeState = null
             }
+            if (connectionGone) adbProbeState = null
+            if (diagnosticGone) adbFirstReplyState = null
             if (probeState?.let { state -> snapshot.devices.none(state::matches) } == true) {
                 probeController.cancel()
                 probeState = null
@@ -112,6 +128,10 @@ class MainActivity : ComponentActivity() {
                 adbProbeController.cancel()
                 adbProbeState = null
             }
+            if (adbFirstReplyState?.deviceKey == key && adbFirstReplyState?.deviceId == id) {
+                adbProbeController.cancel()
+                adbFirstReplyState = null
+            }
             if (probeState?.deviceKey == key && probeState?.deviceId == id) {
                 probeController.cancel()
                 probeState = null
@@ -122,6 +142,7 @@ class MainActivity : ComponentActivity() {
                 UsbScreen(
                     snapshot = usbSnapshot,
                     adbProbeState = adbProbeState,
+                    adbFirstReplyState = adbFirstReplyState,
                     probeState = probeState,
                     onRefresh = {
                         diagnostics.record("User refreshed USB devices")
@@ -141,7 +162,8 @@ class MainActivity : ComponentActivity() {
                     },
                     onProbeFastboot = { device, variable ->
                         if (adbProbeState?.phase !in setOf(AdbProbePhase.RUNNING,
-                                AdbProbePhase.AUTHORIZING, AdbProbePhase.WAITING_CONFIRMATION)) {
+                                AdbProbePhase.AUTHORIZING, AdbProbePhase.WAITING_CONFIRMATION) &&
+                            adbFirstReplyState?.phase != AdbProbePhase.RUNNING) {
                             probeController.probe(device, variable)
                         }
                     },
@@ -181,6 +203,7 @@ class MainActivity : ComponentActivity() {
     override fun onStop() {
         adbProbeController.cancel()
         adbProbeState = null
+        adbFirstReplyState = null
         probeController.cancel()
         probeState = null
         usbHost.stop()

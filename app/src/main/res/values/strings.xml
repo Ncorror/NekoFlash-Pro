@@ -18,7 +18,9 @@
     <string name="usb_protocol_no_bulk_pair">%1$s (config %2$d, interface %3$d): no usable bulk IN/OUT pair.</string>
     <string name="usb_no_protocol_interface">No ADB or Fastboot USB interface detected.</string>
     <string name="usb_interface_inspection_failed">Could not inspect USB interfaces. Save a diagnostic ZIP.</string>
-    <string name="adb_probe_button">Check ADB response</string>
+    <string name="adb_probe_button">Diagnostics: first ADB reply without key</string>
+    <string name="adb_probe_explanation">Separate protocol check: AUTH is possible here even after a successful connection.</string>
+    <string name="adb_probe_first_reply_connected">First ADB reply: CNXN; diagnostic session closed.</string>
     <string name="adb_probe_running">Waiting for the first ADB reply…</string>
     <string name="adb_authorize_hint">ADB connects automatically after USB permission. If it failed or was cancelled, retry manually. No ADB commands will be run.</string>
     <string name="adb_authorize_button">Retry ADB connection</string>
@@ -26,7 +28,10 @@
     <string name="adb_authorizing">Preparing the key and exchanging ADB messages…</string>
     <string name="adb_waiting_confirmation">Key sent. Confirm USB debugging on the connected device (up to 2 minutes), or cancel waiting.</string>
     <string name="adb_probe_connected">ADB replied CNXN: version %1$s, maxData %2$d. Connection established; session closed.</string>
-    <string name="adb_probe_auth_required">The first ADB reply was AUTH. This separate check does not sign the token, so it cannot tell whether the key is already trusted. Check the ADB connection result.</string>
+    <string name="adb_auth_signature">The device accepted the signature of a stored key.</string>
+    <string name="adb_auth_public_key">The device connected after receiving the public key. Whether it saved the key for future connections is not yet known.</string>
+    <string name="adb_auth_no_challenge">The device connected without requesting a key.</string>
+    <string name="adb_probe_auth_required">First ADB reply: AUTH. This check does not sign the token or change the ADB connection result above.</string>
     <string name="adb_probe_tls_required">ADB requested TLS. This check does not negotiate TLS.</string>
     <string name="adb_probe_failed">ADB exchange failed. Save a diagnostic ZIP.</string>
     <string name="fastboot_probe_version_button">Read Fastboot protocol version</string>

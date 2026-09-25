@@ -4,12 +4,19 @@ import com.ncorror.nekoflash.pro.transport.AdbByteTransport
 
 sealed interface AdbHandshakeResult {
     /** ADB answered CNXN; this diagnostic session is closed immediately afterwards. */
-    data class Connected(val protocolVersion: Long, val maxData: Long) : AdbHandshakeResult
+    data class Connected(
+        val protocolVersion: Long,
+        val maxData: Long,
+        val authentication: AdbAuthenticationPath? = null,
+    ) : AdbHandshakeResult
     /** ADB answered AUTH/TOKEN; no token, signature or key is saved or sent. */
     data object AuthorizationRequired : AdbHandshakeResult
     /** A peer requested TLS; negotiation is outside this diagnostic probe. */
     data object TlsRequired : AdbHandshakeResult
 }
+
+/** The authorization route observed on the wire; PUBLIC_KEY does not prove permanent trust. */
+enum class AdbAuthenticationPath { NO_CHALLENGE, SIGNATURE, PUBLIC_KEY }
 
 class AdbProtocolException(message: String) : Exception(message)
 

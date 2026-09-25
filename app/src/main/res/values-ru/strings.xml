@@ -18,7 +18,9 @@
     <string name="usb_protocol_no_bulk_pair">%1$s (конфигурация %2$d, интерфейс %3$d): нет подходящей пары bulk IN/OUT.</string>
     <string name="usb_no_protocol_interface">Интерфейс ADB или Fastboot не найден.</string>
     <string name="usb_interface_inspection_failed">Не удалось прочитать USB-интерфейсы. Сохраните диагностический ZIP.</string>
-    <string name="adb_probe_button">Проверить ответ ADB</string>
+    <string name="adb_probe_button">Диагностика: первый ответ ADB без ключа</string>
+    <string name="adb_probe_explanation">Отдельная проверка протокола: AUTH здесь возможен и после успешного подключения.</string>
+    <string name="adb_probe_first_reply_connected">Первый ответ ADB — CNXN; диагностический сеанс закрыт.</string>
     <string name="adb_probe_running">Ждём первый ответ ADB…</string>
     <string name="adb_authorize_hint">Подключение ADB запускается автоматически после разрешения USB. Если оно не удалось или было отменено, повторите вручную. Команды ADB не выполняются.</string>
     <string name="adb_authorize_button">Повторить подключение ADB</string>
@@ -26,7 +28,10 @@
     <string name="adb_authorizing">Готовим ключ и обмениваемся сообщениями ADB…</string>
     <string name="adb_waiting_confirmation">Ключ отправлен. Подтвердите отладку USB на подключённом устройстве (до 2 минут) или отмените ожидание.</string>
     <string name="adb_probe_connected">ADB ответил CNXN: версия %1$s, maxData %2$d. Соединение установлено, сеанс закрыт.</string>
-    <string name="adb_probe_auth_required">Первый ответ ADB — AUTH. Эта отдельная проверка не подписывает токен, поэтому по ней нельзя определить, сохранён ли ключ. Смотрите результат подключения ADB.</string>
+    <string name="adb_auth_signature">Устройство приняло подпись сохранённого ключа.</string>
+    <string name="adb_auth_public_key">Устройство ответило после отправки открытого ключа. Сохранён ли он для следующих подключений, пока неизвестно.</string>
+    <string name="adb_auth_no_challenge">Устройство установило соединение без запроса ключа.</string>
+    <string name="adb_probe_auth_required">Первый ответ ADB — AUTH. Проверка не подписывает токен и не меняет результат подключения ADB выше.</string>
     <string name="adb_probe_tls_required">ADB запросил TLS. Эта проверка не выполняет согласование TLS.</string>
     <string name="adb_probe_failed">Сбой обмена ADB. Сохраните диагностический ZIP.</string>
     <string name="fastboot_probe_version_button">Прочитать версию протокола Fastboot</string>

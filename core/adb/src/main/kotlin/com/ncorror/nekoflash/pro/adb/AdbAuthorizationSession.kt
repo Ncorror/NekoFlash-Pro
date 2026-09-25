@@ -18,7 +18,11 @@ class AdbAuthorizationSession(private val transport: AdbByteTransport, private v
         while (true) {
             val reply = wire.receive(awaitApproval = publicKeySent)
             when (reply.command) {
-                AdbWire.CNXN -> return@use wire.connected(reply)
+                AdbWire.CNXN -> return@use wire.connected(reply).copy(authentication = when {
+                    publicKeySent -> AdbAuthenticationPath.PUBLIC_KEY
+                    signed -> AdbAuthenticationPath.SIGNATURE
+                    else -> AdbAuthenticationPath.NO_CHALLENGE
+                })
                 AdbWire.STLS -> return@use wire.tls(reply)
                 AdbWire.AUTH -> {
                     val token = wire.token(reply)

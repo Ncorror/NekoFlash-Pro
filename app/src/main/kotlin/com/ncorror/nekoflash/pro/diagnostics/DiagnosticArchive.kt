@@ -47,6 +47,8 @@ class DiagnosticArchive(context: Context, private val journal: DiagnosticJournal
         The first-reply check sends no keys, so AUTH can appear even for an already trusted key.
         After USB permission, ADB authorization starts automatically for one recognized device;
         a manual retry is also available. Neither mode runs ADB services.
+        An auth=PUBLIC_KEY result means the key was offered in that session. Only
+        auth=SIGNATURE on a later connection shows that the device accepted its signature.
     """.trimIndent() + "\n"
 
     private fun environment() = buildString {
@@ -150,7 +152,7 @@ class DiagnosticArchive(context: Context, private val journal: DiagnosticJournal
             val interfaces = UsbInterfaceScanner.scan(device)
             appendLine("  Recognized USB interfaces: ${interfaces.size}")
             interfaces.forEach { appendLine("    ${UsbInterfaceScanner.describe(it)}") }
-            appendLine("  ADB authorization: not established by this snapshot (see events.log for optional CNXN/AUTH probe)")
+            appendLine("  ADB authorization: descriptors alone cannot show it; see events.log for the connection result")
         } catch (error: RuntimeException) {
             journal.recordFailure("USB interface classification failed", error)
             appendLine("  USB interface classification failed: ${error.javaClass.simpleName}")

@@ -6,6 +6,8 @@ import android.hardware.usb.UsbManager
 import com.ncorror.nekoflash.pro.adb.AdbHandshakeProbe
 import com.ncorror.nekoflash.pro.adb.AdbHandshakeResult
 import com.ncorror.nekoflash.pro.adb.AdbAuthorizationSession
+import com.ncorror.nekoflash.pro.adb.AdbAuthenticationPath
+import com.ncorror.nekoflash.pro.model.AdbProbeKind
 import com.ncorror.nekoflash.pro.model.AdbProbePhase
 import com.ncorror.nekoflash.pro.model.AdbProbeState
 import com.ncorror.nekoflash.pro.model.UsbDeviceSummary
@@ -49,7 +51,9 @@ class AdbProbeController(
         val event = if (authorize) "ADB authorization" else "ADB CNXN"
         record("$event requested for VID=${summary.vendorId.toString(16)} " +
             "PID=${summary.productId.toString(16)} id=${summary.deviceId}")
-        publish(summary.state(if (authorize) AdbProbePhase.AUTHORIZING else AdbProbePhase.RUNNING))
+        val kind = if (authorize) AdbProbeKind.CONNECTION else AdbProbeKind.FIRST_REPLY
+        publish(summary.state(if (authorize) AdbProbePhase.AUTHORIZING else AdbProbePhase.RUNNING,
+            kind = kind))
         Thread({
             val result = try {
                 val device = manager.deviceList[summary.key]?.takeIf {
@@ -76,23 +80,26 @@ class AdbProbeController(
                 }
                 val answer = if (key == null) AdbHandshakeProbe(session).read()
                 else AdbAuthorizationSession(session, key).connect {
-                    record("ADB authorization awaiting device confirmation")
+                    record("ADB signature not accepted; public key offered; awaiting device confirmation")
                     activity.runOnUiThread {
                         if (synchronized(lock) { !cancelled && generation == currentGeneration }) {
-                            publish(summary.state(AdbProbePhase.WAITING_CONFIRMATION))
+                            publish(summary.state(AdbProbePhase.WAITING_CONFIRMATION, kind = kind))
                         }
                     }
                 }
                 when (answer) {
                     is AdbHandshakeResult.Connected -> summary.state(
                         AdbProbePhase.CONNECTED, answer.protocolVersion, answer.maxData,
+                        kind, answer.authentication,
                     )
-                    AdbHandshakeResult.AuthorizationRequired -> summary.state(AdbProbePhase.AUTH_REQUIRED)
-                    AdbHandshakeResult.TlsRequired -> summary.state(AdbProbePhase.TLS_REQUIRED)
+                    AdbHandshakeResult.AuthorizationRequired -> summary.state(AdbProbePhase.AUTH_REQUIRED,
+                        kind = kind)
+                    AdbHandshakeResult.TlsRequired -> summary.state(AdbProbePhase.TLS_REQUIRED,
+                        kind = kind)
                 }
             } catch (error: Exception) {
                 record("$event failed: ${error.javaClass.simpleName}: ${safeText(error.message.orEmpty())}")
-                summary.state(AdbProbePhase.FAILED)
+                summary.state(AdbProbePhase.FAILED, kind = kind)
             }
             val (shouldPublish, next) = synchronized(lock) {
                 transport = null
@@ -104,7 +111,8 @@ class AdbProbeController(
             if (shouldPublish) {
                 record("$event result=${result.phase}" +
                     (if (result.phase == AdbProbePhase.CONNECTED)
-                        " version=${result.protocolVersion?.toString(16)} maxData=${result.maxData}" else ""))
+                        " version=${result.protocolVersion?.toString(16)} maxData=${result.maxData}" +
+                            (result.authentication?.let { " auth=${it.name}" } ?: "") else ""))
                 activity.runOnUiThread {
                     if (synchronized(lock) { !cancelled && generation == currentGeneration }) {
                         publish(result)
@@ -135,8 +143,13 @@ class AdbProbeController(
         }
     }
 
-    private fun UsbDeviceSummary.state(phase: AdbProbePhase, version: Long? = null, maxData: Long? = null) =
-        AdbProbeState(key, deviceId, vendorId, productId, phase, version, maxData)
+    private fun UsbDeviceSummary.state(
+        phase: AdbProbePhase,
+        version: Long? = null,
+        maxData: Long? = null,
+        kind: AdbProbeKind = AdbProbeKind.CONNECTION,
+        authentication: AdbAuthenticationPath? = null,
+    ) = AdbProbeState(key, deviceId, vendorId, productId, phase, version, maxData, kind, authentication)
 
     private fun safeText(value: String): String = value
         .replace(Regex("[\\p{Cntrl}]+"), " ")
