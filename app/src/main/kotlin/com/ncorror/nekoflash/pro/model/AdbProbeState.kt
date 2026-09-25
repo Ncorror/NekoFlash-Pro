@@ -1,6 +1,8 @@
 package com.ncorror.nekoflash.pro.model
 
-enum class AdbProbePhase { RUNNING, CONNECTED, AUTH_REQUIRED, TLS_REQUIRED, FAILED }
+enum class AdbProbePhase {
+    RUNNING, AUTHORIZING, WAITING_CONFIRMATION, CONNECTED, AUTH_REQUIRED, TLS_REQUIRED, FAILED,
+}
 
 data class AdbProbeState(
     val deviceKey: String,

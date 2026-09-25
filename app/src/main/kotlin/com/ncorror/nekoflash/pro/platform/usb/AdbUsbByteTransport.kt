@@ -13,12 +13,13 @@ import com.ncorror.nekoflash.pro.transport.UsbWireProtocol
 import java.io.IOException
 import java.util.concurrent.atomic.AtomicBoolean
 
-/** A short-lived owner of one ADB bulk interface; reads only the first bounded reply. */
+/** A short-lived owner of one ADB bulk interface; transfers bounded ADB packets. */
 class AdbUsbByteTransport private constructor(
     private val connection: UsbDeviceConnection,
     private val usbInterface: UsbInterface,
     private val input: UsbEndpoint,
     private val output: UsbEndpoint,
+    private val isAttached: () -> Boolean,
 ) : AdbByteTransport {
     private val closed = AtomicBoolean(false)
 
@@ -35,14 +36,26 @@ class AdbUsbByteTransport private constructor(
     }
 
     override fun readExact(length: Int): ByteArray {
+        return readBytes(length, TIMEOUT_MS, allowUsbPollTimeouts = false)
+    }
+
+    override fun readExactAwaitingApproval(length: Int): ByteArray =
+        readBytes(length, APPROVAL_TIMEOUT_MS, allowUsbPollTimeouts = true)
+
+    private fun readBytes(length: Int, timeoutMs: Int, allowUsbPollTimeouts: Boolean): ByteArray {
         check(!closed.get()) { "ADB USB session is closed" }
         require(length in 0..MAX_BYTES)
         val buffer = ByteArray(length)
-        val deadline = SystemClock.elapsedRealtime() + TIMEOUT_MS
+        val deadline = SystemClock.elapsedRealtime() + timeoutMs
         var offset = 0
         while (offset < length) {
-            val count = connection.bulkTransfer(input, buffer, offset, length - offset, remaining(deadline))
-            if (count <= 0) throw IOException("ADB USB read failed or timed out ($count)")
+            if (closed.get() || !isAttached()) throw IOException("ADB USB session closed or device disconnected")
+            val count = connection.bulkTransfer(input, buffer, offset, length - offset,
+                minOf(remaining(deadline), POLL_TIMEOUT_MS))
+            if (count <= 0) {
+                if (allowUsbPollTimeouts && !closed.get() && isAttached()) continue
+                throw IOException("ADB USB read failed or timed out ($count)")
+            }
             offset += count
         }
         return buffer
@@ -66,6 +79,8 @@ class AdbUsbByteTransport private constructor(
 
     companion object {
         private const val TIMEOUT_MS = 4000
+        private const val APPROVAL_TIMEOUT_MS = 120_000
+        private const val POLL_TIMEOUT_MS = 1000
         private const val MAX_BYTES = 4096
 
         /** Claim only an unambiguous ADB interface; never change USB configuration. */
@@ -87,7 +102,9 @@ class AdbUsbByteTransport private constructor(
                 if (!connection.claimInterface(usbInterface, false)) {
                     throw IOException("Android could not claim the ADB USB interface")
                 }
-                return AdbUsbByteTransport(connection, usbInterface, input, output)
+                return AdbUsbByteTransport(connection, usbInterface, input, output) {
+                    manager.deviceList[device.deviceName]?.deviceId == device.deviceId
+                }
             } catch (failure: Exception) {
                 connection.close()
                 throw failure

@@ -92,8 +92,19 @@ class MainActivity : ComponentActivity() {
                     onProbeAdb = { device ->
                         if (probeState?.phase != FastbootProbePhase.RUNNING) adbProbeController.probe(device)
                     },
+                    onAuthorizeAdb = { device ->
+                        if (probeState?.phase != FastbootProbePhase.RUNNING) adbProbeController.authorize(device)
+                    },
+                    onCancelAdbAuthorization = {
+                        diagnostics.record("User cancelled ADB authorization")
+                        adbProbeController.cancel()
+                        adbProbeState = null
+                    },
                     onProbeFastboot = { device, variable ->
-                        if (adbProbeState?.phase != AdbProbePhase.RUNNING) probeController.probe(device, variable)
+                        if (adbProbeState?.phase !in setOf(AdbProbePhase.RUNNING,
+                                AdbProbePhase.AUTHORIZING, AdbProbePhase.WAITING_CONFIRMATION)) {
+                            probeController.probe(device, variable)
+                        }
                     },
                     onSaveLog = {
                         exportNotice = null

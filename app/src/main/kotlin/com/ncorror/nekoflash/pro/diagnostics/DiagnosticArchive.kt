@@ -39,11 +39,13 @@ class DiagnosticArchive(context: Context, private val journal: DiagnosticJournal
         events.log: recent app/USB events and explicit ADB/Fastboot probe results,
                     at most 256 KiB, timestamps in UTC.
 
-        The archive does not list USB serial numbers, ADB banners/tokens, device file paths or device contents.
+        The archive does not list USB serial numbers, ADB keys/signatures/banners/tokens,
+        device file paths or device contents.
         It does not include Android system logcat; review exception messages before sharing.
         A USB signature and bulk endpoints do not prove ADB authorization or connectivity;
-        inspect events.log for an optional, short-lived CNXN/AUTH diagnostic response.
-        No ADB keys or service commands are sent by the diagnostic probe.
+        inspect events.log for the explicit ADB response check or authorization result.
+        The first-reply check sends no keys. The separate authorization button sends a host key
+        and waits for the connected device to confirm it. Neither mode runs ADB services.
     """.trimIndent() + "\n"
 
     private fun environment() = buildString {

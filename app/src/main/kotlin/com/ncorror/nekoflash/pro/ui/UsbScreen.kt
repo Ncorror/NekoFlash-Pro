@@ -46,6 +46,8 @@ fun UsbScreen(
     onRefresh: () -> Unit,
     onRequestAccess: (String) -> Unit,
     onProbeAdb: (UsbDeviceSummary) -> Unit,
+    onAuthorizeAdb: (UsbDeviceSummary) -> Unit,
+    onCancelAdbAuthorization: () -> Unit,
     onProbeFastboot: (UsbDeviceSummary, FastbootVariable) -> Unit,
     onSaveLog: () -> Unit,
     onSaveArchive: () -> Unit,
@@ -132,7 +134,8 @@ fun UsbScreen(
             )
         }
         snapshot.devices.forEach { device ->
-            UsbDeviceCard(device, adbProbeState, probeState, onRequestAccess, onProbeAdb, onProbeFastboot)
+            UsbDeviceCard(device, adbProbeState, probeState, onRequestAccess, onProbeAdb,
+                onAuthorizeAdb, onCancelAdbAuthorization, onProbeFastboot)
         }
         Surface(
             modifier = Modifier.fillMaxWidth(),
@@ -187,6 +190,8 @@ private fun UsbDeviceCard(
     probeState: FastbootProbeState?,
     onRequestAccess: (String) -> Unit,
     onProbeAdb: (UsbDeviceSummary) -> Unit,
+    onAuthorizeAdb: (UsbDeviceSummary) -> Unit,
+    onCancelAdbAuthorization: () -> Unit,
     onProbeFastboot: (UsbDeviceSummary, FastbootVariable) -> Unit,
 ) {
     val palette = MaterialTheme.colorScheme
@@ -254,7 +259,8 @@ private fun UsbDeviceCard(
                     Text(stringResource(R.string.usb_request_permission))
                 }
             }
-            val probeBusy = adbProbeState?.phase == AdbProbePhase.RUNNING ||
+            val probeBusy = adbProbeState?.phase in setOf(AdbProbePhase.RUNNING,
+                AdbProbePhase.AUTHORIZING, AdbProbePhase.WAITING_CONFIRMATION) ||
                 probeState?.phase == FastbootProbePhase.RUNNING
             val canProbeAdb = device.accessGranted && device.interfaces.count {
                 it.protocol == UsbWireProtocol.ADB && it.bulkPairAvailable && it.configurationIndex == 0
@@ -268,12 +274,27 @@ private fun UsbDeviceCard(
                 ) {
                     Text(stringResource(R.string.adb_probe_button))
                 }
+                Text(
+                    text = stringResource(R.string.adb_authorize_hint),
+                    color = palette.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                OutlinedButton(
+                    onClick = { onAuthorizeAdb(device) },
+                    enabled = !probeBusy,
+                    border = BorderStroke(1.dp, palette.primary),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = palette.primary),
+                ) {
+                    Text(stringResource(R.string.adb_authorize_button))
+                }
             }
             val currentAdb = adbProbeState?.takeIf { it.matches(device) }
             if (currentAdb != null) {
                 Text(
                     text = when (currentAdb.phase) {
                         AdbProbePhase.RUNNING -> stringResource(R.string.adb_probe_running)
+                        AdbProbePhase.AUTHORIZING -> stringResource(R.string.adb_authorizing)
+                        AdbProbePhase.WAITING_CONFIRMATION -> stringResource(R.string.adb_waiting_confirmation)
                         AdbProbePhase.CONNECTED -> stringResource(
                             R.string.adb_probe_connected,
                             currentAdb.protocolVersion?.let { "0x${it.toString(16).padStart(8, '0')}" } ?: "?",
@@ -286,6 +307,16 @@ private fun UsbDeviceCard(
                     color = palette.secondary,
                     style = MaterialTheme.typography.bodyMedium,
                 )
+                if (currentAdb.phase == AdbProbePhase.AUTHORIZING ||
+                    currentAdb.phase == AdbProbePhase.WAITING_CONFIRMATION) {
+                    OutlinedButton(
+                        onClick = onCancelAdbAuthorization,
+                        border = BorderStroke(1.dp, palette.primary),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = palette.primary),
+                    ) {
+                        Text(stringResource(R.string.adb_cancel_authorization))
+                    }
+                }
             }
             val canProbe = device.accessGranted && device.interfaces.count {
                 it.protocol == UsbWireProtocol.FASTBOOT && it.bulkPairAvailable &&
@@ -360,6 +391,8 @@ private fun UsbScreenPreview() {
             onRefresh = {},
             onRequestAccess = {},
             onProbeAdb = {},
+            onAuthorizeAdb = {},
+            onCancelAdbAuthorization = {},
             onProbeFastboot = { _, _ -> },
             onSaveLog = {},
             onSaveArchive = {},

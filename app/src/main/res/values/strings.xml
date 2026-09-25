@@ -4,7 +4,7 @@
     <string name="usb_eyebrow">DEVICE ACCESS</string>
     <string name="usb_preview_title">Technical preview</string>
     <string name="usb_section_title">USB devices</string>
-    <string name="prototype_status">Technical preview: USB discovery, an ADB first-reply check and two fixed Fastboot information queries. ADB authorization, services and flashing are unavailable.</string>
+    <string name="prototype_status">Technical preview: USB discovery, an ADB first-reply check, separate ADB authorization and two fixed Fastboot information queries. ADB commands and flashing are unavailable.</string>
     <string name="usb_refresh">Refresh USB devices</string>
     <string name="usb_hint">Connect a device with a USB OTG cable, then refresh the list.</string>
     <string name="usb_host_unsupported">USB host mode is unavailable on this phone.</string>
@@ -20,7 +20,12 @@
     <string name="usb_interface_inspection_failed">Could not inspect USB interfaces. Save a diagnostic ZIP.</string>
     <string name="adb_probe_button">Check ADB response</string>
     <string name="adb_probe_running">Waiting for the first ADB reply…</string>
-    <string name="adb_probe_connected">ADB replied CNXN: version %1$s, maxData %2$d. Diagnostic session closed.</string>
+    <string name="adb_authorize_hint">When pressed, the app sends an ADB key. Confirm the USB debugging prompt on the connected device. No commands will be run.</string>
+    <string name="adb_authorize_button">Authorize ADB</string>
+    <string name="adb_cancel_authorization">Cancel waiting</string>
+    <string name="adb_authorizing">Preparing the key and exchanging ADB messages…</string>
+    <string name="adb_waiting_confirmation">Key sent. Confirm USB debugging on the connected device (up to 2 minutes), or cancel waiting.</string>
+    <string name="adb_probe_connected">ADB replied CNXN: version %1$s, maxData %2$d. Connection established; session closed.</string>
     <string name="adb_probe_auth_required">ADB replied AUTH: key authorization is required. This check does not send keys or trigger an authorization prompt.</string>
     <string name="adb_probe_tls_required">ADB requested TLS. This check does not negotiate TLS.</string>
     <string name="adb_probe_failed">ADB exchange failed. Save a diagnostic ZIP.</string>
@@ -39,7 +44,7 @@
     <string name="usb_device_changed">USB device list changed.</string>
     <string name="usb_device_disconnected">The USB device was disconnected.</string>
     <string name="diagnostics_title">Diagnostics</string>
-    <string name="diagnostics_hint">After checking the connection, save a ZIP with app events, Android details and USB interface descriptors. ADB tokens, device banners and serial numbers are not saved.</string>
+    <string name="diagnostics_hint">After checking the connection, save a ZIP with app events, Android details and USB interface descriptors. ADB keys and tokens, device banners and serial numbers are not saved.</string>
     <string name="diagnostics_save_archive">Save diagnostic ZIP</string>
     <string name="diagnostics_save">Save events as TXT</string>
     <string name="diagnostics_saved">Diagnostic file saved. You can attach it to a message.</string>

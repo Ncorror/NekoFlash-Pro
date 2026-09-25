@@ -5,13 +5,14 @@ import android.content.Context
 import android.hardware.usb.UsbManager
 import com.ncorror.nekoflash.pro.adb.AdbHandshakeProbe
 import com.ncorror.nekoflash.pro.adb.AdbHandshakeResult
+import com.ncorror.nekoflash.pro.adb.AdbAuthorizationSession
 import com.ncorror.nekoflash.pro.model.AdbProbePhase
 import com.ncorror.nekoflash.pro.model.AdbProbeState
 import com.ncorror.nekoflash.pro.model.UsbDeviceSummary
 import com.ncorror.nekoflash.pro.transport.UsbWireProtocol
 import java.io.IOException
 
-/** Explicit one-reply diagnostic. It does not generate keys or authorize ADB. */
+/** Read-only first-reply check and a separate, user-initiated ADB authorization. */
 class AdbProbeController(
     private val activity: Activity,
     private val record: (String) -> Unit,
@@ -24,7 +25,11 @@ class AdbProbeController(
     private var generation = 0L
     private var transport: AdbUsbByteTransport? = null
 
-    fun probe(summary: UsbDeviceSummary) {
+    fun probe(summary: UsbDeviceSummary) = start(summary, authorize = false)
+
+    fun authorize(summary: UsbDeviceSummary) = start(summary, authorize = true)
+
+    private fun start(summary: UsbDeviceSummary, authorize: Boolean) {
         val currentGeneration = synchronized(lock) {
             if (active) {
                 record("ADB probe already running or closing")
@@ -34,9 +39,10 @@ class AdbProbeController(
             cancelled = false
             ++generation
         }
-        record("ADB CNXN requested for VID=${summary.vendorId.toString(16)} " +
+        val event = if (authorize) "ADB authorization" else "ADB CNXN"
+        record("$event requested for VID=${summary.vendorId.toString(16)} " +
             "PID=${summary.productId.toString(16)} id=${summary.deviceId}")
-        publish(summary.state(AdbProbePhase.RUNNING))
+        publish(summary.state(if (authorize) AdbProbePhase.AUTHORIZING else AdbProbePhase.RUNNING))
         Thread({
             val result = try {
                 val device = manager.deviceList[summary.key]?.takeIf {
@@ -48,6 +54,10 @@ class AdbProbeController(
                     it.protocol == UsbWireProtocol.ADB && it.bulkPairAvailable && it.configurationIndex == 0
                 }
                 if (matches.size != 1) throw IOException("Expected exactly one usable ADB interface")
+                val key = if (authorize) AdbKeystoreHostKey.getOrCreate() else null
+                if (synchronized(lock) { cancelled || generation != currentGeneration }) {
+                    throw IOException("ADB request cancelled")
+                }
                 val session = AdbUsbByteTransport.open(manager, device, matches.single())
                 val stopRequested = synchronized(lock) {
                     if (!cancelled) transport = session
@@ -57,7 +67,16 @@ class AdbProbeController(
                     session.close()
                     throw IOException("ADB probe cancelled")
                 }
-                when (val answer = AdbHandshakeProbe(session).read()) {
+                val answer = if (key == null) AdbHandshakeProbe(session).read()
+                else AdbAuthorizationSession(session, key).connect {
+                    record("ADB authorization awaiting device confirmation")
+                    activity.runOnUiThread {
+                        if (synchronized(lock) { !cancelled && generation == currentGeneration }) {
+                            publish(summary.state(AdbProbePhase.WAITING_CONFIRMATION))
+                        }
+                    }
+                }
+                when (answer) {
                     is AdbHandshakeResult.Connected -> summary.state(
                         AdbProbePhase.CONNECTED, answer.protocolVersion, answer.maxData,
                     )
@@ -65,7 +84,7 @@ class AdbProbeController(
                     AdbHandshakeResult.TlsRequired -> summary.state(AdbProbePhase.TLS_REQUIRED)
                 }
             } catch (error: Exception) {
-                record("ADB CNXN failed: ${error.javaClass.simpleName}: ${safeText(error.message.orEmpty())}")
+                record("$event failed: ${error.javaClass.simpleName}: ${safeText(error.message.orEmpty())}")
                 summary.state(AdbProbePhase.FAILED)
             }
             val shouldPublish = synchronized(lock) {
@@ -74,7 +93,7 @@ class AdbProbeController(
                 !cancelled && generation == currentGeneration
             }
             if (shouldPublish) {
-                record("ADB CNXN result=${result.phase}" +
+                record("$event result=${result.phase}" +
                     (if (result.phase == AdbProbePhase.CONNECTED)
                         " version=${result.protocolVersion?.toString(16)} maxData=${result.maxData}" else ""))
                 activity.runOnUiThread {
