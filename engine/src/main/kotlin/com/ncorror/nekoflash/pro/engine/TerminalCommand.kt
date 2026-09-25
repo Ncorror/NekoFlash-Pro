@@ -44,6 +44,8 @@ sealed interface FastbootCommand {
     data class Fetch(val partition: String, val destination: String) : FastbootCommand
     data class SetActive(val slot: String?) : FastbootCommand
     data class DeviceQuery(val query: String, val argument: String?) : FastbootCommand
+    /** A desktop getvar request, distinct from an explicitly supplied raw wire request. */
+    data class Getvar(val variable: String) : FastbootCommand
     data class Wire(val payload: String) : FastbootCommand
     data object LocalStatus : FastbootCommand
     data class Devices(val longFormat: Boolean) : FastbootCommand

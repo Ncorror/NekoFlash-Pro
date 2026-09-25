@@ -136,7 +136,7 @@ class TerminalParser {
                 FastbootCommand.UpdateSuper(operands[0], operands.size == 2)
             op == "fetch" && requireSize(2..2) -> FastbootCommand.Fetch(operands[0], operands[1])
             (op == "set_active" || op == "set-active") && requireSize(1..1) -> FastbootCommand.SetActive(operands[0])
-            op == "getvar" && requireSize(0..1) -> FastbootCommand.Wire("getvar:${operands.firstOrNull() ?: "all"}")
+            op == "getvar" && requireSize(0..1) -> FastbootCommand.Getvar(operands.firstOrNull() ?: "all")
             op == "reboot" && requireSize(0..1) -> {
                 val target = operands.firstOrNull()
                 val wire = when (target) {

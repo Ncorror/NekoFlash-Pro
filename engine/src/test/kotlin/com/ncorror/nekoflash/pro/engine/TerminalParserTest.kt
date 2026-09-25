@@ -137,6 +137,9 @@ class TerminalParserTest {
 
     @Test
     fun explicitRawIsPreservedLiterally() {
+        assertEquals(FastbootCommand.Getvar("product"), fastboot("fastboot getvar product").command)
+        assertEquals(FastbootCommand.Getvar("all"), fastboot("fastboot getvar").command)
+        assertEquals(FastbootCommand.Wire("getvar:product"), fastboot("fastboot raw getvar:product").command)
         assertEquals(FastbootCommand.Wire("oem special:token --strange"),
             fastboot("fastboot raw oem special:token --strange").command)
         assertEquals(AdbCommand.Service("shell:echo 'a b'"),
