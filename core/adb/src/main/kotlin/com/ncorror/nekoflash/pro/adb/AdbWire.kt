@@ -5,7 +5,11 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
 /** A bounded ADB packet codec. Payloads never leave the calling session for diagnostics. */
-internal class AdbWire(private val transport: AdbByteTransport) {
+internal class AdbWire(
+    private val transport: AdbByteTransport,
+    private val maxIncomingPayload: Int = MAX_DATA,
+) {
+    init { require(maxIncomingPayload in MAX_DATA..MAX_NEGOTIATED_DATA) }
     data class Packet(val command: Int, val arg0: Int, val arg1: Int, val payload: ByteArray)
 
     fun sendHello() = send(CNXN, VERSION, MAX_DATA, "host::".toByteArray(Charsets.US_ASCII))
@@ -32,7 +36,7 @@ internal class AdbWire(private val transport: AdbByteTransport) {
         val checksum = fields.int
         val magic = fields.int
         if (magic != command.inv()) throw AdbProtocolException("Invalid ADB header magic")
-        if (length !in 0..MAX_DATA) throw AdbProtocolException("ADB reply exceeds 4096 bytes")
+        if (length !in 0..maxIncomingPayload) throw AdbProtocolException("ADB reply exceeds negotiated limit")
         val payload = transport.readExact(length)
         if (payload.size != length) throw AdbProtocolException("Short ADB payload")
         // ADB 1.1 may omit the checksum; validate it whenever it is present.
@@ -66,6 +70,7 @@ internal class AdbWire(private val transport: AdbByteTransport) {
     companion object {
         const val HEADER_SIZE = 24
         const val MAX_DATA = 4096
+        const val MAX_NEGOTIATED_DATA = 256 * 1024
         const val TOKEN_SIZE = 20
         const val AUTH_TOKEN = 1
         const val AUTH_SIGNATURE = 2

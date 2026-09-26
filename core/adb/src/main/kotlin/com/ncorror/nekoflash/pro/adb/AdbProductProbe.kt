@@ -13,7 +13,8 @@ class AdbProductProbe(private val transport: AdbByteTransport, private val key: 
     fun read(onAwaitingApproval: () -> Unit): AdbProductResult = transport.use { session ->
         when (val connection = AdbAuthorizationSession(session, key).handshake(onAwaitingApproval)) {
             is AdbHandshakeResult.Connected -> {
-                val wire = AdbWire(session)
+                val wire = AdbWire(session, connection.maxData.coerceAtMost(
+                    AdbWire.MAX_NEGOTIATED_DATA.toLong()).toInt())
                 wire.send(AdbWire.OPEN, LOCAL_ID, 0, SERVICE)
                 val output = ByteArrayOutputStream()
                 var remoteId = 0

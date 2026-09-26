@@ -108,6 +108,18 @@ class AdbProductProbeTest {
     }
 
     @Test
+    fun largerNegotiatedMaxDataIsAcceptedButPropertyOutputStaysBounded() {
+        val huge = "x".repeat(5000)
+        val fake = FakeTransport(*(packet(AdbWire.CNXN, AdbWire.VERSION, 8192) + opened() +
+            packet(AdbWire.WRTE, 2, 1, huge)).toTypedArray())
+        val failure = assertFailsWith<AdbProtocolException> {
+            AdbProductProbe(fake, FakeKey()).read {}
+        }
+        assertEquals("Invalid ADB property stream packet", failure.message)
+        assertTrue(fake.closed)
+    }
+
+    @Test
     fun tlsStopsBeforeOpeningService() {
         val fake = FakeTransport(*packet(AdbWire.STLS, 0, 0).toTypedArray())
         assertEquals(AdbProductResult.TlsRequired, AdbProductProbe(fake, FakeKey()).read {})

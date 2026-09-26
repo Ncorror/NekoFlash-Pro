@@ -44,19 +44,20 @@ class AdbUsbByteTransport private constructor(
 
     private fun readBytes(length: Int, timeoutMs: Int, allowUsbPollTimeouts: Boolean): ByteArray {
         check(!closed.get()) { "ADB USB session is closed" }
-        require(length in 0..MAX_BYTES)
+        require(length in 0..MAX_READ_BYTES)
         val buffer = ByteArray(length)
-        val deadline = SystemClock.elapsedRealtime() + timeoutMs
+        var deadline = SystemClock.elapsedRealtime() + timeoutMs
         var offset = 0
         while (offset < length) {
             if (closed.get() || !isAttached()) throw IOException("ADB USB session closed or device disconnected")
-            val count = connection.bulkTransfer(input, buffer, offset, length - offset,
+            val count = connection.bulkTransfer(input, buffer, offset, minOf(length - offset, READ_CHUNK_BYTES),
                 minOf(remaining(deadline), POLL_TIMEOUT_MS))
             if (count <= 0) {
                 if (allowUsbPollTimeouts && !closed.get() && isAttached()) continue
                 throw IOException("ADB USB read failed or timed out ($count)")
             }
             offset += count
+            deadline = SystemClock.elapsedRealtime() + timeoutMs
         }
         return buffer
     }
@@ -82,6 +83,8 @@ class AdbUsbByteTransport private constructor(
         private const val APPROVAL_TIMEOUT_MS = 120_000
         private const val POLL_TIMEOUT_MS = 1000
         private const val MAX_BYTES = 4096
+        private const val READ_CHUNK_BYTES = 16 * 1024
+        private const val MAX_READ_BYTES = 256 * 1024
 
         /** Claim only an unambiguous ADB interface; never change USB configuration. */
         fun open(manager: UsbManager, device: UsbDevice, detection: UsbInterfaceDetection): AdbUsbByteTransport {
