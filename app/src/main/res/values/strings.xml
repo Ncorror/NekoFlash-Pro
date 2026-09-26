@@ -72,6 +72,8 @@
     <string name="fastboot_flash_rejected">The device refused the download or partition write. Save a diagnostic ZIP.</string>
     <string name="fastboot_flash_too_large">This image exceeds the device download limit; no write command was sent.</string>
     <string name="fastboot_flash_limit_unknown">Could not read the device download limit; no write command was sent.</string>
+    <string name="fastboot_flash_partition_too_small">The image exceeds the device partition size. No data was transferred or written.</string>
+    <string name="fastboot_flash_partition_unknown">Could not read the device partition size. No data was transferred or written.</string>
     <string name="fastboot_flash_sparse">Android sparse images are not supported by this operation; no write command was sent.</string>
     <string name="fastboot_flash_invalid_data">The DATA reply size or format was unexpected. No bytes were sent and no partition was written. Save the ZIP and wait for diagnosis before retrying.</string>
     <string name="fastboot_flash_failed">Fastboot transfer failed or the file changed. Save a diagnostic ZIP.</string>

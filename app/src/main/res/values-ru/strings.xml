@@ -72,6 +72,8 @@
     <string name="fastboot_flash_rejected">Устройство отклонило загрузку или запись раздела. Сохраните диагностический ZIP.</string>
     <string name="fastboot_flash_too_large">Размер образа превышает лимит устройства; команда записи не отправлена.</string>
     <string name="fastboot_flash_limit_unknown">Лимит загрузки устройства неизвестен; команда записи не отправлена.</string>
+    <string name="fastboot_flash_partition_too_small">Образ больше раздела устройства. Передача и запись не начинались.</string>
+    <string name="fastboot_flash_partition_unknown">Не удалось прочитать размер раздела устройства. Передача и запись не начинались.</string>
     <string name="fastboot_flash_sparse">Android sparse образ этим действием пока не поддерживается; команда записи не отправлена.</string>
     <string name="fastboot_flash_invalid_data">Размер в ответе DATA не совпал с запросом или формат ответа неверен. Отправлено 0 байт, раздел не записывался. Сохраните ZIP и не повторяйте запись до разбора ошибки.</string>
     <string name="fastboot_flash_failed">Сбой передачи Fastboot или файл изменился. Сохраните диагностический ZIP.</string>

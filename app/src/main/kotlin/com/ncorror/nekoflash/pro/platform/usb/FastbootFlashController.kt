@@ -100,6 +100,7 @@ class FastbootFlashController(
                 safeDetail = when (answer) {
                     is FastbootFlashResult.DeviceRejected -> " stage=${answer.stage}"
                     is FastbootFlashResult.TooLarge -> " limit=${answer.limit}"
+                    is FastbootFlashResult.TooLargeForPartition -> " partitionSize=${answer.partitionSize}"
                     else -> ""
                 }
                 when (answer) {
@@ -109,6 +110,10 @@ class FastbootFlashController(
                         phase = FastbootFlashPhase.REJECTED, sentBytes = bytesSent)
                     is FastbootFlashResult.TooLarge -> running.copy(phase = FastbootFlashPhase.TOO_LARGE)
                     FastbootFlashResult.MissingDownloadLimit -> running.copy(phase = FastbootFlashPhase.LIMIT_UNKNOWN)
+                    is FastbootFlashResult.TooLargeForPartition -> running.copy(
+                        phase = FastbootFlashPhase.PARTITION_TOO_SMALL)
+                    FastbootFlashResult.MissingPartitionSize -> running.copy(
+                        phase = FastbootFlashPhase.PARTITION_SIZE_UNKNOWN)
                     FastbootFlashResult.SparseImageUnsupported -> running.copy(
                         phase = FastbootFlashPhase.SPARSE_UNSUPPORTED)
                 }

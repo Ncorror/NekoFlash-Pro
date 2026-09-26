@@ -10,14 +10,17 @@ sealed interface FastbootFlashResult {
     data class DeviceRejected(val stage: Stage, val reason: String) : FastbootFlashResult
     data class TooLarge(val size: Long, val limit: Long) : FastbootFlashResult
     data object MissingDownloadLimit : FastbootFlashResult
+    data class TooLargeForPartition(val size: Long, val partitionSize: Long) : FastbootFlashResult
+    data object MissingPartitionSize : FastbootFlashResult
     data object SparseImageUnsupported : FastbootFlashResult
     enum class Stage { DOWNLOAD, FLASH }
 }
 
 /** Report which phase failed without logging file names, Uris, or image contents. */
-enum class FastbootFlashStage { READ_LIMIT, OPEN_IMAGE, DOWNLOAD, FLASH }
+enum class FastbootFlashStage { READ_LIMIT, READ_PARTITION_SIZE, OPEN_IMAGE, DOWNLOAD, FLASH }
 
-/** One raw image: check device limit, reject sparse, stream DATA, then flash in the same session. */
+/** One raw image: check device and partition limits, reject sparse, stream DATA,
+ * then flash in the same session. Refuse to write when a size cannot be verified. */
 class FastbootFlashExecutor(private val openTransport: () -> FastbootPacketTransport) {
     fun flashRaw(
         partition: String,
@@ -37,6 +40,17 @@ class FastbootFlashExecutor(private val openTransport: () -> FastbootPacketTrans
                 is FastbootWireResult.DataPhaseRequired -> null
             } ?: return@use FastbootFlashResult.MissingDownloadLimit
             if (imageSize > limit) return@use FastbootFlashResult.TooLarge(imageSize, limit)
+
+            onStage(FastbootFlashStage.READ_PARTITION_SIZE)
+            val partitionReply = session.execute("getvar:partition-size:$partition")
+            val partitionSize = when (partitionReply) {
+                is FastbootWireResult.Okay -> parseLimit(partitionReply.message)
+                is FastbootWireResult.Fail -> null
+                is FastbootWireResult.DataPhaseRequired -> null
+            } ?: return@use FastbootFlashResult.MissingPartitionSize
+            if (imageSize > partitionSize) {
+                return@use FastbootFlashResult.TooLargeForPartition(imageSize, partitionSize)
+            }
 
             onStage(FastbootFlashStage.OPEN_IMAGE)
             val download: FastbootWireResult? = PushbackInputStream(openImage(), 4).use { source ->

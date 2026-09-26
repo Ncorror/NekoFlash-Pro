@@ -29,7 +29,8 @@ class FastbootFlashExecutorTest {
 
     @Test
     fun rawImageFlashUsesDeviceLimitAndWaitsForDownloadOkay() {
-        val fake = FakeTransport("OKAY 0x1000 \n", "DATA00000003", "OKAYdownloaded", "OKAYflashed")
+        val fake = FakeTransport("OKAY 0x1000 \n", "OKAY 0x3 \n",
+            "DATA00000003", "OKAYdownloaded", "OKAYflashed")
         var opened = 0
         val stages = mutableListOf<FastbootFlashStage>()
         val result = FastbootFlashExecutor { fake }.flashRaw("boot_a", 3, {
@@ -37,7 +38,8 @@ class FastbootFlashExecutorTest {
             ByteArrayInputStream(byteArrayOf(1, 2, 3))
         }, onStage = { stages += it })
         assertEquals(FastbootFlashResult.Finished("flashed"), result)
-        assertEquals(listOf("getvar:max-download-size", "download:00000003", "flash:boot_a"), fake.commands)
+        assertEquals(listOf("getvar:max-download-size", "getvar:partition-size:boot_a",
+            "download:00000003", "flash:boot_a"), fake.commands)
         assertEquals(listOf(3), fake.data.map(ByteArray::size))
         assertEquals(1, opened)
         assertTrue(fake.closed)
@@ -59,21 +61,54 @@ class FastbootFlashExecutorTest {
         assertEquals(listOf("getvar:max-download-size"), noLimit.commands)
         assertTrue(noLimit.closed)
 
-        val rejected = FakeTransport("OKAY100", "FAILdownload refused")
+        val rejected = FakeTransport("OKAY100", "OKAY0x4", "FAILdownload refused")
         assertEquals(FastbootFlashResult.DeviceRejected(FastbootFlashResult.Stage.DOWNLOAD, "download refused"),
             FastbootFlashExecutor { rejected }.flashRaw("boot", 3, { ByteArrayInputStream(byteArrayOf(1, 2, 3)) }))
-        assertEquals(listOf("getvar:max-download-size", "download:00000003"), rejected.commands)
+        assertEquals(listOf("getvar:max-download-size", "getvar:partition-size:boot",
+            "download:00000003"), rejected.commands)
         assertTrue(rejected.data.isEmpty() && rejected.closed)
     }
 
     @Test
+    fun missingOrSmallPartitionRefusesBeforeOpeningImageOrSendingData() {
+        val unknown = FakeTransport("OKAY100", "FAILunsupported")
+        assertEquals(FastbootFlashResult.MissingPartitionSize,
+            FastbootFlashExecutor { unknown }.flashRaw("testpart", 3,
+                { error("image must not be opened") }))
+        assertEquals(listOf("getvar:max-download-size", "getvar:partition-size:testpart"),
+            unknown.commands)
+        assertTrue(unknown.data.isEmpty() && unknown.closed)
+
+        val tooSmall = FakeTransport("OKAY100", "OKAY 0x2")
+        assertEquals(FastbootFlashResult.TooLargeForPartition(3, 2),
+            FastbootFlashExecutor { tooSmall }.flashRaw("testpart", 3,
+                { error("image must not be opened") }))
+        assertEquals(listOf("getvar:max-download-size", "getvar:partition-size:testpart"),
+            tooSmall.commands)
+        assertTrue(tooSmall.data.isEmpty() && tooSmall.closed)
+
+        val exact = FakeTransport("OKAY100", "OKAY 0x3")
+        val stages = mutableListOf<FastbootFlashStage>()
+        assertFailsWith<IllegalStateException> {
+            FastbootFlashExecutor { exact }.flashRaw("testpart", 3,
+                { error("test deliberately stops before opening the image") },
+                onStage = { stages += it })
+        }
+        assertEquals(listOf(FastbootFlashStage.READ_LIMIT, FastbootFlashStage.READ_PARTITION_SIZE,
+            FastbootFlashStage.OPEN_IMAGE), stages)
+        assertEquals(listOf("getvar:max-download-size", "getvar:partition-size:testpart"),
+            exact.commands)
+        assertTrue(exact.data.isEmpty() && exact.closed)
+    }
+
+    @Test
     fun truncatedImageOrDisconnectPreventsFlashAndClosesSession() {
-        val short = FakeTransport("OKAY100", "DATA00000003")
+        val short = FakeTransport("OKAY100", "OKAY0x3", "DATA00000003")
         assertFailsWith<EOFException> {
             FastbootFlashExecutor { short }.flashRaw("boot", 3,
                 { ByteArrayInputStream(byteArrayOf(1, 2)) })
         }
-        assertEquals(listOf("getvar:max-download-size"), short.commands)
+        assertEquals(listOf("getvar:max-download-size", "getvar:partition-size:boot"), short.commands)
         assertTrue(short.closed)
     }
 
@@ -92,23 +127,24 @@ class FastbootFlashExecutorTest {
 
     @Test
     fun sparseImageIsRejectedBeforeDownloadOrFlash() {
-        val fake = FakeTransport("OKAY0x1000")
+        val fake = FakeTransport("OKAY0x1000", "OKAY0x100")
         val sparse = byteArrayOf(0x3a, 0xff.toByte(), 0x26, 0xed.toByte(), 0)
         assertEquals(FastbootFlashResult.SparseImageUnsupported,
             FastbootFlashExecutor { fake }.flashRaw("boot", sparse.size.toLong(),
                 { ByteArrayInputStream(sparse) }))
-        assertEquals(listOf("getvar:max-download-size"), fake.commands)
+        assertEquals(listOf("getvar:max-download-size", "getvar:partition-size:boot"), fake.commands)
         assertTrue(fake.data.isEmpty() && fake.closed)
     }
 
     @Test
     fun imageGrowingAfterPickerIsRejectedBeforeFlash() {
-        val fake = FakeTransport("OKAY0x1000", "DATA00000004")
+        val fake = FakeTransport("OKAY0x1000", "OKAY0x100", "DATA00000004")
         assertFailsWith<FastbootProtocolException> {
             FastbootFlashExecutor { fake }.flashRaw("boot", 4,
                 { ByteArrayInputStream(byteArrayOf(1, 2, 3, 4, 5)) })
         }
-        assertEquals(listOf("getvar:max-download-size", "download:00000004"), fake.commands)
+        assertEquals(listOf("getvar:max-download-size", "getvar:partition-size:boot",
+            "download:00000004"), fake.commands)
         assertTrue(fake.closed)
     }
 
@@ -117,7 +153,7 @@ class FastbootFlashExecutorTest {
         val fake = FakeTransport("BORKunrecognized")
         val stages = mutableListOf<FastbootFlashStage>()
         val error = assertFailsWith<FastbootProtocolException> {
-            FastbootFlashExecutor { fake }.flashRaw("recovery", 128L * 1024 * 1024,
+            FastbootFlashExecutor { fake }.flashRaw("testpart", 8,
                 { error("image must not be opened") }, onStage = { stages += it })
         }
         assertTrue(error.message.orEmpty().contains("Unknown Fastboot status"))

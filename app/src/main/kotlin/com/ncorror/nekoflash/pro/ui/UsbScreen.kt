@@ -496,6 +496,8 @@ private fun UsbDeviceCard(
                     FastbootFlashPhase.REJECTED -> stringResource(R.string.fastboot_flash_rejected)
                     FastbootFlashPhase.TOO_LARGE -> stringResource(R.string.fastboot_flash_too_large)
                     FastbootFlashPhase.LIMIT_UNKNOWN -> stringResource(R.string.fastboot_flash_limit_unknown)
+                    FastbootFlashPhase.PARTITION_TOO_SMALL -> stringResource(R.string.fastboot_flash_partition_too_small)
+                    FastbootFlashPhase.PARTITION_SIZE_UNKNOWN -> stringResource(R.string.fastboot_flash_partition_unknown)
                     FastbootFlashPhase.SPARSE_UNSUPPORTED -> stringResource(R.string.fastboot_flash_sparse)
                     FastbootFlashPhase.INVALID_DATA_REPLY -> stringResource(R.string.fastboot_flash_invalid_data)
                     FastbootFlashPhase.FAILED -> stringResource(R.string.fastboot_flash_failed)
