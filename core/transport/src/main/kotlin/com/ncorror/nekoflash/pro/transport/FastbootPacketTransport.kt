@@ -7,5 +7,7 @@ interface FastbootPacketTransport : AutoCloseable {
     fun writePacket(packet: ByteArray)
     /** DATA payload may span several USB transfers. Commands remain one packet. */
     fun writeData(bytes: ByteArray) = writePacket(bytes)
+    /** Download and flash replies may take substantially longer than diagnostic getvar replies. */
+    fun expectLongRunningOperation() = Unit
     fun readPacket(maxBytes: Int): ByteArray
 }

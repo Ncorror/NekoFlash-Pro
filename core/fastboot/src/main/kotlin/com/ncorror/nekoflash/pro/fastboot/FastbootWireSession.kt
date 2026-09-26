@@ -75,6 +75,7 @@ class FastbootWireSession(private val transport: FastbootPacketTransport) : Auto
         check(!closed) { "Fastboot session is closed" }
         require(byteCount in 1..0xffff_ffffL) { "Fastboot download size exceeds the 8-digit protocol field" }
         try {
+            transport.expectLongRunningOperation()
             transport.writePacket("download:${byteCount.toString(16).padStart(8, '0')}".toByteArray(Charsets.US_ASCII))
             var dataStarted = false
             while (true) {

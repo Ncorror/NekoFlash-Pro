@@ -62,7 +62,7 @@
     <string name="terminal_flash_confirm_action">Записать раздел</string>
     <string name="terminal_flash_cancel">Отмена</string>
     <string name="terminal_result_hint">Результат появится в карточке устройства; детали доступны в диагностическом ZIP.</string>
-    <string name="fastboot_flash_running">Запись %1$s: отправлено %2$d из %3$d байт. Не отключайте устройства.</string>
+    <string name="fastboot_flash_running">Запись %1$s: отправлено %2$d из %3$d байт. Не сворачивайте приложение и не отключайте устройства.</string>
     <string name="fastboot_flash_finished">Fastboot подтвердил запись раздела %1$s.</string>
     <string name="fastboot_flash_rejected">Устройство отклонило загрузку или запись раздела. Сохраните диагностический ZIP.</string>
     <string name="fastboot_flash_too_large">Размер образа превышает лимит устройства; команда записи не отправлена.</string>

@@ -148,10 +148,9 @@ class MainActivity : ComponentActivity() {
                 probeController.cancel()
                 probeState = null
             }
-            if (flashState?.phase == FastbootFlashPhase.RUNNING &&
-                flashState?.let { state -> snapshot.devices.none(state::matches) } == true) {
-                flashController.cancel()
-                flashState = flashState?.copy(phase = FastbootFlashPhase.CANCELLED)
+            if (flashState?.let { state -> snapshot.devices.none(state::matches) } == true) {
+                if (flashState?.phase == FastbootFlashPhase.RUNNING) flashController.cancel()
+                flashState = null
             }
             usbSnapshot = snapshot
             val candidates = snapshot.devices.map { device ->
@@ -195,10 +194,9 @@ class MainActivity : ComponentActivity() {
                 probeController.cancel()
                 probeState = null
             }
-            if (flashState?.deviceKey == key && flashState?.deviceId == id &&
-                flashState?.phase == FastbootFlashPhase.RUNNING) {
-                flashController.cancel()
-                flashState = flashState?.copy(phase = FastbootFlashPhase.CANCELLED)
+            if (flashState?.deviceKey == key && flashState?.deviceId == id) {
+                if (flashState?.phase == FastbootFlashPhase.RUNNING) flashController.cancel()
+                flashState = null
             }
         })
         setContent {

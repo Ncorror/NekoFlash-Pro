@@ -62,7 +62,7 @@
     <string name="terminal_flash_confirm_action">Write partition</string>
     <string name="terminal_flash_cancel">Cancel</string>
     <string name="terminal_result_hint">The device card shows the result; details are available in the diagnostic ZIP.</string>
-    <string name="fastboot_flash_running">Writing %1$s: sent %2$d of %3$d bytes. Keep both devices connected.</string>
+    <string name="fastboot_flash_running">Writing %1$s: sent %2$d of %3$d bytes. Keep the app open and both devices connected.</string>
     <string name="fastboot_flash_finished">Fastboot confirmed writing %1$s.</string>
     <string name="fastboot_flash_rejected">The device refused the download or partition write. Save a diagnostic ZIP.</string>
     <string name="fastboot_flash_too_large">This image exceeds the device download limit; no write command was sent.</string>

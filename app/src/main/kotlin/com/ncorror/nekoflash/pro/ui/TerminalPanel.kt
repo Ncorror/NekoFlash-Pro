@@ -38,6 +38,9 @@ import com.ncorror.nekoflash.pro.model.SelectedImage
 import com.ncorror.nekoflash.pro.transport.UsbWireProtocol
 
 /** Preview and execution share the same immutable plan captured by the button. */
+private data class PendingFlash(val step: TerminalPlanStep.FastbootFlashRaw,
+                                val device: UsbDeviceSummary)
+
 @Composable
 internal fun TerminalPanel(
     snapshot: UsbHostSnapshot,
@@ -50,7 +53,7 @@ internal fun TerminalPanel(
     var adbTab by rememberSaveable { mutableStateOf(false) }
     var adbInput by rememberSaveable { mutableStateOf("shell getprop ro.product.device") }
     var fastbootInput by rememberSaveable { mutableStateOf("getvar product") }
-    var pendingFlash by remember { mutableStateOf<TerminalPlanStep.FastbootFlashRaw?>(null) }
+    var pendingFlash by remember { mutableStateOf<PendingFlash?>(null) }
     val tool = if (adbTab) TerminalParser.Tool.ADB else TerminalParser.Tool.FASTBOOT
     val input = if (adbTab) adbInput else fastbootInput
     val compiler = remember { TerminalPlanCompiler() }
@@ -140,7 +143,7 @@ internal fun TerminalPanel(
                 onClick = {
                     if (device != null && ready != null) {
                         when (val step = ready.plan.steps.singleOrNull()) {
-                            is TerminalPlanStep.FastbootFlashRaw -> pendingFlash = step
+                            is TerminalPlanStep.FastbootFlashRaw -> pendingFlash = PendingFlash(step, device)
                             else -> onRunPlan(device, ready.plan)
                         }
                     }
@@ -159,16 +162,25 @@ internal fun TerminalPanel(
         AlertDialog(
             onDismissRequest = { pendingFlash = null },
             title = { Text(stringResource(R.string.terminal_flash_confirm_title)) },
-            text = { Text(stringResource(R.string.terminal_flash_confirm_body,
-                awaiting.partition, selectedImage?.displayName.orEmpty(), awaiting.imageSize)) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(stringResource(R.string.terminal_flash_confirm_body,
+                        awaiting.step.partition, selectedImage?.displayName.orEmpty(),
+                        awaiting.step.imageSize))
+                    Text(stringResource(R.string.usb_device_label, awaiting.device.vendorId,
+                        awaiting.device.productId, awaiting.device.deviceId))
+                }
+            },
             confirmButton = {
                 TextButton(onClick = {
                     val current = ready?.plan?.steps?.singleOrNull()
-                    if (ready != null && current == awaiting && device != null && !busy) {
+                    if (ready != null && current == awaiting.step && device != null &&
+                        device == awaiting.device && !busy) {
                         onRunPlan(device, ready.plan)
                     }
                     pendingFlash = null
-                }, enabled = ready?.plan?.steps?.singleOrNull() == awaiting && device != null && !busy) {
+                }, enabled = ready?.plan?.steps?.singleOrNull() == awaiting.step &&
+                    device == awaiting.device && !busy) {
                     Text(stringResource(R.string.terminal_flash_confirm_action))
                 }
             },

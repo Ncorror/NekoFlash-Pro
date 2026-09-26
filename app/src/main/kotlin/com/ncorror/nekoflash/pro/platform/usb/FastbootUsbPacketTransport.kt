@@ -12,7 +12,7 @@ import com.ncorror.nekoflash.pro.transport.UsbWireProtocol
 import java.io.IOException
 import java.util.concurrent.atomic.AtomicBoolean
 
-/** One short-lived owner of a claimed Fastboot interface. This probe supports small packets only. */
+/** One short-lived owner of a claimed Fastboot interface and bounded bulk transfers. */
 class FastbootUsbPacketTransport private constructor(
     private val connection: UsbDeviceConnection,
     private val usbInterface: UsbInterface,
@@ -20,6 +20,7 @@ class FastbootUsbPacketTransport private constructor(
     private val output: UsbEndpoint,
 ) : FastbootPacketTransport {
     private val closed = AtomicBoolean(false)
+    @Volatile private var replyTimeoutMs = TRANSFER_TIMEOUT_MS
 
     override fun writePacket(packet: ByteArray) {
         check(!closed.get()) { "Fastboot USB session is closed" }
@@ -39,11 +40,15 @@ class FastbootUsbPacketTransport private constructor(
         }
     }
 
+    override fun expectLongRunningOperation() {
+        replyTimeoutMs = FLASH_REPLY_TIMEOUT_MS
+    }
+
     override fun readPacket(maxBytes: Int): ByteArray {
         check(!closed.get()) { "Fastboot USB session is closed" }
         require(maxBytes in 4..MAX_REPLY_BYTES) { "Fastboot probe accepts responses up to 256 bytes" }
         val buffer = ByteArray(maxBytes)
-        val count = connection.bulkTransfer(input, buffer, buffer.size, TRANSFER_TIMEOUT_MS)
+        val count = connection.bulkTransfer(input, buffer, buffer.size, replyTimeoutMs)
         if (count < 0) throw IOException("Fastboot USB read failed or timed out ($count)")
         return buffer.copyOf(count)
     }
@@ -60,6 +65,7 @@ class FastbootUsbPacketTransport private constructor(
 
     companion object {
         private const val TRANSFER_TIMEOUT_MS = 4000
+        private const val FLASH_REPLY_TIMEOUT_MS = 300_000
         private const val MAX_COMMAND_BYTES = 4096
         private const val MAX_REPLY_BYTES = 256
 

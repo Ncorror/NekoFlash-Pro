@@ -15,9 +15,15 @@ class FastbootFlashExecutorTest {
         val commands = mutableListOf<String>()
         val data = mutableListOf<ByteArray>()
         var closed = false
+        var extendedTimeout = false
         override fun writePacket(packet: ByteArray) { check(!closed); commands += packet.toString(Charsets.US_ASCII) }
         override fun writeData(bytes: ByteArray) { check(!closed); data += bytes.copyOf() }
-        override fun readPacket(maxBytes: Int): ByteArray = incoming.removeFirst()
+        override fun expectLongRunningOperation() { extendedTimeout = true }
+        override fun readPacket(maxBytes: Int): ByteArray = incoming.removeFirst().also {
+            if (it.toString(Charsets.US_ASCII).startsWith("DATA")) {
+                check(extendedTimeout) { "Download must use the long reply timeout" }
+            }
+        }
         override fun close() { closed = true }
     }
 
@@ -34,6 +40,7 @@ class FastbootFlashExecutorTest {
         assertEquals(listOf(3), fake.data.map(ByteArray::size))
         assertEquals(1, opened)
         assertTrue(fake.closed)
+        assertTrue(fake.extendedTimeout)
     }
 
     @Test
@@ -64,7 +71,7 @@ class FastbootFlashExecutorTest {
             FastbootFlashExecutor { short }.flashRaw("boot", 3,
                 { ByteArrayInputStream(byteArrayOf(1, 2)) })
         }
-        assertEquals(listOf("getvar:max-download-size", "download:00000003"), short.commands)
+        assertEquals(listOf("getvar:max-download-size"), short.commands)
         assertTrue(short.closed)
     }
 
