@@ -118,7 +118,11 @@ class FastbootFlashController(
                     " detail=" + failure.message.orEmpty().replace(Regex("[^A-Za-z0-9 _:-]"), "?").take(96)
                 } else ""
                 record("Fastboot raw flash failed stage=$stage: ${failure.javaClass.simpleName}$protocolDetail")
-                running.copy(phase = FastbootFlashPhase.FAILED, sentBytes = bytesSent)
+                val invalidData = failure is FastbootProtocolException && bytesSent == 0L &&
+                    (failure.message.orEmpty().startsWith("Fastboot DATA size mismatch") ||
+                        failure.message.orEmpty().startsWith("Malformed Fastboot DATA reply"))
+                running.copy(phase = if (invalidData) FastbootFlashPhase.INVALID_DATA_REPLY
+                    else FastbootFlashPhase.FAILED, sentBytes = bytesSent)
             } finally {
                 val opened = synchronized(lock) {
                     val previous = transport

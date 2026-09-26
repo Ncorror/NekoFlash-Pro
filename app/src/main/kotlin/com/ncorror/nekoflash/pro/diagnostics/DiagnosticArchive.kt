@@ -46,7 +46,7 @@ class DiagnosticArchive(context: Context, private val journal: DiagnosticJournal
         inspect events.log for the explicit ADB response check or authorization result.
         The first-reply check sends no keys, so AUTH can appear even for an already trusted key.
         After USB permission, ADB authorization starts automatically for one recognized device;
-        a manual retry is also available. Neither mode runs ADB services.
+        a manual retry is also available. Connection checks do not run ADB services.
         The separate ADB product button opens a fixed read-only shell service after authorization
         in the same session and records only a short validated product code or a failure reason.
         An auth=PUBLIC_KEY result means the key was offered in that session. Only

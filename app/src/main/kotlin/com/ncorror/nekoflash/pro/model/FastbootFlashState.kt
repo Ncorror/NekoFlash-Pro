@@ -1,7 +1,8 @@
 package com.ncorror.nekoflash.pro.model
 
 enum class FastbootFlashPhase {
-    RUNNING, FINISHED, REJECTED, TOO_LARGE, LIMIT_UNKNOWN, SPARSE_UNSUPPORTED, FAILED, CANCELLED,
+    RUNNING, FINISHED, REJECTED, TOO_LARGE, LIMIT_UNKNOWN, SPARSE_UNSUPPORTED,
+    INVALID_DATA_REPLY, FAILED, CANCELLED,
 }
 
 data class FastbootFlashState(

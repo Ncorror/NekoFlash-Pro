@@ -458,6 +458,14 @@ private fun UsbDeviceCard(
                 ) {
                     Text(stringResource(R.string.fastboot_probe_limit_button))
                 }
+                OutlinedButton(
+                    onClick = { onProbeFastboot(device, FastbootVariable.RECOVERY_SIZE) },
+                    enabled = !probeBusy,
+                    border = BorderStroke(1.dp, palette.primary),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = palette.primary),
+                ) {
+                    Text(stringResource(R.string.fastboot_probe_recovery_size_button))
+                }
             }
             val currentProbe = probeState?.takeIf { it.matches(device) }
             if (currentProbe != null) {
@@ -489,6 +497,7 @@ private fun UsbDeviceCard(
                     FastbootFlashPhase.TOO_LARGE -> stringResource(R.string.fastboot_flash_too_large)
                     FastbootFlashPhase.LIMIT_UNKNOWN -> stringResource(R.string.fastboot_flash_limit_unknown)
                     FastbootFlashPhase.SPARSE_UNSUPPORTED -> stringResource(R.string.fastboot_flash_sparse)
+                    FastbootFlashPhase.INVALID_DATA_REPLY -> stringResource(R.string.fastboot_flash_invalid_data)
                     FastbootFlashPhase.FAILED -> stringResource(R.string.fastboot_flash_failed)
                     FastbootFlashPhase.CANCELLED -> stringResource(R.string.fastboot_flash_cancelled)
                 }
@@ -510,6 +519,7 @@ private fun FastbootVariable.labelId(): Int = when (this) {
     FastbootVariable.VERSION -> R.string.fastboot_variable_version
     FastbootVariable.PRODUCT -> R.string.fastboot_variable_product
     FastbootVariable.DOWNLOAD_SIZE -> R.string.fastboot_variable_limit
+    FastbootVariable.RECOVERY_SIZE -> R.string.fastboot_variable_recovery_size
 }
 
 @StringRes

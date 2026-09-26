@@ -51,6 +51,7 @@ class FastbootProbeController(
             PlannedFastbootVariable.VERSION -> FastbootVariable.VERSION
             PlannedFastbootVariable.PRODUCT -> FastbootVariable.PRODUCT
             PlannedFastbootVariable.DOWNLOAD_SIZE -> FastbootVariable.DOWNLOAD_SIZE
+            PlannedFastbootVariable.RECOVERY_SIZE -> FastbootVariable.RECOVERY_SIZE
         }
         val currentGeneration = synchronized(lock) {
             if (active) {

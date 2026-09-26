@@ -11,6 +11,7 @@ enum class FastbootVariable(val wireName: String) {
     VERSION("version"),
     PRODUCT("product"),
     DOWNLOAD_SIZE("max-download-size"),
+    RECOVERY_SIZE("partition-size:recovery"),
 }
 
 /** Each request owns and closes its transport, even when a device rejects the variable. */

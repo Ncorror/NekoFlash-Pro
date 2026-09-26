@@ -41,16 +41,18 @@
     <string name="fastboot_probe_version_button">Read Fastboot protocol version</string>
     <string name="fastboot_probe_product_button">Read Fastboot product</string>
     <string name="fastboot_probe_limit_button">Read Fastboot download limit</string>
+    <string name="fastboot_probe_recovery_size_button">Read recovery partition size</string>
     <string name="fastboot_transfer_mode">Fastboot transfer optimization is automatic: images use larger data blocks. Actual speed depends on the USB connection.</string>
     <string name="fastboot_variable_version">protocol version</string>
     <string name="fastboot_variable_product">product name</string>
     <string name="fastboot_variable_limit">maximum download size</string>
+    <string name="fastboot_variable_recovery_size">recovery partition size</string>
     <string name="fastboot_probe_running">Fastboot query (%1$s) in progress…</string>
     <string name="fastboot_probe_value">Fastboot %1$s: %2$s</string>
     <string name="fastboot_probe_rejected">Fastboot replied FAIL for %1$s: %2$s. USB exchange succeeded.</string>
     <string name="fastboot_probe_failed">USB exchange failed for %1$s. Save a diagnostic ZIP.</string>
     <string name="terminal_title">Command and preview</string>
-    <string name="terminal_hint">Review the plan first. Supported: getvar version/product/max-download-size, ADB device code and fastboot flash with an Android-selected raw image. Flashing requires a second confirmation.</string>
+    <string name="terminal_hint">Review the plan first. Supported: getvar version/product/max-download-size/partition-size:recovery, ADB device code and fastboot flash with an Android-selected raw image. Flashing requires a second confirmation.</string>
     <string name="terminal_command_label">Command</string>
     <string name="terminal_preview">Plan: %1$s</string>
     <string name="terminal_connect_hint">Connect one device in the indicated mode and allow USB access to run the plan.</string>
@@ -71,6 +73,7 @@
     <string name="fastboot_flash_too_large">This image exceeds the device download limit; no write command was sent.</string>
     <string name="fastboot_flash_limit_unknown">Could not read the device download limit; no write command was sent.</string>
     <string name="fastboot_flash_sparse">Android sparse images are not supported by this operation; no write command was sent.</string>
+    <string name="fastboot_flash_invalid_data">The DATA reply size or format was unexpected. No bytes were sent and no partition was written. Save the ZIP and wait for diagnosis before retrying.</string>
     <string name="fastboot_flash_failed">Fastboot transfer failed or the file changed. Save a diagnostic ZIP.</string>
     <string name="fastboot_flash_cancelled">Transfer interrupted. Cancellation cannot undo data already written; check the device state before trying again.</string>
     <string name="fastboot_flash_cancel">Cancel transfer</string>

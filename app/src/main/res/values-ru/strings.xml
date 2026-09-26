@@ -41,16 +41,18 @@
     <string name="fastboot_probe_version_button">Прочитать версию протокола Fastboot</string>
     <string name="fastboot_probe_product_button">Прочитать код продукта Fastboot</string>
     <string name="fastboot_probe_limit_button">Прочитать лимит загрузки Fastboot</string>
+    <string name="fastboot_probe_recovery_size_button">Прочитать размер раздела recovery</string>
     <string name="fastboot_transfer_mode">Ускоренная передача Fastboot включена автоматически: образ отправляется крупными блоками. Фактическая скорость зависит от USB-соединения.</string>
     <string name="fastboot_variable_version">версия протокола</string>
     <string name="fastboot_variable_product">код продукта</string>
     <string name="fastboot_variable_limit">максимальный размер загрузки</string>
+    <string name="fastboot_variable_recovery_size">размер раздела recovery</string>
     <string name="fastboot_probe_running">Запрос Fastboot (%1$s) выполняется…</string>
     <string name="fastboot_probe_value">Fastboot — %1$s: %2$s</string>
     <string name="fastboot_probe_rejected">Fastboot ответил FAIL для %1$s: %2$s. Обмен по USB состоялся.</string>
     <string name="fastboot_probe_failed">Сбой обмена по USB при запросе %1$s. Сохраните диагностический ZIP.</string>
     <string name="terminal_title">Команда и Preview</string>
-    <string name="terminal_hint">Проверьте план: доступны getvar version/product/max-download-size, код устройства ADB и fastboot flash с выбранным через Android обычным образом. Перед записью нужно ещё одно подтверждение.</string>
+    <string name="terminal_hint">Проверьте план: доступны getvar version/product/max-download-size/partition-size:recovery, код устройства ADB и fastboot flash с выбранным через Android обычным образом. Перед записью нужно ещё одно подтверждение.</string>
     <string name="terminal_command_label">Команда</string>
     <string name="terminal_preview">План: %1$s</string>
     <string name="terminal_connect_hint">Для выполнения подключите одно устройство в указанном режиме и разрешите USB-доступ.</string>
@@ -71,6 +73,7 @@
     <string name="fastboot_flash_too_large">Размер образа превышает лимит устройства; команда записи не отправлена.</string>
     <string name="fastboot_flash_limit_unknown">Лимит загрузки устройства неизвестен; команда записи не отправлена.</string>
     <string name="fastboot_flash_sparse">Android sparse образ этим действием пока не поддерживается; команда записи не отправлена.</string>
+    <string name="fastboot_flash_invalid_data">Размер в ответе DATA не совпал с запросом или формат ответа неверен. Отправлено 0 байт, раздел не записывался. Сохраните ZIP и не повторяйте запись до разбора ошибки.</string>
     <string name="fastboot_flash_failed">Сбой передачи Fastboot или файл изменился. Сохраните диагностический ZIP.</string>
     <string name="fastboot_flash_cancelled">Передача прервана. Отмена не возвращает уже записанные данные; перед повторной попыткой проверьте состояние устройства.</string>
     <string name="fastboot_flash_cancel">Отменить передачу</string>

@@ -79,4 +79,15 @@ class TerminalPlanCompilerTest {
             ready.plan.steps)
         assertEquals(listOf("Fastboot: read getvar:max-download-size"), ready.plan.preview())
     }
+
+    @Test
+    fun recoveryPartitionSizeHasAReadOnlyPlan() {
+        val ready = assertIs<TerminalPlanResult.Ready>(compiler.compile(
+            "fastboot getvar partition-size:recovery"))
+        assertEquals(listOf(TerminalPlanStep.FastbootGetvar(PlannedFastbootVariable.RECOVERY_SIZE)),
+            ready.plan.steps)
+        assertEquals(listOf("Fastboot: read getvar:partition-size:recovery"), ready.plan.preview())
+        assertIs<TerminalPlanResult.Unavailable>(compiler.compile(
+            "fastboot getvar partition-size:userdata"))
+    }
 }

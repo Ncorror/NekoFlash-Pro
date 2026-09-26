@@ -3,6 +3,7 @@ package com.ncorror.nekoflash.pro.engine
 /** Only reviewed, read-only variables can be executed directly from a terminal plan. */
 enum class PlannedFastbootVariable(val wireName: String) {
     VERSION("version"), PRODUCT("product"), DOWNLOAD_SIZE("max-download-size"),
+    RECOVERY_SIZE("partition-size:recovery"),
 }
 
 sealed interface TerminalPlanStep {

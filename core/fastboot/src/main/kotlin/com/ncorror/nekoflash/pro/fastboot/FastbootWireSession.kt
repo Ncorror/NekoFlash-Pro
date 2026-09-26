@@ -96,10 +96,22 @@ class FastbootWireSession(private val transport: FastbootPacketTransport) : Auto
                         return FastbootWireResult.Okay(payload)
                     }
                     "DATA" -> {
-                        if (dataStarted || response.size != 12 || !payload.matches(Regex("[0-9a-fA-F]{8}")) ||
-                            payload.toLong(16) != byteCount) {
-                            throw FastbootProtocolException("Unexpected Fastboot download DATA size")
+                        // Report only frame length and validated numeric metadata. Never log
+                        // arbitrary device bytes, image contents, or file identifiers.
+                        val offer = if (response.size >= 12) {
+                            response.copyOfRange(4, 12).toString(Charsets.US_ASCII)
+                                .takeIf { it.matches(Regex("[0-9a-fA-F]{8}")) }?.toLong(16)
+                        } else null
+                        if (response.size != 12 || offer == null) {
+                            val trailingZeros = response.size > 12 &&
+                                response.copyOfRange(12, response.size).all { it == 0.toByte() }
+                            throw FastbootProtocolException(
+                                "Malformed Fastboot DATA reply bytes:${response.size} " +
+                                    "advertised:${offer ?: "unknown"} trailingZeros:$trailingZeros")
                         }
+                        if (dataStarted) throw FastbootProtocolException("Duplicate Fastboot DATA reply")
+                        if (offer != byteCount) throw FastbootProtocolException(
+                            "Fastboot DATA size mismatch requested:$byteCount advertised:$offer")
                         dataStarted = true
                         val buffer = ByteArray(MAX_DATA_CHUNK_SIZE)
                         var sent = 0L

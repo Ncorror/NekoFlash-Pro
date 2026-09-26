@@ -73,4 +73,13 @@ class FastbootGetvarProbeTest {
         assertEquals(listOf("getvar:max-download-size"), fake.sent)
         assertTrue(fake.closed)
     }
+
+    @Test
+    fun readsRecoveryPartitionSizeWithoutStartingDownload() {
+        val fake = FakeTransport("OKAY0x08000000")
+        assertEquals(FastbootWireResult.Okay("0x08000000"),
+            FastbootGetvarProbe(fake).read(FastbootVariable.RECOVERY_SIZE))
+        assertEquals(listOf("getvar:partition-size:recovery"), fake.sent)
+        assertTrue(fake.closed)
+    }
 }

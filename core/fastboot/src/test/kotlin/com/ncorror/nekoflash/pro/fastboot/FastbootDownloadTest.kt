@@ -56,10 +56,30 @@ class FastbootDownloadTest {
     @Test
     fun mismatchedDataCountClosesBeforeAnyImageBytes() {
         val fake = FakeTransport("DATA00000002")
-        assertFailsWith<FastbootProtocolException> {
+        val failure = assertFailsWith<FastbootProtocolException> {
             FastbootWireSession(fake).download(ByteArrayInputStream(byteArrayOf(7)), 1)
         }
+        assertEquals("Fastboot DATA size mismatch requested:1 advertised:2", failure.message)
         assertTrue(fake.data.isEmpty() && fake.closed)
+    }
+
+    @Test
+    fun paddedOrMalformedDataOfferIsReportedWithoutLeakingResponseBytes() {
+        val padded = FakeTransport("DATA00000001\u0000")
+        val paddedError = assertFailsWith<FastbootProtocolException> {
+            FastbootWireSession(padded).download(ByteArrayInputStream(byteArrayOf(7)), 1)
+        }
+        assertEquals("Malformed Fastboot DATA reply bytes:13 advertised:1 trailingZeros:true",
+            paddedError.message)
+        assertTrue(padded.data.isEmpty() && padded.closed)
+
+        val invalid = FakeTransport("DATAsecret12")
+        val invalidError = assertFailsWith<FastbootProtocolException> {
+            FastbootWireSession(invalid).download(ByteArrayInputStream(byteArrayOf(7)), 1)
+        }
+        assertEquals("Malformed Fastboot DATA reply bytes:12 advertised:unknown trailingZeros:false",
+            invalidError.message)
+        assertTrue(invalid.data.isEmpty() && invalid.closed)
     }
 
     @Test
