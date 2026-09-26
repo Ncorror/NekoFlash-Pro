@@ -80,4 +80,26 @@ class FastbootFlashExecutorTest {
         }
         assertEquals(0, opens)
     }
+
+    @Test
+    fun sparseImageIsRejectedBeforeDownloadOrFlash() {
+        val fake = FakeTransport("OKAY0x1000")
+        val sparse = byteArrayOf(0x3a, 0xff.toByte(), 0x26, 0xed.toByte(), 0)
+        assertEquals(FastbootFlashResult.SparseImageUnsupported,
+            FastbootFlashExecutor { fake }.flashRaw("boot", sparse.size.toLong(),
+                { ByteArrayInputStream(sparse) }))
+        assertEquals(listOf("getvar:max-download-size"), fake.commands)
+        assertTrue(fake.data.isEmpty() && fake.closed)
+    }
+
+    @Test
+    fun imageGrowingAfterPickerIsRejectedBeforeFlash() {
+        val fake = FakeTransport("OKAY0x1000", "DATA00000004")
+        assertFailsWith<FastbootProtocolException> {
+            FastbootFlashExecutor { fake }.flashRaw("boot", 4,
+                { ByteArrayInputStream(byteArrayOf(1, 2, 3, 4, 5)) })
+        }
+        assertEquals(listOf("getvar:max-download-size", "download:00000004"), fake.commands)
+        assertTrue(fake.closed)
+    }
 }

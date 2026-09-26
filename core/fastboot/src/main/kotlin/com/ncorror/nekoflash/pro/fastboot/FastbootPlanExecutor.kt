@@ -15,6 +15,7 @@ class FastbootPlanExecutor(private val openTransport: () -> FastbootPacketTransp
         compilation: TerminalPlanResult,
         onMessage: (FastbootWireMessage) -> Unit = {},
     ): FastbootPlanExecution = when (compilation) {
+        is TerminalPlanResult.RequiresImage -> FastbootPlanExecution.Refused("Fastboot image must be selected first")
         is TerminalPlanResult.Invalid -> FastbootPlanExecution.Refused(compilation.reason)
         is TerminalPlanResult.Unavailable -> FastbootPlanExecution.Refused(compilation.reason)
         is TerminalPlanResult.Ready -> {

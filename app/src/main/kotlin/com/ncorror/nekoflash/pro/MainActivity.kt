@@ -4,6 +4,7 @@ import android.os.Bundle
 import android.net.Uri
 import android.content.Intent
 import android.hardware.usb.UsbManager
+import android.provider.OpenableColumns
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -17,9 +18,13 @@ import com.ncorror.nekoflash.pro.model.AdbProbeKind
 import com.ncorror.nekoflash.pro.model.AdbProbeState
 import com.ncorror.nekoflash.pro.model.FastbootProbePhase
 import com.ncorror.nekoflash.pro.model.FastbootProbeState
+import com.ncorror.nekoflash.pro.model.FastbootFlashState
+import com.ncorror.nekoflash.pro.model.FastbootFlashPhase
+import com.ncorror.nekoflash.pro.model.SelectedImage
 import com.ncorror.nekoflash.pro.model.UsbHostSnapshot
 import com.ncorror.nekoflash.pro.platform.usb.AdbProbeController
 import com.ncorror.nekoflash.pro.platform.usb.FastbootProbeController
+import com.ncorror.nekoflash.pro.platform.usb.FastbootFlashController
 import com.ncorror.nekoflash.pro.platform.usb.UsbHostController
 import com.ncorror.nekoflash.pro.ui.NekoFlashTheme
 import com.ncorror.nekoflash.pro.ui.UsbScreen
@@ -37,10 +42,15 @@ class MainActivity : ComponentActivity() {
     private var adbFirstReplyState by mutableStateOf<AdbProbeState?>(null)
     private var adbProductState by mutableStateOf<AdbProbeState?>(null)
     private var probeState by mutableStateOf<FastbootProbeState?>(null)
+    private var flashState by mutableStateOf<FastbootFlashState?>(null)
+    private var selectedImage by mutableStateOf<SelectedImage?>(null)
+    private var selectedImageUri: Uri? = null
+    private var selectionGeneration = 0L
     private var exportNotice by mutableStateOf<Int?>(null)
     private lateinit var usbHost: UsbHostController
     private lateinit var adbProbeController: AdbProbeController
     private lateinit var probeController: FastbootProbeController
+    private lateinit var flashController: FastbootFlashController
     private val autoConnect = UsbAutoConnectPlanner()
     private val usbSessionGate = UsbSessionGate()
     private val diagnostics get() = (application as NekoFlashApplication).diagnostics
@@ -56,6 +66,34 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.CreateDocument("application/zip"),
     ) { uri ->
         if (uri != null) exportFile(uri, "ZIP", archive::export)
+    }
+
+    private val chooseImage = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@registerForActivityResult
+        // OpenDocument supplies a content Uri; its name and Uri are never written to diagnostics.
+        val metadata = runCatching {
+            contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE),
+                null, null, null)?.use { cursor ->
+                if (!cursor.moveToFirst()) return@use null
+                val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                val sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE)
+                if (nameIndex < 0 || sizeIndex < 0 || cursor.isNull(nameIndex) || cursor.isNull(sizeIndex)) {
+                    return@use null
+                }
+                cursor.getString(nameIndex) to cursor.getLong(sizeIndex)
+            }
+        }.getOrNull()
+        val name = metadata?.first?.replace(Regex("[\\p{Cntrl}]+"), " ")?.take(128)
+        val size = metadata?.second
+        if (name.isNullOrBlank() || size == null || size !in 1..0xffff_ffffL) {
+            diagnostics.record("Fastboot image selection rejected: missing name or unsupported size")
+            selectedImageUri = null
+            selectedImage = null
+            return@registerForActivityResult
+        }
+        selectedImageUri = uri
+        selectedImage = SelectedImage(name, size, ++selectionGeneration)
+        diagnostics.record("Fastboot raw image selected: bytes=$size")
     }
 
     private fun exportFile(uri: Uri, format: String, write: (Uri) -> Unit) {
@@ -85,6 +123,7 @@ class MainActivity : ComponentActivity() {
             }
         }
         probeController = FastbootProbeController(this, usbSessionGate, diagnostics::record) { probeState = it }
+        flashController = FastbootFlashController(this, usbSessionGate, diagnostics::record) { flashState = it }
         usbHost = UsbHostController(this, { snapshot ->
             val connectionGone = adbProbeState?.let { state ->
                 snapshot.devices.none(state::matches)
@@ -108,6 +147,11 @@ class MainActivity : ComponentActivity() {
             if (probeState?.let { state -> snapshot.devices.none(state::matches) } == true) {
                 probeController.cancel()
                 probeState = null
+            }
+            if (flashState?.phase == FastbootFlashPhase.RUNNING &&
+                flashState?.let { state -> snapshot.devices.none(state::matches) } == true) {
+                flashController.cancel()
+                flashState = flashState?.copy(phase = FastbootFlashPhase.CANCELLED)
             }
             usbSnapshot = snapshot
             val candidates = snapshot.devices.map { device ->
@@ -151,6 +195,11 @@ class MainActivity : ComponentActivity() {
                 probeController.cancel()
                 probeState = null
             }
+            if (flashState?.deviceKey == key && flashState?.deviceId == id &&
+                flashState?.phase == FastbootFlashPhase.RUNNING) {
+                flashController.cancel()
+                flashState = flashState?.copy(phase = FastbootFlashPhase.CANCELLED)
+            }
         })
         setContent {
             NekoFlashTheme {
@@ -160,19 +209,23 @@ class MainActivity : ComponentActivity() {
                     adbFirstReplyState = adbFirstReplyState,
                     adbProductState = adbProductState,
                     probeState = probeState,
+                    flashState = flashState,
                     onRefresh = {
                         diagnostics.record("User refreshed USB devices")
                         usbHost.refresh()
                     },
                     onRequestAccess = usbHost::requestAccess,
                     onProbeAdb = { device ->
-                        if (probeState?.phase != FastbootProbePhase.RUNNING) adbProbeController.probe(device)
+                        if (probeState?.phase != FastbootProbePhase.RUNNING &&
+                            flashState?.phase != FastbootFlashPhase.RUNNING) adbProbeController.probe(device)
                     },
                     onAuthorizeAdb = { device ->
-                        if (probeState?.phase != FastbootProbePhase.RUNNING) adbProbeController.authorize(device)
+                        if (probeState?.phase != FastbootProbePhase.RUNNING &&
+                            flashState?.phase != FastbootFlashPhase.RUNNING) adbProbeController.authorize(device)
                     },
                     onReadAdbProduct = { device ->
-                        if (probeState?.phase != FastbootProbePhase.RUNNING) adbProbeController.readProduct(device)
+                        if (probeState?.phase != FastbootProbePhase.RUNNING &&
+                            flashState?.phase != FastbootFlashPhase.RUNNING) adbProbeController.readProduct(device)
                     },
                     onCancelAdbAuthorization = {
                         diagnostics.record("User cancelled ADB authorization")
@@ -185,7 +238,8 @@ class MainActivity : ComponentActivity() {
                                 AdbProbePhase.AUTHORIZING, AdbProbePhase.WAITING_CONFIRMATION) &&
                             adbFirstReplyState?.phase != AdbProbePhase.RUNNING &&
                             adbProductState?.phase !in setOf(AdbProbePhase.AUTHORIZING,
-                                AdbProbePhase.WAITING_CONFIRMATION)) {
+                                AdbProbePhase.WAITING_CONFIRMATION) &&
+                            flashState?.phase != FastbootFlashPhase.RUNNING) {
                             probeController.probe(device, variable)
                         }
                     },
@@ -195,13 +249,32 @@ class MainActivity : ComponentActivity() {
                             adbFirstReplyState?.phase == AdbProbePhase.RUNNING ||
                             adbProductState?.phase in setOf(AdbProbePhase.AUTHORIZING,
                                 AdbProbePhase.WAITING_CONFIRMATION)
-                        if (!adbBusy && probeState?.phase != FastbootProbePhase.RUNNING) {
+                        if (!adbBusy && probeState?.phase != FastbootProbePhase.RUNNING &&
+                            flashState?.phase != FastbootFlashPhase.RUNNING &&
+                            usbSnapshot.devices.singleOrNull()?.let { it.key == device.key &&
+                                it.deviceId == device.deviceId && it.vendorId == device.vendorId &&
+                                it.productId == device.productId && it.accessGranted } == true) {
                             when (plan.steps.singleOrNull()) {
                                 is TerminalPlanStep.FastbootGetvar -> probeController.probePlan(device, plan)
                                 TerminalPlanStep.AdbProduct -> adbProbeController.readProductPlan(device, plan)
+                                is TerminalPlanStep.FastbootFlashRaw -> {
+                                    val step = plan.steps.single() as TerminalPlanStep.FastbootFlashRaw
+                                    val picked = selectedImage
+                                    val uri = selectedImageUri
+                                    if (picked != null && uri != null &&
+                                        picked.selectionId == step.selectionId && picked.size == step.imageSize) {
+                                        flashController.flash(device, step, uri)
+                                    }
+                                }
                                 else -> Unit
                             }
                         }
+                    },
+                    selectedImage = selectedImage,
+                    onSelectImage = { chooseImage.launch(arrayOf("*/*")) },
+                    onCancelFlash = {
+                        flashController.cancel()
+                        flashState = flashState?.copy(phase = FastbootFlashPhase.CANCELLED)
                     },
                     onSaveLog = {
                         exportNotice = null
@@ -243,6 +316,10 @@ class MainActivity : ComponentActivity() {
         adbProductState = null
         probeController.cancel()
         probeState = null
+        if (flashState?.phase == FastbootFlashPhase.RUNNING) {
+            flashController.cancel()
+            flashState = flashState?.copy(phase = FastbootFlashPhase.CANCELLED)
+        }
         usbHost.stop()
         super.onStop()
     }

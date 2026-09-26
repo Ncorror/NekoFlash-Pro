@@ -9,11 +9,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -32,6 +34,7 @@ import com.ncorror.nekoflash.pro.engine.TerminalPlanResult
 import com.ncorror.nekoflash.pro.engine.TerminalPlanStep
 import com.ncorror.nekoflash.pro.model.UsbDeviceSummary
 import com.ncorror.nekoflash.pro.model.UsbHostSnapshot
+import com.ncorror.nekoflash.pro.model.SelectedImage
 import com.ncorror.nekoflash.pro.transport.UsbWireProtocol
 
 /** Preview and execution share the same immutable plan captured by the button. */
@@ -39,18 +42,26 @@ import com.ncorror.nekoflash.pro.transport.UsbWireProtocol
 internal fun TerminalPanel(
     snapshot: UsbHostSnapshot,
     busy: Boolean,
+    selectedImage: SelectedImage?,
+    onSelectImage: () -> Unit,
     onRunPlan: (UsbDeviceSummary, TerminalPlan) -> Unit,
 ) {
     val palette = MaterialTheme.colorScheme
     var adbTab by rememberSaveable { mutableStateOf(false) }
     var adbInput by rememberSaveable { mutableStateOf("shell getprop ro.product.device") }
     var fastbootInput by rememberSaveable { mutableStateOf("getvar product") }
+    var pendingFlash by remember { mutableStateOf<TerminalPlanStep.FastbootFlashRaw?>(null) }
     val tool = if (adbTab) TerminalParser.Tool.ADB else TerminalParser.Tool.FASTBOOT
     val input = if (adbTab) adbInput else fastbootInput
-    val compilation = remember(tool, input) { TerminalPlanCompiler().compile(tool, input) }
+    val compiler = remember { TerminalPlanCompiler() }
+    val initial = remember(tool, input) { compiler.compile(tool, input) }
+    val compilation = if (initial is TerminalPlanResult.RequiresImage && selectedImage != null) {
+        compiler.attachImage(initial, selectedImage.displayName, selectedImage.size, selectedImage.selectionId)
+    } else initial
     val ready = compilation as? TerminalPlanResult.Ready
     val protocol = when (ready?.plan?.steps?.singleOrNull()) {
         is TerminalPlanStep.FastbootGetvar -> UsbWireProtocol.FASTBOOT
+        is TerminalPlanStep.FastbootFlashRaw -> UsbWireProtocol.FASTBOOT
         TerminalPlanStep.AdbProduct -> UsbWireProtocol.ADB
         else -> null
     }
@@ -93,6 +104,18 @@ internal fun TerminalPanel(
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
+            if (initial is TerminalPlanResult.RequiresImage) {
+                if (selectedImage != null) {
+                    Text(stringResource(R.string.terminal_selected_image,
+                        selectedImage.displayName, selectedImage.size),
+                        color = palette.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
+                }
+                OutlinedButton(onClick = onSelectImage, enabled = !busy,
+                    border = BorderStroke(1.dp, palette.primary),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = palette.primary)) {
+                    Text(stringResource(R.string.terminal_choose_image))
+                }
+            }
             when (compilation) {
                 is TerminalPlanResult.Ready -> {
                     Text(stringResource(R.string.terminal_preview,
@@ -103,6 +126,9 @@ internal fun TerminalPanel(
                             style = MaterialTheme.typography.bodyMedium)
                     }
                 }
+                is TerminalPlanResult.RequiresImage -> Text(
+                    stringResource(R.string.terminal_need_image), color = palette.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodyMedium)
                 is TerminalPlanResult.Invalid -> Text(
                     stringResource(R.string.terminal_invalid), color = palette.onSurfaceVariant,
                     style = MaterialTheme.typography.bodyMedium)
@@ -111,7 +137,14 @@ internal fun TerminalPanel(
                     style = MaterialTheme.typography.bodyMedium)
             }
             Button(
-                onClick = { if (device != null && ready != null) onRunPlan(device, ready.plan) },
+                onClick = {
+                    if (device != null && ready != null) {
+                        when (val step = ready.plan.steps.singleOrNull()) {
+                            is TerminalPlanStep.FastbootFlashRaw -> pendingFlash = step
+                            else -> onRunPlan(device, ready.plan)
+                        }
+                    }
+                },
                 enabled = device != null && ready != null && !busy,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = palette.primary, contentColor = palette.onPrimary,
@@ -120,5 +153,30 @@ internal fun TerminalPanel(
             Text(stringResource(R.string.terminal_result_hint), color = palette.onSurfaceVariant,
                 style = MaterialTheme.typography.bodyMedium)
         }
+    }
+    val awaiting = pendingFlash
+    if (awaiting != null) {
+        AlertDialog(
+            onDismissRequest = { pendingFlash = null },
+            title = { Text(stringResource(R.string.terminal_flash_confirm_title)) },
+            text = { Text(stringResource(R.string.terminal_flash_confirm_body,
+                awaiting.partition, selectedImage?.displayName.orEmpty(), awaiting.imageSize)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    val current = ready?.plan?.steps?.singleOrNull()
+                    if (ready != null && current == awaiting && device != null && !busy) {
+                        onRunPlan(device, ready.plan)
+                    }
+                    pendingFlash = null
+                }, enabled = ready?.plan?.steps?.singleOrNull() == awaiting && device != null && !busy) {
+                    Text(stringResource(R.string.terminal_flash_confirm_action))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingFlash = null }) {
+                    Text(stringResource(R.string.terminal_flash_cancel))
+                }
+            },
+        )
     }
 }

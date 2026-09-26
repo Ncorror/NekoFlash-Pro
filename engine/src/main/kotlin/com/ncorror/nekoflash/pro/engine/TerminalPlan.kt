@@ -7,6 +7,11 @@ enum class PlannedFastbootVariable(val wireName: String) {
 
 sealed interface TerminalPlanStep {
     data class FastbootGetvar(val variable: PlannedFastbootVariable) : TerminalPlanStep
+    data class FastbootFlashRaw(
+        val partition: String,
+        val imageSize: Long,
+        val selectionId: Long,
+    ) : TerminalPlanStep
     data object AdbProduct : TerminalPlanStep
 }
 
@@ -21,6 +26,8 @@ class TerminalPlan(steps: List<TerminalPlanStep>) {
     fun preview(): List<String> = steps.map { step ->
         when (step) {
             is TerminalPlanStep.FastbootGetvar -> "Fastboot: read getvar:${step.variable.wireName}"
+            is TerminalPlanStep.FastbootFlashRaw ->
+                "Fastboot: flash ${step.partition} (raw image, ${step.imageSize} bytes)"
             TerminalPlanStep.AdbProduct -> "ADB: read ro.product.device"
         }
     }
@@ -28,6 +35,7 @@ class TerminalPlan(steps: List<TerminalPlanStep>) {
 
 sealed interface TerminalPlanResult {
     data class Ready(val plan: TerminalPlan) : TerminalPlanResult
+    data class RequiresImage(val partition: String, val expectedName: String?) : TerminalPlanResult
     data class Invalid(val reason: String) : TerminalPlanResult
     data class Unavailable(val reason: String) : TerminalPlanResult
 }
@@ -42,6 +50,19 @@ class TerminalPlanCompiler(private val parser: TerminalParser = TerminalParser()
         is TerminalParseResult.Parsed -> compile(parsed.invocation)
         is TerminalParseResult.Invalid -> TerminalPlanResult.Invalid(parsed.reason)
         is TerminalParseResult.Unsupported -> TerminalPlanResult.Unavailable("Command has no execution plan")
+    }
+
+    /** A SAF selection id is bound to the reviewed plan to prevent a stale picker result. */
+    fun attachImage(request: TerminalPlanResult.RequiresImage,
+                    selectedName: String, size: Long, selectionId: Long): TerminalPlanResult {
+        if (request.expectedName != null && request.expectedName != selectedName) {
+            return TerminalPlanResult.Unavailable("Selected image does not match command")
+        }
+        if (size !in 1..0xffff_ffffL || selectionId <= 0L) {
+            return TerminalPlanResult.Unavailable("Selected image requires sparse or has no known size")
+        }
+        return TerminalPlanResult.Ready(TerminalPlan(listOf(
+            TerminalPlanStep.FastbootFlashRaw(request.partition, size, selectionId))))
     }
 
     fun compile(invocation: TerminalInvocation): TerminalPlanResult = when (invocation) {
@@ -61,8 +82,16 @@ class TerminalPlanCompiler(private val parser: TerminalParser = TerminalParser()
                     if (variable == null) TerminalPlanResult.Unavailable("Fastboot variable has no execution plan")
                     else TerminalPlanResult.Ready(TerminalPlan(listOf(TerminalPlanStep.FastbootGetvar(variable))))
                 }
+                is FastbootCommand.Flash -> if (command.partition.matches(PARTITION) &&
+                    command.image?.isNotEmpty() != false) {
+                    TerminalPlanResult.RequiresImage(command.partition, command.image)
+                } else TerminalPlanResult.Invalid("Invalid partition or image name")
                 else -> TerminalPlanResult.Unavailable("Fastboot command has no execution plan")
             }
         }
+    }
+
+    private companion object {
+        val PARTITION = Regex("[A-Za-z0-9._-]{1,64}")
     }
 }

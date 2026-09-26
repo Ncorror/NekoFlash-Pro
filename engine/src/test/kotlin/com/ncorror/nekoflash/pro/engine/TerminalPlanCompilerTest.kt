@@ -58,4 +58,17 @@ class TerminalPlanCompilerTest {
         }
         assertIs<TerminalPlanResult.Invalid>(compiler.compile("fastboot -S --force flash boot boot.img"))
     }
+
+    @Test
+    fun rawFlashNeedsOneExactPickerSelectionBeforeItCanHaveAPreview() {
+        val pending = assertIs<TerminalPlanResult.RequiresImage>(compiler.compile("fastboot flash boot_a boot.img"))
+        assertEquals("boot_a", pending.partition)
+        assertIs<TerminalPlanResult.Unavailable>(compiler.attachImage(pending, "other.img", 3, 7))
+        assertIs<TerminalPlanResult.Unavailable>(compiler.attachImage(pending, "boot.img", 0x1_0000_0000, 7))
+        val ready = assertIs<TerminalPlanResult.Ready>(compiler.attachImage(pending, "boot.img", 3, 7))
+        assertEquals(listOf(TerminalPlanStep.FastbootFlashRaw("boot_a", 3, 7)), ready.plan.steps)
+        assertEquals(listOf("Fastboot: flash boot_a (raw image, 3 bytes)"), ready.plan.preview())
+        assertIs<TerminalPlanResult.Unavailable>(compiler.compile("fastboot raw flash:boot_a"))
+        assertIs<TerminalPlanResult.Invalid>(compiler.compile("fastboot flash boot:ramdisk new.img"))
+    }
 }

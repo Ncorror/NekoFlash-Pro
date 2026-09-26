@@ -16,6 +16,7 @@ class AdbPlanExecutor(
 ) {
     fun execute(compilation: TerminalPlanResult, onAwaitingApproval: () -> Unit): AdbPlanExecution =
         when (compilation) {
+            is TerminalPlanResult.RequiresImage -> AdbPlanExecution.Refused("Fastboot image plan cannot run via ADB")
             is TerminalPlanResult.Invalid -> AdbPlanExecution.Refused(compilation.reason)
             is TerminalPlanResult.Unavailable -> AdbPlanExecution.Refused(compilation.reason)
             is TerminalPlanResult.Ready -> {

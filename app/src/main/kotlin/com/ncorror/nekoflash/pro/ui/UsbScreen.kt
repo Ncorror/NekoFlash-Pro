@@ -34,9 +34,12 @@ import com.ncorror.nekoflash.pro.model.AdbProbePhase
 import com.ncorror.nekoflash.pro.model.AdbProbeState
 import com.ncorror.nekoflash.pro.model.FastbootProbePhase
 import com.ncorror.nekoflash.pro.model.FastbootProbeState
+import com.ncorror.nekoflash.pro.model.FastbootFlashState
+import com.ncorror.nekoflash.pro.model.FastbootFlashPhase
 import com.ncorror.nekoflash.pro.model.UsbDeviceSummary
 import com.ncorror.nekoflash.pro.model.UsbHostSnapshot
 import com.ncorror.nekoflash.pro.model.UsbNotice
+import com.ncorror.nekoflash.pro.model.SelectedImage
 import com.ncorror.nekoflash.pro.transport.UsbWireProtocol
 
 /** Render immutable state and forward user actions; no Android USB APIs are used here. */
@@ -47,6 +50,7 @@ fun UsbScreen(
     adbFirstReplyState: AdbProbeState?,
     adbProductState: AdbProbeState?,
     probeState: FastbootProbeState?,
+    flashState: FastbootFlashState?,
     onRefresh: () -> Unit,
     onRequestAccess: (String) -> Unit,
     onProbeAdb: (UsbDeviceSummary) -> Unit,
@@ -55,6 +59,9 @@ fun UsbScreen(
     onCancelAdbAuthorization: () -> Unit,
     onProbeFastboot: (UsbDeviceSummary, FastbootVariable) -> Unit,
     onRunPlan: (UsbDeviceSummary, TerminalPlan) -> Unit,
+    selectedImage: SelectedImage?,
+    onSelectImage: () -> Unit,
+    onCancelFlash: () -> Unit,
     onSaveLog: () -> Unit,
     onSaveArchive: () -> Unit,
     @StringRes exportNotice: Int? = null,
@@ -141,6 +148,7 @@ fun UsbScreen(
         }
         snapshot.devices.forEach { device ->
             UsbDeviceCard(device, adbProbeState, adbFirstReplyState, adbProductState, probeState,
+                flashState, onCancelFlash,
                 onRequestAccess, onProbeAdb,
                 onAuthorizeAdb, onReadAdbProduct, onCancelAdbAuthorization, onProbeFastboot)
         }
@@ -151,8 +159,11 @@ fun UsbScreen(
                 adbFirstReplyState?.phase == AdbProbePhase.RUNNING ||
                 adbProductState?.phase in setOf(AdbProbePhase.AUTHORIZING,
                     AdbProbePhase.WAITING_CONFIRMATION) ||
-                probeState?.phase == FastbootProbePhase.RUNNING,
+                probeState?.phase == FastbootProbePhase.RUNNING ||
+                flashState?.phase == FastbootFlashPhase.RUNNING,
             onRunPlan = onRunPlan,
+            selectedImage = selectedImage,
+            onSelectImage = onSelectImage,
         )
         Surface(
             modifier = Modifier.fillMaxWidth(),
@@ -207,6 +218,8 @@ private fun UsbDeviceCard(
     adbFirstReplyState: AdbProbeState?,
     adbProductState: AdbProbeState?,
     probeState: FastbootProbeState?,
+    flashState: FastbootFlashState?,
+    onCancelFlash: () -> Unit,
     onRequestAccess: (String) -> Unit,
     onProbeAdb: (UsbDeviceSummary) -> Unit,
     onAuthorizeAdb: (UsbDeviceSummary) -> Unit,
@@ -284,7 +297,8 @@ private fun UsbDeviceCard(
                 adbFirstReplyState?.phase == AdbProbePhase.RUNNING ||
                 adbProductState?.phase in setOf(AdbProbePhase.AUTHORIZING,
                     AdbProbePhase.WAITING_CONFIRMATION) ||
-                probeState?.phase == FastbootProbePhase.RUNNING
+                probeState?.phase == FastbootProbePhase.RUNNING ||
+                flashState?.phase == FastbootFlashPhase.RUNNING
             val canProbeAdb = device.accessGranted && device.interfaces.count {
                 it.protocol == UsbWireProtocol.ADB && it.bulkPairAvailable && it.configurationIndex == 0
             } == 1
@@ -451,6 +465,29 @@ private fun UsbDeviceCard(
                     style = MaterialTheme.typography.bodyMedium,
                 )
             }
+            val currentFlash = flashState?.takeIf { it.matches(device) }
+            if (currentFlash != null) {
+                val text = when (currentFlash.phase) {
+                    FastbootFlashPhase.RUNNING -> stringResource(R.string.fastboot_flash_running,
+                        currentFlash.partition, currentFlash.sentBytes, currentFlash.totalBytes)
+                    FastbootFlashPhase.FINISHED -> stringResource(R.string.fastboot_flash_finished,
+                        currentFlash.partition)
+                    FastbootFlashPhase.REJECTED -> stringResource(R.string.fastboot_flash_rejected)
+                    FastbootFlashPhase.TOO_LARGE -> stringResource(R.string.fastboot_flash_too_large)
+                    FastbootFlashPhase.LIMIT_UNKNOWN -> stringResource(R.string.fastboot_flash_limit_unknown)
+                    FastbootFlashPhase.SPARSE_UNSUPPORTED -> stringResource(R.string.fastboot_flash_sparse)
+                    FastbootFlashPhase.FAILED -> stringResource(R.string.fastboot_flash_failed)
+                    FastbootFlashPhase.CANCELLED -> stringResource(R.string.fastboot_flash_cancelled)
+                }
+                Text(text, color = palette.secondary, style = MaterialTheme.typography.bodyMedium)
+                if (currentFlash.phase == FastbootFlashPhase.RUNNING) {
+                    OutlinedButton(onClick = onCancelFlash,
+                        border = BorderStroke(1.dp, palette.primary),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = palette.primary)) {
+                        Text(stringResource(R.string.fastboot_flash_cancel))
+                    }
+                }
+            }
         }
     }
 }
@@ -482,6 +519,7 @@ private fun UsbScreenPreview() {
             adbFirstReplyState = null,
             adbProductState = null,
             probeState = null,
+            flashState = null,
             onRefresh = {},
             onRequestAccess = {},
             onProbeAdb = {},
@@ -490,6 +528,9 @@ private fun UsbScreenPreview() {
             onCancelAdbAuthorization = {},
             onProbeFastboot = { _, _ -> },
             onRunPlan = { _, _ -> },
+            selectedImage = null,
+            onSelectImage = {},
+            onCancelFlash = {},
             onSaveLog = {},
             onSaveArchive = {},
         )
