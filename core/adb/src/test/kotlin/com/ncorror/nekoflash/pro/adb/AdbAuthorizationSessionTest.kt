@@ -102,9 +102,11 @@ class AdbAuthorizationSessionTest {
         val second = ByteArray(20) { (it + 30).toByte() }
         val third = ByteArray(20) { (it + 60).toByte() }
         val fake = FakeTransport(*tokenPacket(first), *tokenPacket(second), *tokenPacket(third))
-        assertFailsWith<AdbProtocolException> {
+        val failure = assertFailsWith<AdbProtocolException> {
             AdbAuthorizationSession(fake, FakeKey()).connect {}
         }
+        assertEquals("ADB authorization not accepted: cmd=0x48545541 arg0=1 arg1=0 size=20",
+            failure.message)
         assertEquals(1, fake.waitingReads)
         assertEquals(6, fake.sent.size)
         assertTrue(fake.closed)
@@ -120,6 +122,18 @@ class AdbAuthorizationSessionTest {
         }
         assertEquals(null, key.signedChallenge)
         assertEquals(2, fake.sent.size)
+        assertTrue(fake.closed)
+    }
+
+    @Test
+    fun unexpectedPacketReportsHeaderOnly() {
+        val privatePayload = "private-banner".toByteArray()
+        val fake = FakeTransport(header(AdbWire.WRTE, 2, 1, privatePayload), privatePayload)
+        val failure = assertFailsWith<AdbProtocolException> {
+            AdbAuthorizationSession(fake, FakeKey()).connect {}
+        }
+        assertEquals("Unexpected ADB reply during authorization: " +
+            "cmd=0x45545257 arg0=2 arg1=1 size=${privatePayload.size}", failure.message)
         assertTrue(fake.closed)
     }
 }

@@ -18,8 +18,8 @@ sealed interface FastbootWireMessage {
 
 class FastbootProtocolException(message: String) : Exception(message)
 
-/** Executes one ordinary wire request and streams diagnostics without storing an unbounded log.
- * Fastboot DATA is deliberately not acknowledged without a data-phase implementation. */
+/** Executes bounded wire requests. The read-only path closes on unexpected DATA;
+ * the explicit download path handles DATA only after its size is verified. */
 class FastbootWireSession(private val transport: FastbootPacketTransport) : AutoCloseable {
     private var closed = false
 
@@ -34,6 +34,7 @@ class FastbootWireSession(private val transport: FastbootPacketTransport) : Auto
             transport.writePacket(command)
             while (true) {
                 val response = transport.readPacket(MAX_RESPONSE_SIZE)
+                if (response.isEmpty()) continue // Ignore a USB zero-length packet before the reply.
                 if (response.size !in 4..MAX_RESPONSE_SIZE) {
                     throw FastbootProtocolException("Malformed Fastboot response size: ${response.size}")
                 }
@@ -80,6 +81,7 @@ class FastbootWireSession(private val transport: FastbootPacketTransport) : Auto
             var dataStarted = false
             while (true) {
                 val response = transport.readPacket(MAX_RESPONSE_SIZE)
+                if (response.isEmpty()) continue
                 if (response.size !in 4..MAX_RESPONSE_SIZE) {
                     throw FastbootProtocolException("Malformed Fastboot response size: ${response.size}")
                 }
@@ -99,7 +101,7 @@ class FastbootWireSession(private val transport: FastbootPacketTransport) : Auto
                             throw FastbootProtocolException("Unexpected Fastboot download DATA size")
                         }
                         dataStarted = true
-                        val buffer = ByteArray(MAX_COMMAND_SIZE)
+                        val buffer = ByteArray(MAX_DATA_CHUNK_SIZE)
                         var sent = 0L
                         while (sent < byteCount) {
                             val amount = minOf(buffer.size.toLong(), byteCount - sent).toInt()
@@ -140,5 +142,7 @@ class FastbootWireSession(private val transport: FastbootPacketTransport) : Auto
         // AOSP fastboot protocol: command <= 4096 bytes; response <= 256 bytes.
         const val MAX_COMMAND_SIZE = 4096
         const val MAX_RESPONSE_SIZE = 256
+        // DATA is a byte stream. Keep file reads bounded while reducing USB host calls.
+        const val MAX_DATA_CHUNK_SIZE = 64 * 1024
     }
 }

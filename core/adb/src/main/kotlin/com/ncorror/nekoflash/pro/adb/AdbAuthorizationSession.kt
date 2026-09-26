@@ -48,10 +48,12 @@ class AdbAuthorizationSession(private val transport: AdbByteTransport, private v
                                 publicKey + byteArrayOf(0))
                             onAwaitingApproval()
                         }
-                        else -> throw AdbProtocolException("ADB authorization not accepted")
+                        else -> throw AdbProtocolException(
+                            "ADB authorization not accepted: ${reply.headerSummary()}")
                     }
                 }
-                else -> throw AdbProtocolException("Unexpected ADB reply during authorization")
+                else -> throw AdbProtocolException(
+                    "Unexpected ADB reply during authorization: ${reply.headerSummary()}")
             }
         }
         @Suppress("UNREACHABLE_CODE")

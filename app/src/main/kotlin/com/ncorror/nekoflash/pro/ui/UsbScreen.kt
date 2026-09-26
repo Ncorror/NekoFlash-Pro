@@ -429,6 +429,11 @@ private fun UsbDeviceCard(
                     it.configurationIndex == 0
             } == 1
             if (canProbe) {
+                Text(
+                    text = stringResource(R.string.fastboot_transfer_mode),
+                    color = palette.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
                 OutlinedButton(
                     onClick = { onProbeFastboot(device, FastbootVariable.VERSION) },
                     enabled = !probeBusy,
@@ -444,6 +449,14 @@ private fun UsbDeviceCard(
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = palette.primary),
                 ) {
                     Text(stringResource(R.string.fastboot_probe_product_button))
+                }
+                OutlinedButton(
+                    onClick = { onProbeFastboot(device, FastbootVariable.DOWNLOAD_SIZE) },
+                    enabled = !probeBusy,
+                    border = BorderStroke(1.dp, palette.primary),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = palette.primary),
+                ) {
+                    Text(stringResource(R.string.fastboot_probe_limit_button))
                 }
             }
             val currentProbe = probeState?.takeIf { it.matches(device) }
@@ -496,6 +509,7 @@ private fun UsbDeviceCard(
 private fun FastbootVariable.labelId(): Int = when (this) {
     FastbootVariable.VERSION -> R.string.fastboot_variable_version
     FastbootVariable.PRODUCT -> R.string.fastboot_variable_product
+    FastbootVariable.DOWNLOAD_SIZE -> R.string.fastboot_variable_limit
 }
 
 @StringRes

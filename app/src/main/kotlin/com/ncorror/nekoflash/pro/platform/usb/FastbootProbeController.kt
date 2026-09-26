@@ -50,6 +50,7 @@ class FastbootProbeController(
         val variable = when (step.variable) {
             PlannedFastbootVariable.VERSION -> FastbootVariable.VERSION
             PlannedFastbootVariable.PRODUCT -> FastbootVariable.PRODUCT
+            PlannedFastbootVariable.DOWNLOAD_SIZE -> FastbootVariable.DOWNLOAD_SIZE
         }
         val currentGeneration = synchronized(lock) {
             if (active) {

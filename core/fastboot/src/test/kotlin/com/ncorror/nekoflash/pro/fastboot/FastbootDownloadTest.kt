@@ -27,8 +27,8 @@ class FastbootDownloadTest {
 
     @Test
     fun sendsExactlyTheAdvertisedBytesInBoundedChunksBeforeFinalReply() {
-        val image = ByteArray(5000) { (it and 0xff).toByte() }
-        val fake = FakeTransport("INFOstarting", "DATA00001388", "TEXTdone\u0000", "OKAY")
+        val image = ByteArray(70_000) { (it and 0xff).toByte() }
+        val fake = FakeTransport("INFOstarting", "DATA00011170", "TEXTdone\u0000", "OKAY")
         val progress = mutableListOf<Long>()
         val info = mutableListOf<FastbootWireMessage>()
         val result = FastbootWireSession(fake).use { session ->
@@ -36,10 +36,10 @@ class FastbootDownloadTest {
                 onProgress = { progress += it }, onMessage = { info += it })
         }
         assertEquals(FastbootWireResult.Okay(""), result)
-        assertEquals(listOf("download:00001388"), fake.commands)
-        assertEquals(listOf(4096, 904), fake.data.map(ByteArray::size))
+        assertEquals(listOf("download:00011170"), fake.commands)
+        assertEquals(listOf(65_536, 4_464), fake.data.map(ByteArray::size))
         assertContentEquals(image, fake.data.fold(byteArrayOf()) { acc, chunk -> acc + chunk })
-        assertEquals(listOf(4096L, 5000L), progress)
+        assertEquals(listOf(65_536L, 70_000L), progress)
         assertEquals(listOf<FastbootWireMessage>(FastbootWireMessage.Info("starting"),
             FastbootWireMessage.Text("done")), info)
         assertTrue(fake.closed)

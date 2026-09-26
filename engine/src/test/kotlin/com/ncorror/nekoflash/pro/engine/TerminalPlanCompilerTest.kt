@@ -71,4 +71,12 @@ class TerminalPlanCompilerTest {
         assertIs<TerminalPlanResult.Unavailable>(compiler.compile("fastboot raw flash:boot_a"))
         assertIs<TerminalPlanResult.Invalid>(compiler.compile("fastboot flash boot:ramdisk new.img"))
     }
+
+    @Test
+    fun downloadLimitQueryHasAReadOnlyPlan() {
+        val ready = assertIs<TerminalPlanResult.Ready>(compiler.compile("fastboot getvar max-download-size"))
+        assertEquals(listOf(TerminalPlanStep.FastbootGetvar(PlannedFastbootVariable.DOWNLOAD_SIZE)),
+            ready.plan.steps)
+        assertEquals(listOf("Fastboot: read getvar:max-download-size"), ready.plan.preview())
+    }
 }

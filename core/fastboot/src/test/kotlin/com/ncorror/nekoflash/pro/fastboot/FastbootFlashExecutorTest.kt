@@ -31,16 +31,18 @@ class FastbootFlashExecutorTest {
     fun rawImageFlashUsesDeviceLimitAndWaitsForDownloadOkay() {
         val fake = FakeTransport("OKAY 0x1000 \n", "DATA00000003", "OKAYdownloaded", "OKAYflashed")
         var opened = 0
+        val stages = mutableListOf<FastbootFlashStage>()
         val result = FastbootFlashExecutor { fake }.flashRaw("boot_a", 3, {
             opened++
             ByteArrayInputStream(byteArrayOf(1, 2, 3))
-        })
+        }, onStage = { stages += it })
         assertEquals(FastbootFlashResult.Finished("flashed"), result)
         assertEquals(listOf("getvar:max-download-size", "download:00000003", "flash:boot_a"), fake.commands)
         assertEquals(listOf(3), fake.data.map(ByteArray::size))
         assertEquals(1, opened)
         assertTrue(fake.closed)
         assertTrue(fake.extendedTimeout)
+        assertEquals(FastbootFlashStage.entries, stages)
     }
 
     @Test
@@ -108,5 +110,19 @@ class FastbootFlashExecutorTest {
         }
         assertEquals(listOf("getvar:max-download-size", "download:00000004"), fake.commands)
         assertTrue(fake.closed)
+    }
+
+    @Test
+    fun malformedLimitReplyReportsReadLimitStageAndNeverOpensImage() {
+        val fake = FakeTransport("BORKunrecognized")
+        val stages = mutableListOf<FastbootFlashStage>()
+        val error = assertFailsWith<FastbootProtocolException> {
+            FastbootFlashExecutor { fake }.flashRaw("recovery", 128L * 1024 * 1024,
+                { error("image must not be opened") }, onStage = { stages += it })
+        }
+        assertTrue(error.message.orEmpty().contains("Unknown Fastboot status"))
+        assertEquals(listOf(FastbootFlashStage.READ_LIMIT), stages)
+        assertEquals(listOf("getvar:max-download-size"), fake.commands)
+        assertTrue(fake.data.isEmpty() && fake.closed)
     }
 }

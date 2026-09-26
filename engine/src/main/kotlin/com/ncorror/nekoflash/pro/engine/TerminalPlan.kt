@@ -1,8 +1,8 @@
 package com.ncorror.nekoflash.pro.engine
 
-/** Only reviewed, read-only variables are part of the first executable plan. */
+/** Only reviewed, read-only variables can be executed directly from a terminal plan. */
 enum class PlannedFastbootVariable(val wireName: String) {
-    VERSION("version"), PRODUCT("product"),
+    VERSION("version"), PRODUCT("product"), DOWNLOAD_SIZE("max-download-size"),
 }
 
 sealed interface TerminalPlanStep {

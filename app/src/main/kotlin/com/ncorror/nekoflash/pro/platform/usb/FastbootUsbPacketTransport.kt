@@ -6,6 +6,7 @@ import android.hardware.usb.UsbDeviceConnection
 import android.hardware.usb.UsbEndpoint
 import android.hardware.usb.UsbInterface
 import android.hardware.usb.UsbManager
+import android.os.Build
 import com.ncorror.nekoflash.pro.transport.FastbootPacketTransport
 import com.ncorror.nekoflash.pro.transport.UsbInterfaceDetection
 import com.ncorror.nekoflash.pro.transport.UsbWireProtocol
@@ -31,11 +32,14 @@ class FastbootUsbPacketTransport private constructor(
 
     override fun writeData(bytes: ByteArray) {
         check(!closed.get()) { "Fastboot USB session is closed" }
-        require(bytes.size in 1..MAX_COMMAND_BYTES)
+        require(bytes.size in 1..MAX_DATA_CHUNK_BYTES)
         var offset = 0
         while (offset < bytes.size) {
-            val count = connection.bulkTransfer(output, bytes, offset, bytes.size - offset, TRANSFER_TIMEOUT_MS)
-            if (count <= 0) throw IOException("Fastboot USB data transfer failed or timed out ($count)")
+            // Android < 9 silently truncates bulk writes above 16 KiB.
+            val length = minOf(bytes.size - offset,
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) MAX_DATA_CHUNK_BYTES else LEGACY_BULK_BYTES)
+            val count = connection.bulkTransfer(output, bytes, offset, length, TRANSFER_TIMEOUT_MS)
+            if (count !in 1..length) throw IOException("Fastboot USB data transfer failed or timed out ($count)")
             offset += count
         }
     }
@@ -68,6 +72,8 @@ class FastbootUsbPacketTransport private constructor(
         private const val FLASH_REPLY_TIMEOUT_MS = 300_000
         private const val MAX_COMMAND_BYTES = 4096
         private const val MAX_REPLY_BYTES = 256
+        private const val MAX_DATA_CHUNK_BYTES = 64 * 1024
+        private const val LEGACY_BULK_BYTES = 16 * 1024
 
         /** Do not change configuration or detach a kernel driver for a diagnostic probe. */
         fun open(

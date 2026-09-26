@@ -7,6 +7,8 @@ import android.net.Uri
 import com.ncorror.nekoflash.pro.engine.TerminalPlanStep
 import com.ncorror.nekoflash.pro.fastboot.FastbootFlashExecutor
 import com.ncorror.nekoflash.pro.fastboot.FastbootFlashResult
+import com.ncorror.nekoflash.pro.fastboot.FastbootFlashStage
+import com.ncorror.nekoflash.pro.fastboot.FastbootProtocolException
 import com.ncorror.nekoflash.pro.model.FastbootFlashPhase
 import com.ncorror.nekoflash.pro.model.FastbootFlashState
 import com.ncorror.nekoflash.pro.model.UsbDeviceSummary
@@ -45,6 +47,7 @@ class FastbootFlashController(
             var bytesSent = 0L
             var lastUpdateMs = 0L
             var safeDetail = ""
+            var stage = FastbootFlashStage.READ_LIMIT
             val result = try {
                 lease = gate.tryAcquire() ?: throw IOException("USB session is already in use")
                 if (synchronized(lock) { cancelled }) throw IOException("Flash cancelled")
@@ -92,6 +95,7 @@ class FastbootFlashController(
                             }
                         }
                     },
+                    onStage = { stage = it },
                 )
                 safeDetail = when (answer) {
                     is FastbootFlashResult.DeviceRejected -> " stage=${answer.stage}"
@@ -109,8 +113,11 @@ class FastbootFlashController(
                         phase = FastbootFlashPhase.SPARSE_UNSUPPORTED)
                 }
             } catch (failure: Exception) {
-                // Provider exception messages can contain the Uri; log only the exception type.
-                record("Fastboot raw flash failed: ${failure.javaClass.simpleName}")
+                // Provider messages can contain the Uri. Core protocol errors contain only status metadata.
+                val protocolDetail = if (failure is FastbootProtocolException) {
+                    " detail=" + failure.message.orEmpty().replace(Regex("[^A-Za-z0-9 _:-]"), "?").take(96)
+                } else ""
+                record("Fastboot raw flash failed stage=$stage: ${failure.javaClass.simpleName}$protocolDetail")
                 running.copy(phase = FastbootFlashPhase.FAILED, sentBytes = bytesSent)
             } finally {
                 val opened = synchronized(lock) {

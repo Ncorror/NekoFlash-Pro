@@ -10,6 +10,7 @@ import com.ncorror.nekoflash.pro.transport.FastbootPacketTransport
 enum class FastbootVariable(val wireName: String) {
     VERSION("version"),
     PRODUCT("product"),
+    DOWNLOAD_SIZE("max-download-size"),
 }
 
 /** Each request owns and closes its transport, even when a device rejects the variable. */

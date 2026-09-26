@@ -10,7 +10,10 @@ internal class AdbWire(
     private val maxIncomingPayload: Int = MAX_DATA,
 ) {
     init { require(maxIncomingPayload in MAX_DATA..MAX_NEGOTIATED_DATA) }
-    data class Packet(val command: Int, val arg0: Int, val arg1: Int, val payload: ByteArray)
+    data class Packet(val command: Int, val arg0: Int, val arg1: Int, val payload: ByteArray) {
+        /** Header metadata is safe for diagnostics; payloads can contain keys or device data. */
+        fun headerSummary() = "cmd=0x${command.toUInt().toString(16)} arg0=$arg0 arg1=$arg1 size=${payload.size}"
+    }
 
     fun sendHello() = send(CNXN, VERSION, MAX_DATA, "host::".toByteArray(Charsets.US_ASCII))
 

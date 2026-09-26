@@ -101,7 +101,7 @@ class AdbProductProbeTest {
             val fake = FakeTransport(*(connected() + opened() +
                 packet(AdbWire.WRTE, 2, 1, text) + closed()).toTypedArray())
             val failure = assertFailsWith<AdbProtocolException> { AdbProductProbe(fake, FakeKey()).read {} }
-            assertEquals(expected, failure.message)
+            assertTrue(failure.message.orEmpty().startsWith(expected))
             assertTrue(!failure.message.orEmpty().contains("secret"))
             assertTrue(fake.closed)
         }
@@ -115,7 +115,8 @@ class AdbProductProbeTest {
         val failure = assertFailsWith<AdbProtocolException> {
             AdbProductProbe(fake, FakeKey()).read {}
         }
-        assertEquals("Invalid ADB property stream packet", failure.message)
+        assertEquals("Invalid ADB property stream packet: cmd=0x45545257 arg0=2 arg1=1 size=5000",
+            failure.message)
         assertTrue(fake.closed)
     }
 

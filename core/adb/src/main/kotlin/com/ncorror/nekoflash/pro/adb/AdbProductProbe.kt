@@ -25,7 +25,8 @@ class AdbProductProbe(private val transport: AdbByteTransport, private val key: 
                     if (packet.arg1 != LOCAL_ID || packet.arg0 < 0 ||
                         (packet.arg0 == 0 && packet.command != AdbWire.CLSE) ||
                         packet.payload.size > MAX_OUTPUT) {
-                        throw AdbProtocolException("Invalid ADB property stream packet")
+                        throw AdbProtocolException(
+                            "Invalid ADB property stream packet: ${packet.headerSummary()}")
                     }
                     when (packet.command) {
                         AdbWire.OKAY -> {

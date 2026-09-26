@@ -64,4 +64,13 @@ class FastbootGetvarProbeTest {
         assertEquals(listOf("getvar:version"), fake.sent)
         assertTrue(fake.closed)
     }
+
+    @Test
+    fun readsDownloadLimitWithoutStartingDataPhaseAndSkipsEmptyUsbPackets() {
+        val fake = FakeTransport("", "OKAY0x08000000")
+        assertEquals(FastbootWireResult.Okay("0x08000000"),
+            FastbootGetvarProbe(fake).read(FastbootVariable.DOWNLOAD_SIZE))
+        assertEquals(listOf("getvar:max-download-size"), fake.sent)
+        assertTrue(fake.closed)
+    }
 }
