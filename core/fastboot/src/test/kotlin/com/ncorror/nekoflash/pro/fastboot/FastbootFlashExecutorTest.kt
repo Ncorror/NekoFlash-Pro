@@ -42,7 +42,7 @@ class FastbootFlashExecutorTest {
         assertEquals(1, opened)
         assertTrue(fake.closed)
         assertTrue(fake.extendedTimeout)
-        assertEquals(FastbootFlashStage.entries, stages)
+        assertEquals(FastbootFlashStage.entries.toList(), stages)
     }
 
     @Test
