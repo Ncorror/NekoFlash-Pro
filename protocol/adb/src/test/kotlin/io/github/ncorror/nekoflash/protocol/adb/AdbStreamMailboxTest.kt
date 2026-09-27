@@ -87,6 +87,31 @@ class AdbStreamMailboxTest {
     }
 
     /** Принятое до конца отдаётся раньше конца даже при ожидании. */
+    /**
+     * Конец не обгоняет данные, даже если приходит между двумя взглядами
+     * потребителя на ящик.
+     *
+     * Прогон полной сборки поймал `Completed` без вывода: потребитель увидел
+     * пустую очередь, цикл раскладки положил данные и отметил конец, и
+     * потребитель прочитал конец раньше данных. Гонку не подстроить, поэтому
+     * она повторяется, пока не выпадет, — прежний код падал за доли секунды.
+     */
+    @Test
+    fun theEndNeverOvertakesDataOfferedBeforeIt() {
+        repeat(RACE_ROUNDS) { round ->
+            val mailbox = AdbStreamMailbox(localId = 1)
+            val producer = Thread {
+                mailbox.offer(AdbMailboxItem.Data(byteArrayOf(1)))
+                mailbox.end(AdbMailboxEnd.COMPLETED, "closed")
+            }
+            producer.start()
+            var first: AdbMailboxItem? = null
+            while (first == null) first = mailbox.poll(0)
+            producer.join()
+            assertTrue("round $round got $first", first is AdbMailboxItem.Data)
+        }
+    }
+
     @Test
     fun contentIsHandedOutBeforeTheEnd() {
         val mailbox = AdbStreamMailbox(localId = 1)
@@ -126,5 +151,6 @@ class AdbStreamMailboxTest {
         const val LONG_WAIT_MILLIS = 5_000L
         const val HANDOFF_MILLIS = 50L
         const val NANOS_PER_MILLI = 1_000_000L
+        const val RACE_ROUNDS = 20_000
     }
 }

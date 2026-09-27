@@ -117,9 +117,15 @@ public class AdbStreamMailbox internal constructor(
      */
     public fun poll(timeoutMillis: Long): AdbMailboxItem? {
         require(timeoutMillis >= 0) { "Mailbox timeout must not be negative: $timeoutMillis" }
-        // Принятое отдаётся раньше конца, а после конца ждать уже нечего.
-        val ready = items.poll() ?: terminal
-        return ready ?: items.poll(timeoutMillis, TimeUnit.MILLISECONDS) ?: terminal
+        // Принятое отдаётся раньше конца, а после конца ждать уже нечего. Конец
+        // отдаётся только после второго взгляда в очередь: между первым взглядом
+        // и чтением [terminal] цикл раскладки мог положить данные и отметить
+        // конец, и тогда конец обогнал бы их (полная сборка поймала `Completed`
+        // без вывода). Данные кладутся раньше, чем отмечается конец, поэтому
+        // увидевший конец увидит в очереди и их.
+        val ready = items.poll() ?: terminal?.let { end -> items.poll() ?: end }
+        return ready ?: items.poll(timeoutMillis, TimeUnit.MILLISECONDS)
+            ?: terminal?.let { end -> items.poll() ?: end }
     }
 
     /**
