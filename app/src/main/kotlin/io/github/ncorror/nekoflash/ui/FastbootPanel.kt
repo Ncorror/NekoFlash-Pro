@@ -2,12 +2,15 @@ package io.github.ncorror.nekoflash.ui
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -20,7 +23,10 @@ data class FastbootPanel(
     val state: FastbootLinkState = FastbootLinkState.Idle,
     val onProbe: () -> Unit = {},
     val onDisconnect: () -> Unit = {},
-    /** Тот же вход, что и у консоли: разрушающая кнопка своего обмена не заводит. */
+    /**
+     * Тот же вход, что и у консоли: разрушающая кнопка своего обмена не заводит.
+     * Вызывается из группы «Запись» секции консоли, которой отсюда передаётся замок.
+     */
     val onPlan: (List<String>) -> Unit = {},
 )
 
@@ -57,14 +63,7 @@ fun FastbootLinkSection(
                 style = MaterialTheme.typography.bodySmall,
             )
 
-            is FastbootLinkState.Connected -> {
-                FastbootIdentityLines(state, fastboot.onDisconnect)
-
-                // Разрушающие команды живут здесь, а не в консоли, потому что
-                // форму подтверждения задаёт замок **этой** generation, и он
-                // известен ровно тут.
-                FastbootDestructiveSection(lock = state.lock, onPlan = fastboot.onPlan)
-            }
+            is FastbootLinkState.Connected -> FastbootIdentityLines(state, fastboot.onDisconnect)
 
             is FastbootLinkState.Failed -> {
                 Text(
@@ -79,30 +78,43 @@ fun FastbootLinkSection(
     }
 }
 
+/**
+ * Роль и её основание — слева, отпустить интерфейс — справа.
+ *
+ * Отпускание — не главное действие секции, поэтому кнопка контурная и стоит в
+ * одной строке с ролью, а не отдельным рядом во всю ширину.
+ */
 @Composable
 private fun FastbootIdentityLines(
     state: FastbootLinkState.Connected,
     onDisconnect: () -> Unit,
 ) {
-    Text(
-        text = stringResource(
-            when (state.identity.mode) {
-                FastbootMode.BOOTLOADER -> R.string.fastboot_mode_bootloader
-                FastbootMode.FASTBOOTD -> R.string.fastboot_mode_fastbootd
-                FastbootMode.UNKNOWN -> R.string.fastboot_mode_unknown
-            },
-        ),
-        style = MaterialTheme.typography.bodyMedium,
-    )
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = stringResource(
+                    when (state.identity.mode) {
+                        FastbootMode.BOOTLOADER -> R.string.fastboot_mode_bootloader
+                        FastbootMode.FASTBOOTD -> R.string.fastboot_mode_fastbootd
+                        FastbootMode.UNKNOWN -> R.string.fastboot_mode_unknown
+                    },
+                ),
+                style = MaterialTheme.typography.bodyMedium,
+            )
 
-    // Основание вывода показывается всегда, а не только при неудаче: по нему
-    // видно, ответом устройства установлена роль или его молчанием.
-    Text(
-        text = state.identity.detail,
-        style = MaterialTheme.typography.bodySmall,
-    )
-
-    Button(onClick = onDisconnect) {
-        Text(stringResource(R.string.fastboot_disconnect))
+            // Основание вывода показывается всегда, а не только при неудаче:
+            // по нему видно, ответом устройства установлена роль или его
+            // молчанием.
+            Text(
+                text = state.identity.detail,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+        OutlinedButton(onClick = onDisconnect) {
+            Text(stringResource(R.string.fastboot_disconnect))
+        }
     }
 }

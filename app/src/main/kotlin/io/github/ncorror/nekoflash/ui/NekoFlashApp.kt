@@ -212,7 +212,7 @@ private fun Workspace(
     Column(
         modifier = modifier
             .verticalScroll(rememberScrollState())
-            .padding(24.dp),
+            .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
         when (destination) {
@@ -487,7 +487,7 @@ private fun SessionCard(
     val claimed = session.state == UsbSessionState.CLAIMED
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
-            modifier = Modifier.padding(20.dp),
+            modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             SessionIdentity(session = session)
@@ -518,8 +518,11 @@ private fun SessionCard(
                     )
                 } else if (session.candidate.kind == UsbInterfaceKind.FASTBOOT) {
                     FastbootLinkSection(fastboot = fastboot)
-                    if (fastboot.state is FastbootLinkState.Connected) {
-                        FastbootConsoleSection(console = fastbootConsole)
+                    val link = fastboot.state
+                    if (link is FastbootLinkState.Connected) {
+                        // Разрушающая группа получает замок **этой** generation:
+                        // форму подтверждения задаёт он, и известен он здесь.
+                        FastbootConsoleSection(console = fastbootConsole, lock = link.lock, onPlan = fastboot.onPlan)
                     }
                     Text(
                         text = stringResource(R.string.fastboot_note),

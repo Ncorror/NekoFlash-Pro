@@ -1,26 +1,35 @@
 package io.github.ncorror.nekoflash.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import io.github.ncorror.nekoflash.R
 import io.github.ncorror.nekoflash.fastboot.FastbootConsoleState
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootLaneState
+import io.github.ncorror.nekoflash.protocol.fastboot.FastbootLockStatus
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootMode
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootMutationClass
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootPartitionIndex
@@ -63,119 +72,82 @@ data class FastbootConsolePanel(
 )
 
 /**
- * Секция произвольного обмена по Fastboot.
+ * Всё, что делается с устройством в Fastboot, — одной секцией с группами.
  *
- * Поля свободные и списка команд нет: что бывает у Fastboot, знает устройство,
- * и запирать его набором значило бы решать за оператора, чего просить
- * (`01` §3). Отказ устройства показывается как ответ устройства, а не как наша
- * ошибка.
+ * Разрушающие команды получают замок **этой** generation отсюда: он известен
+ * ровно тем, кто показывает соединение, и форму подтверждения задаёт он.
  */
 @Composable
 fun FastbootConsoleSection(
     console: FastbootConsolePanel,
+    lock: FastbootLockStatus,
+    onPlan: (List<String>) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var command by remember { mutableStateOf("") }
+    // Группа — состояние взгляда, как и раздел рабочего места: поворот её
+    // сохраняет, а устройству до неё дела нет.
+    var tool by rememberSaveable { mutableStateOf(FastbootTool.READ) }
+    // Держатель сохраняет поля каждой группы, пока видна другая: набранное имя
+    // раздела не должно пропадать оттого, что оператор заглянул в соседнюю.
+    val fields = rememberSaveableStateHolder()
 
     Column(
         modifier = modifier.fillMaxWidth().padding(top = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        SectionHeading(
-            text = stringResource(R.string.fastboot_console_title),
-        )
+        FastbootToolChooser(current = tool, onSelect = { chosen -> tool = chosen })
 
-        OutlinedTextField(
-            value = command,
-            onValueChange = { command = it },
-            label = { Text(stringResource(R.string.fastboot_command_label)) },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Button(onClick = { console.onCommand(command) }) {
-            Text(stringResource(R.string.fastboot_command_send))
+        fields.SaveableStateProvider(tool.name) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                when (tool) {
+                    FastbootTool.READ -> FastbootReadTool(console)
+                    FastbootTool.COMMAND -> FastbootCommandTool(console.onCommand)
+                    FastbootTool.BUFFER -> FastbootBufferTool(console)
+                    FastbootTool.REBOOT -> FastbootTypedCommandsSection(onCommand = console.onCommand)
+                    FastbootTool.WRITE -> FastbootDestructiveSection(lock = lock, onPlan = onPlan)
+                }
+            }
         }
 
-        FastbootReadControls(console)
-
-        FastbootTypedCommandsSection(onCommand = console.onCommand)
-
-        // Исход стоит сразу за последней кнопкой, и оба пояснения — под ним.
+        // Исход стоит сразу за кнопками группы, и пояснение — под ним.
         // Прогон §6.76: пояснение между кнопкой и ответом увело ответ за край
         // экрана, и оператор трижды повторил мутирующую команду, решив, что
         // ничего не произошло. Текст, стоящий между действием и результатом,
-        // стоит дороже, чем то, что он объясняет.
-        FastbootConsoleOutcome(console.state)
+        // стоит дороже, чем то, что он объясняет. Исход общий для всех групп:
+        // ответ на команду из палитры виден, какая бы группа ни была открыта.
+        FastbootOutcomePane(console.state)
 
         FastbootStalledNotice(console.state.lane, console.onReclaim)
 
-        Text(
-            text = stringResource(R.string.fastboot_console_note),
-            style = MaterialTheme.typography.bodySmall,
-        )
-
-        FastbootTypedCommandsNote()
+        tool.note?.let { note ->
+            Text(
+                text = stringResource(note),
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
     }
 }
 
 /**
- * Всё, что только читает: переменная, весь список и раздел целиком.
+ * Ответ устройства — отдельной плашкой.
  *
- * Загрузка в буфер стоит здесь же, потому что буфер — не раздел: `download:`
- * ничего не прошивает. Разрушающие команды живут отдельно, рядом с замком.
+ * Без неё строка ответа ничем не отличалась от пояснений вокруг, и её
+ * приходилось искать глазами среди текста того же размера.
  */
 @Composable
-private fun FastbootReadControls(console: FastbootConsolePanel) {
-    var variable by remember { mutableStateOf("") }
-    var partition by remember { mutableStateOf("") }
-
-    OutlinedTextField(
-        value = variable,
-        onValueChange = { variable = it },
-        label = { Text(stringResource(R.string.fastboot_variable_label)) },
-        singleLine = true,
+private fun FastbootOutcomePane(state: FastbootConsoleState) {
+    if (state is FastbootConsoleState.Idle) return
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        shape = MaterialTheme.shapes.medium,
         modifier = Modifier.fillMaxWidth(),
-    )
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        // Пустое имя — это ненабранное поле, а не запрос: `getvar:` целиком можно
-        // отправить в произвольной команде ниже (прогон этапа 2, шаг F).
-        Button(onClick = { console.onVariable(variable) }, enabled = variable.isNotBlank()) {
-            Text(stringResource(R.string.fastboot_variable_read))
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            FastbootConsoleOutcome(state)
         }
-        Button(onClick = console.onAllVariables) {
-            Text(stringResource(R.string.fastboot_variable_read_all))
-        }
-    }
-
-    OutlinedTextField(
-        value = partition,
-        onValueChange = { partition = it },
-        label = { Text(stringResource(R.string.fastboot_fetch_label)) },
-        singleLine = true,
-        modifier = Modifier.fillMaxWidth(),
-    )
-    FastbootFetchRole(console.mode)
-
-    Button(onClick = { console.onFetch(partition) }) {
-        Text(stringResource(R.string.fastboot_fetch_read))
-    }
-    Button(onClick = { console.onFetchToFile(partition) }) {
-        Text(stringResource(R.string.fastboot_fetch_to_file))
-    }
-
-    SectionHeading(
-        text = stringResource(R.string.fastboot_download_title),
-    )
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Button(onClick = { console.onDownload(SMALL_DOWNLOAD_BYTES) }) {
-            Text(stringResource(R.string.fastboot_download_small))
-        }
-        Button(onClick = { console.onDownload(LARGE_DOWNLOAD_BYTES) }) {
-            Text(stringResource(R.string.fastboot_download_large))
-        }
-    }
-    Button(onClick = console.onDownloadFile) {
-        Text(stringResource(R.string.fastboot_download_file))
     }
 }
 
@@ -224,38 +196,6 @@ private fun FastbootStalledNotice(lane: FastbootLaneState?, onReclaim: () -> Uni
     )
     Button(onClick = onReclaim) {
         Text(stringResource(R.string.fastboot_console_lane_reclaim))
-    }
-}
-
-/**
- * Роль рядом с полем раздела — и подсказка, а не запрет.
- *
- * Legacy печатает перед `fetch:` ровно такое предупреждение и **отправляет
- * команду** (`07` §6.81). Здесь так же: кнопка работает в любой роли, потому
- * что где у этого устройства реализован `fetch:`, знает устройство, а не мы
- * (`01` §3, `03` §5.1). Сказано только то, что известно из архива: команда
- * обычно живёт в `fastbootd`. Чем ответит аппарат, здесь не предсказывается.
- */
-@Composable
-private fun FastbootFetchRole(mode: FastbootMode) {
-    Text(
-        text = stringResource(
-            R.string.fastboot_fetch_role,
-            stringResource(
-                when (mode) {
-                    FastbootMode.BOOTLOADER -> R.string.fastboot_mode_bootloader
-                    FastbootMode.FASTBOOTD -> R.string.fastboot_mode_fastbootd
-                    FastbootMode.UNKNOWN -> R.string.fastboot_mode_unknown
-                },
-            ),
-        ),
-        style = MaterialTheme.typography.bodySmall,
-    )
-    if (mode == FastbootMode.BOOTLOADER) {
-        Text(
-            text = stringResource(R.string.fastboot_fetch_role_bootloader),
-            style = MaterialTheme.typography.bodySmall,
-        )
     }
 }
 
@@ -540,12 +480,7 @@ private fun FastbootVariableList(state: FastbootConsoleState.Variables) {
         )
     }
 
-    snapshot.variables.forEach { (name, value) ->
-        Text(
-            text = stringResource(R.string.fastboot_variable_entry, name, value),
-            style = MaterialTheme.typography.bodySmall,
-        )
-    }
+    FastbootVariableEntries(snapshot.variables)
 
     // Расхождение под одним именем и неразобранная строка показываются, а не
     // прячутся: это наблюдения об устройстве, и по ним видно, что разбор неполон.
@@ -569,6 +504,57 @@ private fun FastbootVariableList(state: FastbootConsoleState.Variables) {
 }
 
 /**
+ * Сами переменные — в своём окне с фильтром.
+ *
+ * `getvar:all` на `vayu` назвал 222 переменные, и лентой они растянули экран
+ * так, что до пояснений и до соседней секции приходилось листать минуту
+ * (прогон этапа 2). Окно ограничено по высоте и прокручивается само; фильтр
+ * сужает только **вид** — список, пришедший от устройства, не меняется, и
+ * сколько показано из скольких, сказано прямо. Текст выделяется: значение
+ * часто нужно скопировать.
+ */
+@Composable
+private fun FastbootVariableEntries(variables: Map<String, String>) {
+    var filter by rememberSaveable { mutableStateOf("") }
+    val needle = filter.trim()
+    val shown = variables.filter { (name, value) ->
+        needle.isEmpty() || name.contains(needle, ignoreCase = true) || value.contains(needle, ignoreCase = true)
+    }
+
+    OutlinedTextField(
+        value = filter,
+        onValueChange = { filter = it },
+        label = { Text(stringResource(R.string.fastboot_variables_filter)) },
+        singleLine = true,
+        modifier = Modifier.fillMaxWidth(),
+    )
+    if (shown.size != variables.size) {
+        Text(
+            text = stringResource(R.string.fastboot_variables_shown, shown.size, variables.size),
+            style = MaterialTheme.typography.bodySmall,
+        )
+    }
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(max = VARIABLES_HEIGHT)
+            .verticalScroll(rememberScrollState()),
+    ) {
+        SelectionContainer {
+            Column {
+                shown.forEach { (name, value) ->
+                    Text(
+                        text = stringResource(R.string.fastboot_variable_entry, name, value),
+                        style = MaterialTheme.typography.bodySmall,
+                        fontFamily = FontFamily.Monospace,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
  * Состояние полосы.
  *
  * Показывается всегда: у Fastboot полоса одна, и потеря рамки липкая. Скрыв её,
@@ -585,13 +571,5 @@ private fun FastbootLaneLine(lane: String) {
 /** Миллисекунд в секунде — чтобы деление не выглядело магическим числом. */
 private const val MILLIS_IN_SECOND = 1_000L
 
-/** Маленькая загрузка: доказывает путь, ничего не занимая. */
-private const val SMALL_DOWNLOAD_BYTES = 4L * 1024
-
-/**
- * Большая загрузка: несколько блоков по 16 КиБ.
- *
- * Нужна затем, что путь в один блок не проверяет дописывание короткой записи и
- * счёт байтов через границу блока — а именно там ломалось у Legacy и A2.
- */
-private const val LARGE_DOWNLOAD_BYTES = 2L * 1024 * 1024
+/** Высота окна переменных: полтора десятка строк, дальше — прокрутка внутри. */
+private val VARIABLES_HEIGHT = 320.dp
