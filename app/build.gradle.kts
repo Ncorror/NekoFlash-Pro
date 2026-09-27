@@ -60,7 +60,6 @@ kotlin {
 
 dependencies {
     implementation(project(":engine"))
-    implementation(project(":core:diagnostics"))
     implementation(project(":core:transport"))
     implementation(project(":core:fastboot"))
     implementation(project(":core:adb"))

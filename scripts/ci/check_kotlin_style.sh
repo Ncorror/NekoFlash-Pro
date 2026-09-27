@@ -49,7 +49,7 @@ style_inputs=(
     app/src/main core/model/src/main core/diagnostics/src/main core/operation/src/main
     core/artifact/src/main usb/api/src/main usb/android/src/main protocol/adb/src/main
 )
-legacy_inputs=(app/src/main core/diagnostics/src/main)
+legacy_inputs=(app/src/main)
 
 inputs=()
 for input in "${style_inputs[@]}"; do

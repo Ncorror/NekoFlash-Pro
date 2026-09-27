@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!--
+        USB host объявлен обязательным так же, как в Legacy и A2.
+
+        На фильтрацию установки это не влияет: uses-feature используется
+        магазином приложений, а не установщиком. NekoFlash распространяется вне
+        магазина, поэтому объявление лишь честно описывает, что приложению
+        нужен USB host, и ничего пользователю не запрещает.
+    -->
+    <uses-feature
+        android:name="android.hardware.usb.host"
+        android:required="true" />
+
+</manifest>

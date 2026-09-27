@@ -89,7 +89,14 @@ ArtifactSink:   временное место, точный счёт, commit т�
 - `:core:transport` — классификация интерфейсов, план автоподключения, единый захват USB, порты транспорта. Заменяется `:usb:api`.
 - `:core:adb` — рукопожатие, авторизация, чтение `ro.product.device`. Заменяется `:protocol:adb`.
 - `:core:fastboot` — кадры Fastboot, `getvar`, ограниченная запись raw-образа. Заменяется `:protocol:fastboot`.
-- `:core:diagnostics` — запись ZIP. Заменяется `:core:diagnostics` из архива.
+- `:core:model` — из архива. Модули архива ниже вызываться начнут вместе с приложением архива.
+- `:core:diagnostics` — из архива, заменил прежний модуль с тем же именем.
+- `:core:operation` — из архива.
+- `:core:artifact` — из архива.
+- `:usb:api` — из архива.
+- `:usb:android` — из архива.
+- `:protocol:adb` — из архива.
+- `:protocol:fastboot` — из архива.
 <!-- modules:end -->
 
 ## 6. Направление зависимостей
