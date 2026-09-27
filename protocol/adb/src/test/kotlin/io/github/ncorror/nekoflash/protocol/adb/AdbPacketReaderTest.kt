@@ -52,7 +52,7 @@ class AdbPacketReaderTest {
         assertEquals(listOf(250, AdbPacketReader.PAYLOAD_TIMEOUT_MS), handle.receiveTimeouts)
     }
 
-    /** Сорванная нагрузка называет терпение, с которым её ждали. */
+    /** Сорванная нагрузка называет терпение и сколько её ждали на самом деле. */
     @Test
     fun failedPayloadNamesItsTimeout() {
         val payload = ByteArray(96_390)
@@ -61,10 +61,12 @@ class AdbPacketReaderTest {
             FakeUsbTransportHandle.Transfer.Failed(UsbTransferFailure.NOT_COMPLETED),
         )
 
-        val failure = AdbPacketReader(handle, MAX_PAYLOAD).read(timeoutMillis = 250) as AdbReadOutcome.Failed
+        var now = 0L
+        val reader = AdbPacketReader(handle, MAX_PAYLOAD, nanoTime = { now.also { now += 7_000_000L } })
+        val failure = reader.read(timeoutMillis = 250) as AdbReadOutcome.Failed
 
         assertEquals(AdbReadFailure.PAYLOAD_TRANSFER_FAILED, failure.reason)
-        assertEquals("expected=96390 timeoutMs=${AdbPacketReader.PAYLOAD_TIMEOUT_MS}", failure.detail)
+        assertEquals("expected=96390 timeoutMs=${AdbPacketReader.PAYLOAD_TIMEOUT_MS} waitedMs=7", failure.detail)
     }
 
     /**

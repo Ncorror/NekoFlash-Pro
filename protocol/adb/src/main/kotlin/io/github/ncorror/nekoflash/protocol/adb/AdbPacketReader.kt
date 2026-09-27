@@ -89,6 +89,8 @@ public class AdbPacketReader(
     private val handle: UsbTransportHandle,
     private val maxPayloadBytes: Int,
     private val localVersion: Int = AdbChecksum.VERSION_WITH_CHECKSUM,
+    /** Часы для отказа нагрузки: сколько ждали — отличает тайм-аут от мгновенной ошибки. */
+    private val nanoTime: () -> Long = System::nanoTime,
 ) {
     private val headerBuffer = ByteArray(AdbPacketHeader.SIZE_BYTES)
 
@@ -214,6 +216,7 @@ public class AdbPacketReader(
 
     private fun readPayload(length: Int, timeoutMillis: Int): PayloadOutcome {
         val payload = ByteArray(length)
+        val startedAt = nanoTime()
         val result = handle.receive(
             destination = payload,
             offset = 0,
@@ -238,7 +241,11 @@ public class AdbPacketReader(
                     UsbTransferFailure.NOT_HELD -> AdbReadOutcome.Closed
                     UsbTransferFailure.NOT_COMPLETED -> AdbReadOutcome.Failed(
                         AdbReadFailure.PAYLOAD_TRANSFER_FAILED,
-                        "expected=$length timeoutMs=$timeoutMillis",
+                        // Прогон этапа 2 на 0.25.0: отказ повторился и с 5 с терпения.
+                        // Платформа отдаёт -1 и на тайм-аут, и на ошибку передачи;
+                        // различить их можно только по тому, сколько ждали.
+                        "expected=$length timeoutMs=$timeoutMillis " +
+                            "waitedMs=${(nanoTime() - startedAt) / NANOS_IN_MILLI}",
                     )
                 },
             )
@@ -263,5 +270,7 @@ public class AdbPacketReader(
         public const val PAYLOAD_TIMEOUT_MS: Int = DEFAULT_RECEIVE_TIMEOUT_MS
 
         private val EMPTY_PAYLOAD = ByteArray(0)
+
+        private const val NANOS_IN_MILLI = 1_000_000L
     }
 }
