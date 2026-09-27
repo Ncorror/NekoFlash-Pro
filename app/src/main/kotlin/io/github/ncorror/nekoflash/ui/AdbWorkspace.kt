@@ -16,6 +16,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -38,6 +39,7 @@ import io.github.ncorror.nekoflash.adb.AdbLinkState
 import io.github.ncorror.nekoflash.adb.AdbRawServiceState
 import io.github.ncorror.nekoflash.adb.AdbRebootState
 import io.github.ncorror.nekoflash.adb.AdbTerminalState
+import io.github.ncorror.nekoflash.adb.TerminalKey
 import io.github.ncorror.nekoflash.protocol.adb.AdbShellMode
 import io.github.ncorror.nekoflash.core.model.SessionGeneration
 import io.github.ncorror.nekoflash.protocol.adb.AdbPeerMode
@@ -365,6 +367,11 @@ data class TerminalActions(
     val onSend: (String) -> Unit = {},
     val onInterrupt: () -> Unit = {},
     val onStop: () -> Unit = {},
+    /** Экран измерил, сколько столбцов и строк в него помещается. */
+    val onResize: (Int, Int) -> Unit = { _, _ -> },
+    val onKey: (TerminalKey) -> Unit = {},
+    /** Текст без Enter. */
+    val onType: (String) -> Unit = {},
 )
 
 /**
@@ -385,47 +392,55 @@ internal fun terminalModeText(mode: AdbShellMode): String = stringResource(
     },
 )
 
+/** Строка ввода: уходит в оболочку вместе с Enter. */
+@Composable
+private fun TerminalInput(input: MutableState<String>, ready: Boolean, onSend: (String) -> Unit) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        OutlinedTextField(
+            value = input.value,
+            onValueChange = { text -> input.value = text },
+            label = { Text(stringResource(R.string.terminal_input_hint)) },
+            singleLine = true,
+            enabled = ready,
+            modifier = Modifier.weight(1f),
+        )
+        Button(
+            onClick = {
+                onSend(input.value)
+                input.value = ""
+            },
+            enabled = ready && input.value.isNotBlank(),
+        ) {
+            Text(stringResource(R.string.terminal_send))
+        }
+    }
+}
+
 @Composable
 internal fun TerminalSection(terminal: AdbTerminalState, actions: TerminalActions) {
     val input = remember { mutableStateOf("") }
 
     Text(text = stringResource(R.string.terminal_label), style = MaterialTheme.typography.labelMedium)
-    TerminalOutput(
-        text = when {
-            terminal.output.isNotBlank() -> terminal.output
+    TerminalScreen(
+        screen = terminal.screen,
+        placeholder = when {
             terminal.ended != null -> stringResource(R.string.terminal_ended, terminal.ended)
             terminal.closing -> stringResource(R.string.terminal_closing)
             terminal.active && !terminal.ready -> stringResource(R.string.terminal_opening)
             else -> stringResource(R.string.terminal_waiting)
         },
+        showCursor = terminal.ready,
+        onResize = actions.onResize,
     )
     if (terminal.mode != AdbShellMode.PTY) {
         Text(text = terminalModeText(terminal.mode), style = MaterialTheme.typography.bodySmall)
     }
     if (terminal.active) {
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            OutlinedTextField(
-                value = input.value,
-                onValueChange = { text -> input.value = text },
-                label = { Text(stringResource(R.string.terminal_input_hint)) },
-                singleLine = true,
-                enabled = terminal.ready,
-                modifier = Modifier.weight(1f),
-            )
-            Button(
-                onClick = {
-                    actions.onSend(input.value)
-                    input.value = ""
-                },
-                enabled = terminal.ready && input.value.isNotBlank(),
-            ) {
-                Text(stringResource(R.string.terminal_send))
-            }
-        }
+        TerminalInput(input, terminal.ready, actions.onSend)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = actions.onInterrupt, enabled = terminal.ready) {
                 Text(stringResource(R.string.terminal_interrupt))
@@ -434,6 +449,14 @@ internal fun TerminalSection(terminal: AdbTerminalState, actions: TerminalAction
                 Text(stringResource(R.string.terminal_stop))
             }
         }
+        TerminalKeys(
+            enabled = terminal.ready,
+            onKey = actions.onKey,
+            onType = {
+                actions.onType(input.value)
+                input.value = ""
+            },
+        )
     } else {
         Button(onClick = actions.onStart) {
             Text(stringResource(R.string.terminal_start))
@@ -444,49 +467,6 @@ internal fun TerminalSection(terminal: AdbTerminalState, actions: TerminalAction
         style = MaterialTheme.typography.bodySmall,
     )
 }
-
-/**
- * Окно вывода оболочки.
- *
- * Своей высоты и своей прокрутки: вывод живёт внутри окна, а не растягивает
- * экран. Иначе каждая строка `logcat` сдвигала поле ввода и кнопки вниз, и до
- * «Ctrl+C» приходилось догонять поток прокруткой (прогон этапа 2, шаг C).
- *
- * Окно само едет за последней строкой, пока его не пролистали вверх: читающего
- * старый вывод новая строка не выдёргивает вниз.
- */
-@Composable
-private fun TerminalOutput(text: String) {
-    val scroll = rememberScrollState()
-    val following = remember { mutableStateOf(true) }
-    LaunchedEffect(scroll.isScrollInProgress) {
-        if (!scroll.isScrollInProgress) following.value = scroll.value >= scroll.maxValue - FOLLOW_SLACK_PX
-    }
-    LaunchedEffect(scroll.maxValue) {
-        if (following.value) scroll.scrollTo(scroll.maxValue)
-    }
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(TERMINAL_HEIGHT)
-            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(8.dp))
-            .verticalScroll(scroll)
-            .padding(12.dp),
-    ) {
-        Text(
-            text = text,
-            style = MaterialTheme.typography.bodySmall,
-            fontFamily = FontFamily.Monospace,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
-}
-
-/** Высота окна вывода: вмещает экран `logcat` и оставляет место полю ввода. */
-private val TERMINAL_HEIGHT = 320.dp
-
-/** Насколько ниже конца можно отстоять, чтобы окно всё ещё считалось «у последней строки». */
-private const val FOLLOW_SLACK_PX = 48
 
 /**
  * Вызов произвольного сервиса ADB.

@@ -127,10 +127,11 @@ class AdbTerminalControllerTest {
 
             handle.enqueueOkay(localId = 1, remoteId = 42)
 
-            assertTrue(eventually { writer.taskCount == 1 })
+            // Размер окна — первым, затем строка, как у настольного клиента.
+            assertTrue(eventually { writer.taskCount == 2 })
             val before = handle.sendCalls
-            writer.runSingle()
-            assertTrue(handle.sendCalls > before)
+            writer.runAll()
+            assertEquals(before + 2, handle.sendCalls)
         } finally {
             controller.stop()
             reader.shutdownNow()
@@ -173,6 +174,11 @@ class AdbTerminalControllerTest {
         @Synchronized
         override fun execute(command: Runnable) {
             tasks.addLast(command)
+        }
+
+        @Synchronized
+        fun runAll() {
+            while (tasks.isNotEmpty()) tasks.removeFirst().run()
         }
 
         @Synchronized

@@ -62,6 +62,29 @@ class AdbInteractiveShellTest {
     }
 
     @Test
+    fun termGoesInTheServiceStringLikeTheDesktopClient() {
+        val device = Device()
+        device.shell(useShellV2 = true, term = "xterm-256color").open()
+
+        assertEquals(
+            "shell,v2,TERM=xterm-256color,pty:\u0000",
+            device.handle.sentFrames().single().payload.decodeToString(),
+        )
+    }
+
+    @Test
+    fun windowSizeGoesAsFrameFive() {
+        val device = Device(okay())
+        val shell = device.opened()
+
+        assertTrue(shell.resize(rows = 40, columns = 100))
+
+        val frame = device.handle.sentFrames().last { it.command == AdbCommand.WRTE }.payload
+        assertEquals(AdbShellProtocol.ID_WINDOW_SIZE_CHANGE, frame[0].toInt())
+        assertEquals("40x100,0x0\u0000", frame.copyOfRange(5, frame.size).decodeToString())
+    }
+
+    @Test
     fun rawModeWithoutShellV2IsThePlainShell() {
         val device = Device()
         device.shell(useShellV2 = false, raw = true).open()
@@ -480,12 +503,14 @@ class AdbInteractiveShellTest {
             useShellV2: Boolean,
             diagnostics: InMemoryDiagnosticSink = InMemoryDiagnosticSink(),
             raw: Boolean = false,
+            term: String? = null,
         ) = AdbInteractiveShell(
             writer = harness.writer,
             dispatcher = harness.dispatcher,
             useShellV2 = useShellV2,
             diagnostics = diagnostics,
             raw = raw,
+            term = term,
         )
 
         /**

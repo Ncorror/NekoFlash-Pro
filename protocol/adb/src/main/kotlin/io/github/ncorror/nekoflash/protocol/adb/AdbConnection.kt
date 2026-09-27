@@ -269,6 +269,7 @@ public class AdbConnection(
     public fun interactiveShell(
         diagnostics: DiagnosticSink = DiagnosticSink { },
         mode: AdbShellMode = AdbShellMode.PTY,
+        term: String? = null,
     ): AdbInteractiveShell {
         ensureDispatching()
         return AdbInteractiveShell(
@@ -277,6 +278,7 @@ public class AdbConnection(
             useShellV2 = supportsShellV2 && mode != AdbShellMode.LEGACY,
             diagnostics = diagnostics,
             raw = mode == AdbShellMode.RAW,
+            term = term,
         )
     }
 

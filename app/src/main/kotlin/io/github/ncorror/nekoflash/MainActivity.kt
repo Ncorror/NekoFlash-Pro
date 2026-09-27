@@ -486,9 +486,12 @@ private fun fileActions(link: AdbLinkController): FileActions {
 
 private fun terminalActions(link: AdbLinkController) = TerminalActions(
     onStart = link::startShell,
-    onSend = link::sendShellInput,
+    onSend = { text -> link.sendShellInput(text) },
     onInterrupt = link::interruptShell,
     onStop = link::stopShell,
+    onResize = link::resizeShell,
+    onKey = link::sendShellKey,
+    onType = { text -> link.sendShellInput(text, enter = false) },
 )
 
 /** Преобразует технический результат claim в короткое UI-сообщение. */

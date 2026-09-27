@@ -466,14 +466,25 @@ public class AdbLinkController(
     }
 
     /** Передаёт строку в оболочку. */
-    public fun sendShellInput(text: String) {
-        shellSessions.sendInput(text)
+    public fun sendShellInput(text: String, enter: Boolean = true) {
+        shellSessions.sendInput(text, enter)
     }
 
     /** Прерывает текущую команду в оболочке, не закрывая её. */
     public fun interruptShell() {
         shellSessions.interrupt()
     }
+
+    /** Размер окна терминала, как его измерил экран. */
+    public fun resizeShell(columns: Int, rows: Int) {
+        shellSessions.resize(columns, rows)
+    }
+
+    /** Клавиша, которой нет в строке ввода. */
+    public fun sendShellKey(key: TerminalKey) {
+        shellSessions.sendKey(key)
+    }
+
 
     /** Закрывает оболочку. */
     public fun stopShell() {

@@ -62,6 +62,8 @@ public class AdbInteractiveShell(
     private val useShellV2: Boolean,
     private val diagnostics: DiagnosticSink = DiagnosticSink { },
     private val raw: Boolean = false,
+    /** `TERM=` в строке сервиса `shell,v2`, как у настольного клиента; `null` — не передавать. */
+    private val term: String? = null,
     private val clock: () -> Instant = { Clock.systemUTC().instant() },
 ) {
     private val frames = AdbShellFrameBuffer()
@@ -103,8 +105,9 @@ public class AdbInteractiveShell(
     public fun open(): Boolean = synchronized(lock) {
         val service = when {
             !useShellV2 -> SERVICE_LEGACY
-            raw -> SERVICE_RAW
-            else -> SERVICE_PTY
+            term == null -> if (raw) SERVICE_RAW else SERVICE_PTY
+            // `ShellServiceString`: shell,v2,TERM=…,pty: — в этом порядке.
+            else -> "shell,v2,TERM=$term,${if (raw) "raw" else "pty"}:"
         }
         val (box, packet) = dispatcher.open(service)
         mailbox = box
@@ -132,6 +135,19 @@ public class AdbInteractiveShell(
         if (!opened || finished) return false
         val payload = if (useShellV2) AdbShellProtocol.encode(AdbShellProtocol.ID_STDIN, bytes) else bytes
         val packet = dispatcher.write(localId, payload) ?: return false
+        return send(packet)
+    }
+
+    /**
+     * Сообщает новый размер окна — `send_window_size_change` настольного
+     * клиента: рамка 5 с текстом `СТРОКИxСТОЛБЦЫ,0x0` и нулём на конце.
+     * Без `shell,v2` размер передать нечем: старые устройства его не знают.
+     */
+    public fun resize(rows: Int, columns: Int): Boolean = synchronized(lock) {
+        if (!useShellV2 || !opened || finished) return false
+        val text = "${rows}x$columns,0x0\u0000".toByteArray(Charsets.US_ASCII)
+        val packet = dispatcher.write(localId, AdbShellProtocol.encode(AdbShellProtocol.ID_WINDOW_SIZE_CHANGE, text))
+            ?: return false
         return send(packet)
     }
 
@@ -369,13 +385,6 @@ public class AdbInteractiveShell(
         return events
     }
 
-    /**
-     * `shell,v2` historically strips NUL bytes before showing text. Keep that
-     * hardware-proven behaviour while decoding UTF-8 incrementally. Legacy
-     * `shell:` deliberately remains byte-for-text compatible with its old path.
-     */
-    private fun shellV2Text(text: String): String = text.replace("\u0000", "")
-
     private fun emit(message: String, fields: Map<String, String>) {
         diagnostics.emit(
             DiagnosticEvent(
@@ -407,3 +416,10 @@ public class AdbInteractiveShell(
         public const val CTRL_C: Byte = 3
     }
 }
+
+/**
+ * `shell,v2` historically strips NUL bytes before showing text. Keep that
+ * hardware-proven behaviour while decoding UTF-8 incrementally. Legacy
+ * `shell:` deliberately remains byte-for-text compatible with its old path.
+ */
+private fun shellV2Text(text: String): String = text.replace("\u0000", "")

@@ -5,6 +5,8 @@ import io.github.ncorror.nekoflash.protocol.adb.AdbConnection
 import io.github.ncorror.nekoflash.protocol.adb.AdbInteractiveShell
 import io.github.ncorror.nekoflash.protocol.adb.AdbShellEvent
 import io.github.ncorror.nekoflash.protocol.adb.AdbShellMode
+import io.github.ncorror.nekoflash.terminal.VtScreen
+import io.github.ncorror.nekoflash.terminal.VtSnapshot
 import java.util.concurrent.Executor
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -18,13 +20,19 @@ public data class AdbTerminalState(
     val ready: Boolean = false,
     /** Запрошено ли закрытие; reader остаётся занят до завершения CLSE. */
     val closing: Boolean = false,
-    /** Накопленный вывод. */
-    val output: String = "",
+    /** Экран терминала: история и текущие строки с оформлением. */
+    val screen: VtSnapshot = VtSnapshot.EMPTY,
     /** Чем закончилась последняя сессия, если она закончилась. */
     val ended: String? = null,
     /** Какой терминал открыт: обычный, `adb shell -T` или `adb shell -x`. */
     val mode: AdbShellMode = AdbShellMode.PTY,
-)
+) {
+    /** Вывод без оформления. */
+    val output: String get() = screen.text
+}
+
+/** Клавиши, которых нет в строке ввода: для программ во весь экран вроде `top`. */
+public enum class TerminalKey { ESCAPE, TAB, UP, DOWN, LEFT, RIGHT, CTRL_D }
 
 /**
  * Владелец интерактивной сессии оболочки.
@@ -56,6 +64,14 @@ public class AdbTerminalController(
 
     @Volatile
     private var shell: AdbInteractiveShell? = null
+
+    /** Размер окна, который назвал экран; до первого замера — 80 × 24, как у терминала по умолчанию. */
+    @Volatile
+    private var size = WindowSize(VtScreen.DEFAULT_COLUMNS, VtScreen.DEFAULT_ROWS)
+
+    /** Экран живой сессии; кормит его читающий цикл, меняет размер — экран приложения. */
+    private val screenLock = Any()
+    private var screen: VtScreen? = null
 
     /**
      * Строка, которую оболочка получит, как только устройство подтвердит `OPEN`.
@@ -93,9 +109,9 @@ public class AdbTerminalController(
     }
 
     /** Передаёт строку вместе с Enter, только когда peer подтвердил `OPEN`. */
-    public fun sendInput(text: String) {
+    public fun sendInput(text: String, enter: Boolean = true) {
         val session = currentReadyShell() ?: return
-        writerExecutor.execute { session.sendInput(text + "\n") }
+        writerExecutor.execute { session.sendInput(if (enter) text + "\n" else text) }
     }
 
     /** Прерывает текущую команду, не закрывая оболочку. */
@@ -152,7 +168,7 @@ public class AdbTerminalController(
 
     private fun openAndPump(connection: AdbConnection, requestId: Long, mode: AdbShellMode) {
         if (markReaderStarted(requestId)) {
-            val session = connection.interactiveShell(diagnostics, mode)
+            val session = connection.interactiveShell(diagnostics, mode, VtScreen.TERM)
             when {
                 !session.open() -> finishSession(session, requestId, OPEN_FAILED)
                 bindShell(session, requestId) -> pumpUntilClosed(session, requestId)
@@ -195,21 +211,60 @@ public class AdbTerminalController(
      * зависеть от скорости перерисовки.
      */
     private fun pumpUntilClosed(session: AdbInteractiveShell, requestId: Long) {
-        val text = StringBuilder()
+        // Ответы терминала (`DSR`, `DA`) уходят в оболочку тем же вводом.
+        val terminal = VtScreen(size.columns, size.rows) { answer ->
+            writerExecutor.execute { session.sendInput(answer) }
+        }
+        synchronized(screenLock) { screen = terminal }
         var progress = PumpProgress()
         var shown = ShownState()
 
         while (session.active && isCurrent(requestId)) {
-            progress = consumePumpEvents(session, requestId, text, progress)
-            trimToLimit(text)
+            progress = consumePumpEvents(session, requestId, terminal, progress)
             if (shown.shouldPublish(progress, elapsedNanos())) {
-                publishRunningState(requestId, progress.ready, text)
+                publishRunningState(requestId, progress.ready, terminal)
                 shown = ShownState(progress.received, progress.ready, elapsedNanos())
             }
         }
 
-        finishSession(session, requestId, progress.ended ?: CLOSED, text.toString())
+        val last = synchronized(screenLock) {
+            screen = null
+            terminal.snapshot()
+        }
+        finishSession(session, requestId, progress.ended ?: CLOSED, last)
     }
+
+    /**
+     * Экран приложения назвал новый размер: экран терминала перестраивается, а
+     * устройство получает его рамкой `shell,v2`, как при `SIGWINCH` у
+     * настольного клиента.
+     */
+    public fun resize(columns: Int, rows: Int) {
+        val next = WindowSize(columns, rows)
+        if (columns <= 0 || rows <= 0 || next == size) return
+        size = next
+        synchronized(screenLock) { screen?.resize(columns, rows) }
+        currentReadyShell()?.let { session -> writerExecutor.execute { session.resize(rows, columns) } }
+    }
+
+    /** Клавиша без Enter; стрелки — в режиме, который включила программа (`?1h`). */
+    public fun sendKey(key: TerminalKey) {
+        val session = currentReadyShell() ?: return
+        val application = synchronized(screenLock) { screen?.applicationCursorKeys } == true
+        val arrow = if (application) "\u001BO" else "\u001B["
+        val bytes = when (key) {
+            TerminalKey.ESCAPE -> "\u001B"
+            TerminalKey.TAB -> "\t"
+            TerminalKey.UP -> arrow + "A"
+            TerminalKey.DOWN -> arrow + "B"
+            TerminalKey.RIGHT -> arrow + "C"
+            TerminalKey.LEFT -> arrow + "D"
+            TerminalKey.CTRL_D -> "\u0004"
+        }
+        writerExecutor.execute { session.sendInput(bytes) }
+    }
+
+    private data class WindowSize(val columns: Int, val rows: Int)
 
     /**
      * Что уже показано на экране.
@@ -238,7 +293,7 @@ public class AdbTerminalController(
     private fun consumePumpEvents(
         session: AdbInteractiveShell,
         requestId: Long,
-        text: StringBuilder,
+        terminal: VtScreen,
         previous: PumpProgress,
     ): PumpProgress {
         var ready = previous.ready
@@ -250,7 +305,7 @@ public class AdbTerminalController(
                 ready = true
                 onOpened(session, requestId)
             } else {
-                ended = apply(event, text) ?: ended
+                ended = applyEvent(event, terminal, screenLock) ?: ended
             }
         }
         return PumpProgress(ready, ended, received)
@@ -262,11 +317,15 @@ public class AdbTerminalController(
             scheduleClose(session, requestId)
             return
         }
+        // Размер окна — первым, как `stdin_read_thread_loop` настольного клиента.
+        val current = size
+        writerExecutor.execute { session.resize(current.rows, current.columns) }
         synchronized(lifecycleLock) { pendingLine.also { pendingLine = null } }
             ?.let { line -> writerExecutor.execute { session.sendInput(line + "\n") } }
     }
 
-    private fun publishRunningState(requestId: Long, ready: Boolean, text: StringBuilder) {
+    private fun publishRunningState(requestId: Long, ready: Boolean, terminal: VtScreen) {
+        val snapshot = synchronized(screenLock) { terminal.snapshot() }
         synchronized(lifecycleLock) {
             if (activeRequestId == requestId) {
                 val closing = mutableState.value.closing
@@ -274,31 +333,11 @@ public class AdbTerminalController(
                     active = true,
                     ready = ready && !closing,
                     closing = closing,
-                    output = text.toString(),
+                    screen = snapshot,
                     mode = mutableState.value.mode,
                 )
             }
         }
-    }
-
-    /** Прикладывает событие вывода и возвращает причину завершения. */
-    private fun apply(event: AdbShellEvent, text: StringBuilder): String? = when (event) {
-        AdbShellEvent.Opened -> null
-
-        is AdbShellEvent.Output -> {
-            text.append(event.text)
-            null
-        }
-
-        // stdout и stderr идут в один поток текста: в терминале они и должны
-        // быть перемешаны в порядке появления, как на настоящем экране.
-        is AdbShellEvent.ErrorOutput -> {
-            text.append(event.text)
-            null
-        }
-
-        is AdbShellEvent.Exited -> event.code?.let { code -> "exit $code" } ?: "exit"
-        is AdbShellEvent.Broken -> event.reason
     }
 
     private fun scheduleClose(session: AdbInteractiveShell, requestId: Long) {
@@ -330,7 +369,7 @@ public class AdbTerminalController(
         session: AdbInteractiveShell,
         requestId: Long,
         ended: String,
-        output: String = "",
+        last: VtSnapshot = VtSnapshot.EMPTY,
     ) {
         synchronized(lifecycleLock) {
             if (shell === session && shellRequestId == requestId) {
@@ -344,19 +383,13 @@ public class AdbTerminalController(
             mutableState.value = AdbTerminalState(
                 active = false,
                 ready = false,
-                output = output,
+                screen = last,
                 ended = ended,
                 mode = mutableState.value.mode,
             )
         }
     }
 
-    /** Держит вывод в пределах памяти; `logcat` может быть бесконечным. */
-    private fun trimToLimit(text: StringBuilder) {
-        if (text.length > MAX_TERMINAL_CHARS) {
-            text.delete(0, text.length - MAX_TERMINAL_CHARS)
-        }
-    }
 
     private data class PumpProgress(
         val ready: Boolean = false,
@@ -369,8 +402,6 @@ public class AdbTerminalController(
         const val OPEN_FAILED = "open failed"
         const val CLOSED = "closed"
 
-        /** Сколько символов вывода держится на экране. */
-        const val MAX_TERMINAL_CHARS = 64 * 1024
 
         /**
          * Как часто вывод попадает на экран.
@@ -380,4 +411,24 @@ public class AdbTerminalController(
          */
         const val PUBLISH_INTERVAL_NANOS = 50L * 1_000_000L
     }
+}
+
+/** Прикладывает событие вывода и возвращает причину завершения. */
+private fun applyEvent(event: AdbShellEvent, terminal: VtScreen, lock: Any): String? = when (event) {
+    AdbShellEvent.Opened -> null
+
+    is AdbShellEvent.Output -> {
+        synchronized(lock) { terminal.feed(event.text) }
+        null
+    }
+
+    // stdout и stderr идут на один экран: в терминале они и должны быть
+    // перемешаны в порядке появления, как на настоящем экране.
+    is AdbShellEvent.ErrorOutput -> {
+        synchronized(lock) { terminal.feed(event.text) }
+        null
+    }
+
+    is AdbShellEvent.Exited -> event.code?.let { code -> "exit $code" } ?: "exit"
+    is AdbShellEvent.Broken -> event.reason
 }

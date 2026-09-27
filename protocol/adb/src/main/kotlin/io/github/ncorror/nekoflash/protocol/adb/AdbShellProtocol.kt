@@ -26,6 +26,9 @@ public object AdbShellProtocol {
     /** Закрытие ввода. */
     public const val ID_CLOSE_STDIN: Int = 4
 
+    /** Новый размер окна терминала: текст `СТРОКИxСТОЛБЦЫ,ПИКСЕЛИxПИКСЕЛИ` с нулём на конце. */
+    public const val ID_WINDOW_SIZE_CHANGE: Int = 5
+
     /** Идентификатор и длина. */
     public const val HEADER_SIZE_BYTES: Int = 5
 
