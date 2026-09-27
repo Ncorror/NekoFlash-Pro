@@ -54,6 +54,15 @@ public class AdbTerminalController(
     @Volatile
     private var shell: AdbInteractiveShell? = null
 
+    /**
+     * Строка, которую оболочка получит, как только устройство подтвердит `OPEN`.
+     *
+     * Так `adb logcat` и `adb shell -t КОМАНДА` становятся командой в живой
+     * оболочке с Ctrl+C и окном вывода, а не разовым вызовом, который у
+     * `logcat` не кончился бы никогда.
+     */
+    private var pendingLine: String? = null
+
     /** Состояние сессии. Экран подписывается и ничего не опрашивает. */
     public val state: StateFlow<AdbTerminalState> = mutableState.asStateFlow()
 
@@ -68,11 +77,12 @@ public class AdbTerminalController(
      * Compose. До события [AdbShellEvent.Opened] состояние остаётся
      * `ready=false`, поэтому ранний ввод не может молча потеряться.
      */
-    public fun start(connection: AdbConnection) {
+    public fun start(connection: AdbConnection, firstLine: String? = null) {
         val requestId = synchronized(lifecycleLock) {
             if (activeRequestId != null) return
             nextRequestId += 1
             activeRequestId = nextRequestId
+            pendingLine = firstLine
             mutableState.value = AdbTerminalState(active = true)
             nextRequestId
         }
@@ -235,12 +245,22 @@ public class AdbTerminalController(
             received += 1
             if (event == AdbShellEvent.Opened) {
                 ready = true
-                if (isClosing(requestId)) scheduleClose(session, requestId)
+                onOpened(session, requestId)
             } else {
                 ended = apply(event, text) ?: ended
             }
         }
         return PumpProgress(ready, ended, received)
+    }
+
+    /** Открытие подтверждено: закрыть, если просили, иначе отдать первую строку. */
+    private fun onOpened(session: AdbInteractiveShell, requestId: Long) {
+        if (isClosing(requestId)) {
+            scheduleClose(session, requestId)
+            return
+        }
+        synchronized(lifecycleLock) { pendingLine.also { pendingLine = null } }
+            ?.let { line -> writerExecutor.execute { session.sendInput(line + "\n") } }
     }
 
     private fun publishRunningState(requestId: Long, ready: Boolean, text: StringBuilder) {

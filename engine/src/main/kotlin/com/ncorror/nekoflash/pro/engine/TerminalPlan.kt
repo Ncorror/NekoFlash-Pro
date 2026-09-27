@@ -29,8 +29,11 @@ sealed interface TerminalPlanStep {
     /** Одиночная команда оболочки: вывод и код выхода. */
     data class AdbShellCommand(val command: String) : TerminalPlanStep
 
-    /** `adb shell` без команды — интерактивная оболочка терминала. */
-    data object AdbInteractiveShell : TerminalPlanStep
+    /**
+     * Интерактивная оболочка терминала; [firstLine] уходит в неё сразу после
+     * открытия — так исполняются `adb logcat` и `adb shell -t КОМАНДА`.
+     */
+    data class AdbInteractiveShell(val firstLine: String? = null) : TerminalPlanStep
 
     /** Произвольный сервис ADB без подмены: `exec:`, `root:`, `remount:` и прочие. */
     data class AdbService(val service: String) : TerminalPlanStep

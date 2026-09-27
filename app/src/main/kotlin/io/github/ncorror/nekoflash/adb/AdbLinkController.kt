@@ -412,10 +412,14 @@ public class AdbLinkController(
      * Одноразовые команды и файловые операции при этом остаются доступны:
      * каждая работает на своём логическом потоке и ждёт на своём ящике.
      */
-    public fun startShell() {
+    public fun startShell(firstLine: String? = null) {
         val live = connection ?: return
-        if (shellSessions.active) return
-        shellSessions.start(live)
+        // Живая оболочка уже есть — строка уходит в неё, как если бы её набрали.
+        if (shellSessions.active) {
+            firstLine?.let(shellSessions::sendInput)
+        } else {
+            shellSessions.start(live, firstLine)
+        }
     }
 
     /** Передаёт строку в оболочку. */

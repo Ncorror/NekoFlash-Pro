@@ -63,8 +63,8 @@ class TerminalPlanCompilerTest {
             "fastboot flash vendor_boot:default ramdisk.img",
             "fastboot boot kernel ramdisk",
             "adb install app.apk",
-            "adb logcat",
-            "adb shell -t ls",
+            "adb shell -x ls",
+            "adb shell -T ls",
         )) {
             assertIs<TerminalPlanResult.NotImplemented>(compiler.compile(command), command)
         }
@@ -74,7 +74,10 @@ class TerminalPlanCompilerTest {
     @Test
     fun adbCommandsUseTheServicesOfTheDesktopClient() {
         assertEquals(listOf(TerminalPlanStep.AdbShellCommand("id")), steps("adb shell id"))
-        assertEquals(listOf(TerminalPlanStep.AdbInteractiveShell), steps("adb shell"))
+        assertEquals(listOf(TerminalPlanStep.AdbInteractiveShell()), steps("adb shell"))
+        assertEquals(listOf(TerminalPlanStep.AdbInteractiveShell("top")), steps("adb shell -t top"))
+        assertEquals(listOf(TerminalPlanStep.AdbInteractiveShell("logcat -s 'My Tag' -v time")),
+            steps("adb logcat -s 'My Tag' -v time"))
         assertEquals(listOf(TerminalPlanStep.AdbService("exec:ls /")), steps("adb exec ls /"))
         assertEquals(listOf(TerminalPlanStep.AdbService("root:")), steps("adb root"))
         assertEquals(listOf(TerminalPlanStep.AdbService("remount:-R")), steps("adb remount -R"))

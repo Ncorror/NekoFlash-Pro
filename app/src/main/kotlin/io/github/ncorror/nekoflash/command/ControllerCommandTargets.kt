@@ -26,7 +26,7 @@ internal class ControllerCommandTargets(
     override fun fastbootFetch(partition: String, destination: () -> ArtifactSink) =
         fastboot.fetchPartitionTo(partition, destination)
     override fun adbShell(command: String) = adb.runCommand(command)
-    override fun adbInteractiveShell() = adb.startShell()
+    override fun adbInteractiveShell(firstLine: String?) = adb.startShell(firstLine)
     override fun adbService(service: String) = adb.callRawService(service)
     override fun adbReboot(target: String) = adb.requestReboot(target)
     override fun adbPull(remotePath: String, destination: () -> ArtifactSink) =

@@ -64,12 +64,13 @@ class DesktopCommandExecutorTest {
             executor.execute(plan("adb pull /sdcard/a.txt"), saved),
             executor.execute(plan("adb push a.txt /sdcard/"), picked),
             executor.execute(plan("adb sideload ota.zip"), picked),
+            executor.execute(plan("adb logcat -s Tag"), null),
         ).map { (it as DesktopCommandStart.Started).area }
 
         assertEquals(
             listOf(
                 "shell id", "interactive", "service root:", "reboot bootloader",
-                "pull /sdcard/a.txt", "push /sdcard/a.txt", "sideload",
+                "pull /sdcard/a.txt", "push /sdcard/a.txt", "sideload", "interactive logcat -s Tag",
             ),
             calls,
         )
@@ -77,7 +78,7 @@ class DesktopCommandExecutorTest {
             listOf(
                 DesktopCommandArea.ADB_SHELL, DesktopCommandArea.ADB_TERMINAL, DesktopCommandArea.ADB_SERVICE,
                 DesktopCommandArea.ADB_REBOOT, DesktopCommandArea.ADB_FILES, DesktopCommandArea.ADB_FILES,
-                DesktopCommandArea.ADB_SIDELOAD,
+                DesktopCommandArea.ADB_SIDELOAD, DesktopCommandArea.ADB_TERMINAL,
             ),
             areas,
         )
@@ -93,7 +94,7 @@ class DesktopCommandExecutorTest {
         }
         override fun fastbootFetch(partition: String, destination: () -> ArtifactSink) { calls += "fetch $partition" }
         override fun adbShell(command: String) { calls += "shell $command" }
-        override fun adbInteractiveShell() { calls += "interactive" }
+        override fun adbInteractiveShell(firstLine: String?) { calls += "interactive" + (firstLine?.let { " $it" } ?: "") }
         override fun adbService(service: String) { calls += "service $service" }
         override fun adbReboot(target: String) { calls += "reboot $target" }
         override fun adbPull(remotePath: String, destination: () -> ArtifactSink) { calls += "pull $remotePath" }

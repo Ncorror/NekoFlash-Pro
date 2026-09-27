@@ -345,6 +345,7 @@
     <string name="command_step_fastboot_boot">fastboot: download of the picked file (%1$s), then boot</string>
     <string name="command_step_fastboot_fetch">fastboot: fetch:%1$s into a file you choose (%2$s)</string>
     <string name="command_step_adb_shell">adb: shell %1$s</string>
+    <string name="command_step_adb_interactive_line">adb: the interactive shell below, then %1$s</string>
     <string name="command_step_adb_interactive">adb: the interactive shell below</string>
     <string name="command_step_adb_service">adb: service %1$s</string>
     <string name="command_step_adb_reboot">adb: reboot:%1$s</string>

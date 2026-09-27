@@ -177,7 +177,9 @@ private fun stepText(step: TerminalPlanStep): String = when (step) {
     is TerminalPlanStep.FastbootFetch ->
         stringResource(R.string.command_step_fastboot_fetch, step.partition, step.destinationName)
     is TerminalPlanStep.AdbShellCommand -> stringResource(R.string.command_step_adb_shell, step.command)
-    TerminalPlanStep.AdbInteractiveShell -> stringResource(R.string.command_step_adb_interactive)
+    is TerminalPlanStep.AdbInteractiveShell -> step.firstLine
+        ?.let { stringResource(R.string.command_step_adb_interactive_line, it) }
+        ?: stringResource(R.string.command_step_adb_interactive)
     is TerminalPlanStep.AdbService -> stringResource(R.string.command_step_adb_service, step.service)
     is TerminalPlanStep.AdbReboot -> stringResource(R.string.command_step_adb_reboot, step.target)
     is TerminalPlanStep.AdbPull -> stringResource(R.string.command_step_adb_pull, step.remotePath, step.localName)

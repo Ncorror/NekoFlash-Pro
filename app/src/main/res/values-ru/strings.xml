@@ -348,6 +348,7 @@
     <string name="command_step_fastboot_boot">fastboot: download выбранного файла (%1$s), затем boot</string>
     <string name="command_step_fastboot_fetch">fastboot: fetch:%1$s в файл, который вы выберете (%2$s)</string>
     <string name="command_step_adb_shell">adb: shell %1$s</string>
+    <string name="command_step_adb_interactive_line">adb: интерактивная оболочка ниже, в ней %1$s</string>
     <string name="command_step_adb_interactive">adb: интерактивная оболочка ниже</string>
     <string name="command_step_adb_service">adb: сервис %1$s</string>
     <string name="command_step_adb_reboot">adb: reboot:%1$s</string>

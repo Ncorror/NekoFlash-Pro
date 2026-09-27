@@ -111,6 +111,32 @@ class AdbTerminalControllerTest {
         }
     }
 
+    /**
+     * `adb logcat` из поля команды: строка уходит в оболочку сразу после
+     * `OKAY`, а не раньше — до подтверждения писать в поток некуда.
+     */
+    @Test
+    fun firstLineIsWrittenOnlyAfterOkay() = withConnection { connection, handle ->
+        val reader = Executors.newSingleThreadExecutor()
+        val writer = RecordingExecutor()
+        val controller = AdbTerminalController(reader, writer)
+        try {
+            controller.start(connection, firstLine = "logcat")
+            assertTrue(eventually { handle.sendCalls >= 1 })
+            assertEquals(0, writer.taskCount)
+
+            handle.enqueueOkay(localId = 1, remoteId = 42)
+
+            assertTrue(eventually { writer.taskCount == 1 })
+            val before = handle.sendCalls
+            writer.runSingle()
+            assertTrue(handle.sendCalls > before)
+        } finally {
+            controller.stop()
+            reader.shutdownNow()
+        }
+    }
+
     private fun withConnection(
         handle: CountingHandle = CountingHandle(),
         block: (AdbConnection, CountingHandle) -> Unit,

@@ -22,7 +22,13 @@ internal object AdbPlans {
                 "exec:cmd package uninstall " + (if (command.keepData) "-k " else "") + command.packageName,
             ),
         )
-        is AdbCommand.Logcat -> notImplemented("adb logcat")
+        // `logcat` без `-d` не кончается: он идёт в живой оболочке, где есть
+        // Ctrl+C и окно вывода, как у настольного клиента.
+        is AdbCommand.Logcat -> single(
+            TerminalPlanStep.AdbInteractiveShell(
+                (listOf("logcat") + command.arguments.map(::shellWord)).joinToString(" "),
+            ),
+        )
         is AdbCommand.Sync -> notImplemented("adb sync")
         is AdbCommand.Install -> notImplemented("adb install")
         is AdbCommand.InstallMultiple -> notImplemented("adb install-multiple")
@@ -32,11 +38,17 @@ internal object AdbPlans {
     }
 
     private fun shell(command: AdbCommand.Shell): TerminalPlanResult = when {
-        command.tty != null -> notImplemented("adb shell ${command.tty}")
         command.noExitCode -> notImplemented("adb shell -x")
-        command.command.isEmpty() -> single(TerminalPlanStep.AdbInteractiveShell)
+        command.tty == NO_TTY -> notImplemented("adb shell $NO_TTY")
+        // Терминал и есть PTY: `-t` значит «в живой оболочке».
+        command.tty != null || command.command.isEmpty() ->
+            single(TerminalPlanStep.AdbInteractiveShell(command.command.ifEmpty { null }))
         else -> single(TerminalPlanStep.AdbShellCommand(command.command))
     }
+
+    /** Аргумент для строки оболочки: простой — как есть, прочий — в одинарных кавычках. */
+    private fun shellWord(word: String): String =
+        if (word.matches(PLAIN_WORD)) word else "'" + word.replace("'", "'\\''") + "'"
 
     /** `reboot:` разбирается отдельно: после него устройство уходит, и это ожидаемо. */
     private fun service(name: String): TerminalPlanResult =
@@ -72,4 +84,6 @@ internal object AdbPlans {
     }
 
     private const val REBOOT = "reboot:"
+    private const val NO_TTY = "-T"
+    private val PLAIN_WORD = Regex("""[A-Za-z0-9_./:=*+@%,-]+""")
 }

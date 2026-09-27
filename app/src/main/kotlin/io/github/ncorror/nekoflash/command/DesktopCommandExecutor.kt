@@ -22,7 +22,7 @@ interface DesktopCommandTargets {
     fun fastbootDownloadThen(then: List<String>, origin: () -> ArtifactSource)
     fun fastbootFetch(partition: String, destination: () -> ArtifactSink)
     fun adbShell(command: String)
-    fun adbInteractiveShell()
+    fun adbInteractiveShell(firstLine: String?)
     fun adbService(service: String)
     fun adbReboot(target: String)
     fun adbPull(remotePath: String, destination: () -> ArtifactSink)
@@ -86,7 +86,8 @@ class DesktopCommandExecutor(private val targets: DesktopCommandTargets) {
 
     private fun adb(step: TerminalPlanStep, file: PickedFile?): DesktopCommandArea = when (step) {
         is TerminalPlanStep.AdbShellCommand -> DesktopCommandArea.ADB_SHELL.also { targets.adbShell(step.command) }
-        TerminalPlanStep.AdbInteractiveShell -> DesktopCommandArea.ADB_TERMINAL.also { targets.adbInteractiveShell() }
+        is TerminalPlanStep.AdbInteractiveShell ->
+            DesktopCommandArea.ADB_TERMINAL.also { targets.adbInteractiveShell(step.firstLine) }
         is TerminalPlanStep.AdbService -> DesktopCommandArea.ADB_SERVICE.also { targets.adbService(step.service) }
         is TerminalPlanStep.AdbReboot -> DesktopCommandArea.ADB_REBOOT.also { targets.adbReboot(step.target) }
         is TerminalPlanStep.AdbPull ->

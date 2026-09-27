@@ -2,7 +2,7 @@
 
 **Единственный источник статуса проекта.** Другие документы описывают цель и правила; что сделано — только здесь. Статус меняется тем же коммитом, что и код.
 
-Версия APK: `0.29.0-dev`
+Версия APK: `0.30.0-dev`
 
 Текущий этап: **Этап 3 — Команды настольных `adb`/`fastboot` поверх нового ядра**
 
@@ -82,8 +82,8 @@
 | `:engine` без baseline detekt | `в репо` | baseline удалён, парсер разделён на части |
 | `--set-active=СЛОТ` вместе с `flash`, `boot` и wire-командами | `в репо` | `set_active` следом в той же операции |
 | Сценарии хоста Fastboot: `format`, `-w`, `wipe-super`, `update`/`flashall`, `vendor_boot:RAMDISK`, `--slot`, `--set-active` без слота, `-S`, `--force`, `--skip-*`, флаги vbmeta | `нет` | до реализации — «не реализовано» до отправки; [04](04_CAPABILITIES.md#3-команды-настольных-adb-и-fastboot) |
-| Команды ADB: `shell`, `exec`, `push`/`pull` одного файла, `sideload`, `reboot`, `root`/`unroot`, `remount`, `usb`, `tcpip`, `uninstall`, `raw` | `в репо` | те же сервисы, что у настольного клиента |
-| Команды ADB: `logcat`, `sync`, `install*`, `shell -t`/`-x`, `push`/`pull` нескольких файлов и с опциями, `devices`/`get-state`/`status` | `нет` | до реализации — «не реализовано» до отправки; 04 |
+| Команды ADB: `shell`, `shell -t`, `logcat`, `exec`, `push`/`pull` одного файла, `sideload`, `reboot`, `root`/`unroot`, `remount`, `usb`, `tcpip`, `uninstall`, `raw` | `в репо` | те же сервисы, что у настольного клиента; `logcat` и `shell -t` — в живой оболочке терминала |
+| Команды ADB: `sync`, `install*`, `shell -x`/`-T`, `push`/`pull` нескольких файлов и с опциями, `devices`/`get-state`/`status` | `нет` | до реализации — «не реализовано» до отправки; 04 |
 
 ## Этап 4 — Fastboot до конца
 
