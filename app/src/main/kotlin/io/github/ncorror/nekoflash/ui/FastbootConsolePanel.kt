@@ -137,7 +137,9 @@ private fun FastbootReadControls(console: FastbootConsolePanel) {
         modifier = Modifier.fillMaxWidth(),
     )
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Button(onClick = { console.onVariable(variable) }) {
+        // Пустое имя — это ненабранное поле, а не запрос: `getvar:` целиком можно
+        // отправить в произвольной команде ниже (прогон этапа 2, шаг F).
+        Button(onClick = { console.onVariable(variable) }, enabled = variable.isNotBlank()) {
             Text(stringResource(R.string.fastboot_variable_read))
         }
         Button(onClick = console.onAllVariables) {
