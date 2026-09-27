@@ -12,7 +12,12 @@ TEST_MODULES = ("engine", "core/transport", "core/fastboot", "core/adb", "core/d
 
 
 def report_module(module: str) -> tuple[str, bool]:
-    reports = sorted((ROOT / module / "build/test-results/test").glob("TEST-*.xml"))
+    # JVM modules write build/test-results/test, Android modules testDebugUnitTest.
+    reports = sorted(
+        path
+        for task in ("test", "testDebugUnitTest")
+        for path in (ROOT / module / "build/test-results" / task).glob("TEST-*.xml")
+    )
     if not reports:
         return f"| `{module}` | **MISSING** | — | — | — | — |", False
 

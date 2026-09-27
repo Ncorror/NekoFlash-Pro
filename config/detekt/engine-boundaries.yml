@@ -1,0 +1,17 @@
+build:
+  maxIssues: 0
+
+style:
+  ForbiddenImport:
+    active: true
+    imports:
+      - value: 'io.github.ncorror.nekoflash.usb.**'
+        reason: 'engine parses commands and must not depend on usb'
+      - value: 'io.github.ncorror.nekoflash.protocol.**'
+        reason: 'engine produces plans; executors live above it'
+      - value: 'io.github.ncorror.nekoflash.ui.**'
+        reason: 'engine must not depend on UI'
+      - value: 'android.**'
+        reason: 'engine is pure JVM'
+      - value: 'androidx.**'
+        reason: 'engine is pure JVM'

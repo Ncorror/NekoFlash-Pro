@@ -4,32 +4,57 @@
 
 ## Сборка
 
-JDK 17 и Android SDK 36. Вход в сборку — только проверенный Gradle Wrapper из репозитория. Эту же команду запускает CI; `scripts/ci/check_docs.py` сверяет её с workflow:
+JDK 17 и Android SDK (платформа 37, build-tools 37.0.0). Вход в сборку — только проверенный Gradle Wrapper из репозитория. Эту же команду запускает CI; `scripts/ci/check_docs.py` сверяет её с workflow:
 
 <!-- ci-command:begin -->
 ```sh
-bash ./gradlew :engine:test :core:transport:test :core:fastboot:test :core:adb:test :core:diagnostics:test :app:lintDebug :app:assembleDebug --no-daemon --stacktrace
+./gradlew test lint assembleDebug --no-daemon --stacktrace
 ```
 <!-- ci-command:end -->
 
-Debug APK — `app/build/outputs/apk/debug/`. Подписанный релиз не настроен; каждая сборка CI подписывается временным ключом, поэтому поверх прежней может не встать — тогда приложение удаляют, а вместе с ним теряется ключ хоста ADB, и целевое устройство снова спросит разрешение отладки (постоянная debug-подпись — этап 1).
+Debug APK — `app/build/outputs/apk/debug/`. Подписанный релиз не настроен.
 
-Версии: Gradle 9.5.0, AGP 9.2.1, Kotlin и Compose Compiler 2.4.20, Compose BOM 2026.05.01, `compileSdk`/`targetSdk` 36, `minSdk` 26. Выравнивание с архивом — этап 1.
+**Постоянная debug-подпись.** Без неё каждая сборка CI подписана временным ключом: поверх прежней она не встаёт, приложение приходится удалять, а вместе с ним теряется ключ хоста ADB, и целевое устройство снова спрашивает разрешение отладки. Чтобы этого не было, владелец репозитория один раз создаёт ключ и кладёт его в секрет Actions `NEKOFLASH_DEBUG_KEYSTORE_BASE64` (Settings → Secrets and variables → Actions):
+
+```sh
+keytool -genkeypair -keystore nekoflash-debug.keystore -alias androiddebugkey \
+  -storepass android -keypass android -keyalg RSA -keysize 2048 -validity 10000 \
+  -dname "CN=Android Debug,O=Android,C=US"
+base64 -w0 nekoflash-debug.keystore
+```
+
+Сам файл ключа в репозиторий не кладётся (проверка гигиены это запрещает). Без секрета сборка остаётся с временным ключом.
+
+Версии (D048): Gradle 9.5.0, AGP 9.3.2, Kotlin и Compose Compiler 2.4.10, Compose BOM 2026.08.00, Material 3 Adaptive 1.3.0, `compileSdk` 37, `targetSdk` 36, `minSdk` 26. Все версии — в `gradle/libs.versions.toml`.
 
 ## CI
 
 `.github/workflows/build.yml` запускается при push и PR в `main` и вручную:
 
-1. проверка документации и целостности архивов (`scripts/ci/check_docs.py`);
-2. тесты JVM-модулей, Android lint, debug APK (команда выше);
-3. сводка тестов `scripts/ci-test-summary.py` → `build/verification/test-summary.md` и Job summary;
-4. артефакты: `NekoFlash-Pro-prototype-debug-<номер>` (APK) и `NekoFlash-Pro-test-results-<номер>` (JUnit XML, HTML-отчёты, lint, этот документ).
+1. быстрые проверки до Gradle: документация и архивы (`scripts/ci/check_docs.py`), гигиена дерева (`check_repository_hygiene.sh`: нет `.orig`/`.bak`, ключей, заглушек `TODO(`/`FIXME`, NUL-байтов, хвостовых пробелов), локализация (`check_localization.py`: EN/RU совпадают, нет строк в Compose-коде), стиль и границы модулей (`check_kotlin_style.sh`, detekt 1.23.8 с закреплённой суммой), Compose wiring (`check_compose_wiring.py`);
+2. постоянная debug-подпись из секрета, если он задан;
+3. все тесты, Android lint, debug APK (команда выше);
+4. сводка тестов `scripts/ci-test-summary.py` → `build/verification/test-summary.md` и Job summary;
+5. артефакты: `NekoFlash-Pro-debug-<номер>` (APK) и `NekoFlash-Pro-test-results-<номер>` (JUnit XML, отчёты тестов и lint, этот документ).
 
 Зелёный CI подтверждает сборку и тесты, **но не поведение USB, ADB, Fastboot и Recovery**. Это доказывает только прогон на устройстве.
 
 ## Локальная проверка
 
-В облачной среде Claude Code по умолчанию есть JDK 21, но нет JDK 17 и Android SDK, поэтому Gradle локально не соберёт проект. Архив решает это скриптом `scripts/dev/provision_android_toolchain.sh` и SessionStart hook; их перенос — этап 1. До тех пор локально проверяется только документация, остальное — CI.
+В облачной среде Claude Code в базовом образе есть JDK 21, но нет JDK 17 и Android SDK. Их ставит `scripts/dev/provision_android_toolchain.sh` (идемпотентен; его же вызывает SessionStart hook `.claude/hooks/session-start.sh` в облачной сессии). Скрипт также настраивает локальное зеркало Maven Central в `~/.gradle/init.d/`: из облачной среды Maven Central отвечает 429 на параллельные запросы. Нужен открытый `dl.google.com`.
+
+Перед коммитом — те же шаги, что в CI:
+
+```sh
+python3 scripts/ci/check_docs.py
+./scripts/ci/check_repository_hygiene.sh
+python3 scripts/ci/check_localization.py
+./scripts/ci/check_kotlin_style.sh
+python3 scripts/ci/check_compose_wiring.py
+./gradlew test lint assembleDebug --no-daemon --stacktrace
+```
+
+Холодная сборка занимает около 4 минут. Запускающая JVM локально может быть 21, в CI — 17; toolchain в обоих случаях 17.
 
 ## Проверка документации
 
@@ -105,7 +130,7 @@ Fastboot:
 - Мутирующие команды на заблокированном загрузчике: отказ приходит от устройства его словами (архив §6.76–§6.77). **Успешная запись настоящего образа не доказана ни в архиве, ни здесь.**
 - Строка `INFO` наблюдалась (архив §6.79); `TEXT` не наблюдался ни разу.
 - DATA IN: в загрузчике `fetch:` не реализован; fastbootd `marble` разрешает только `vendor_boot`, `vendor_boot_a`, `vendor_boot_b` (архив §6.86); объявленный объём верный (96 МиБ), байты не пришли, гейт открыт (архив §6.93–§6.95).
-- **Ответ `DATA` на `vayu` не равен ровно 12 байтам.** Строгий разбор этого репозитория (`FastbootWireSession`: кадр DATA обязан быть 12 байт) дважды остановил запись с 0 переданных байт; разбор архива снимает нулевые байты и пробелы и на том же `vayu` передал данные. Закрывается переносом Fastboot (этап 5).
+- **Ответ `DATA` на `vayu` не равен ровно 12 байтам.** Строгий разбор этого репозитория (`FastbootWireSession`: кадр DATA обязан быть 12 байт) дважды остановил запись с 0 переданных байт; разбор архива снимает нулевые байты и пробелы и на том же `vayu` передал данные. Закрывается переносом Fastboot (этап 2).
 
 ## Журнал проверок этого APK
 

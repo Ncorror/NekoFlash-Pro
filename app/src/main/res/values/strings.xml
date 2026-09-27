@@ -51,6 +51,8 @@
     <string name="fastboot_probe_value">Fastboot %1$s: %2$s</string>
     <string name="fastboot_probe_rejected">Fastboot replied FAIL for %1$s: %2$s. USB exchange succeeded.</string>
     <string name="fastboot_probe_failed">USB exchange failed for %1$s. Save a diagnostic ZIP.</string>
+    <string name="terminal_tab_adb" translatable="false">ADB</string>
+    <string name="terminal_tab_fastboot" translatable="false">Fastboot</string>
     <string name="terminal_title">Command and preview</string>
     <string name="terminal_hint">Review the plan first. Supported: getvar version/product/max-download-size/partition-size:recovery, ADB device code and fastboot flash with an Android-selected raw image. Flashing requires a second confirmation.</string>
     <string name="terminal_command_label">Command</string>

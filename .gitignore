@@ -1,5 +1,32 @@
+# Gradle
 .gradle/
-.idea/
-build/
 **/build/
+
+# Android Studio / IntelliJ
+.idea/
+*.iml
 local.properties
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Build outputs
+*.apk
+*.aab
+*.ap_
+
+# Signing / secrets
+*.jks
+*.keystore
+keystore.properties
+signing.properties
+secrets.properties
+.env
+.env.*
+
+# OS / editors
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~

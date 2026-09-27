@@ -88,12 +88,12 @@ internal fun TerminalPanel(
                 OutlinedButton(onClick = { adbTab = true },
                     border = BorderStroke(1.dp, if (adbTab) palette.primary else palette.outline),
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = palette.primary)) {
-                    Text("ADB")
+                    Text(stringResource(R.string.terminal_tab_adb))
                 }
                 OutlinedButton(onClick = { adbTab = false },
                     border = BorderStroke(1.dp, if (!adbTab) palette.primary else palette.outline),
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = palette.primary)) {
-                    Text("Fastboot")
+                    Text(stringResource(R.string.terminal_tab_fastboot))
                 }
             }
             OutlinedTextField(

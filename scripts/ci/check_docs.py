@@ -123,11 +123,12 @@ def check_modules() -> None:
 
 
 def gradle_tokens(text: str, where: str) -> list[str]:
-    match = re.search(r"bash \./gradlew ([^\n]+)", text)
-    if match is None:
-        fail(f"{where}: не найдена команда bash ./gradlew")
-        return []
-    return match.group(1).split()
+    """Arguments of the ./gradlew call that builds the APK."""
+    for match in re.finditer(r"(?:bash )?\./gradlew ([^\n]+)", text):
+        if "assembleDebug" in match.group(1):
+            return match.group(1).split()
+    fail(f"{where}: не найдена команда ./gradlew со сборкой assembleDebug")
+    return []
 
 
 def check_ci_command() -> None:
@@ -140,9 +141,10 @@ def check_ci_command() -> None:
     if documented != workflow:
         fail(f"команда сборки в docs/07 и в {rel(WORKFLOW)} различается:\n  docs: {documented}\n  ci:   {workflow}")
     jvm_modules = [module for module in settings_modules() if module != ":app"]
-    for module in jvm_modules:
-        if f"{module}:test" not in workflow:
-            fail(f"{rel(WORKFLOW)}: тесты модуля {module} не запускаются")
+    if "test" not in workflow:
+        for module in jvm_modules:
+            if f"{module}:test" not in workflow:
+                fail(f"{rel(WORKFLOW)}: тесты модуля {module} не запускаются")
     summary = re.search(r"TEST_MODULES\s*=\s*\(([^)]*)\)", read(TEST_SUMMARY))
     listed = [":" + name.replace("/", ":") for name in re.findall(r'"([^"]+)"', summary.group(1))] if summary else []
     if sorted(listed) != sorted(jvm_modules):

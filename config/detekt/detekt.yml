@@ -1,0 +1,38 @@
+build:
+  maxIssues: 0
+
+naming:
+  FunctionNaming:
+    ignoreAnnotated: ['Composable']
+
+style:
+  # ADB protocol source is dominated by wire constants: command words, byte masks,
+  # field offsets and little-endian shifts. Treating those protocol-defined values
+  # as application-level magic numbers creates noise without improving correctness.
+  # Only MagicNumber is excluded here; every other style/complexity rule still
+  # scans protocol:adb production code.
+  MagicNumber:
+    excludes: ['**/protocol/adb/src/main/**']
+
+  # Ранний возврат из guard clause не считается лишним выходом: он снижает
+  # вложенность, а не усложняет функцию. Правило продолжает ловить настоящие
+  # многовыходные функции.
+  ReturnCount:
+    max: 2
+    excludeGuardClauses: true
+
+complexity:
+  LargeClass:
+    threshold: 600
+  LongMethod:
+    threshold: 60
+  LongParameterList:
+    functionThreshold: 8
+    constructorThreshold: 10
+    ignoreAnnotated: ['Composable']
+  TooManyFunctions:
+    thresholdInFiles: 20
+    thresholdInClasses: 20
+    thresholdInObjects: 20
+    thresholdInInterfaces: 20
+    ignoreAnnotatedFunctions: ['Composable']

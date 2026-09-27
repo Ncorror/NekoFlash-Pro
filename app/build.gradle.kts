@@ -1,27 +1,60 @@
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
 plugins {
-    id("com.android.application")
-    id("org.jetbrains.kotlin.plugin.compose")
+    alias(libs.plugins.android.application)
+    alias(libs.plugins.compose.compiler)
 }
+
+// Постоянная debug-подпись из окружения CI (секрет NEKOFLASH_DEBUG_KEYSTORE_BASE64).
+// Без неё каждая сборка подписана временным ключом, поверх прежней не ставится,
+// а удаление приложения уносит ключ хоста ADB. Значения читаются через providers,
+// чтобы configuration cache видел их как вход. Ключ в дерево не кладётся.
+val debugKeystorePath = providers.environmentVariable("NEKOFLASH_DEBUG_KEYSTORE")
+val debugKeystorePassword = providers.environmentVariable("NEKOFLASH_DEBUG_KEYSTORE_PASSWORD")
+val debugKeyAlias = providers.environmentVariable("NEKOFLASH_DEBUG_KEY_ALIAS")
+val debugKeyPassword = providers.environmentVariable("NEKOFLASH_DEBUG_KEY_PASSWORD")
 
 android {
     namespace = "com.ncorror.nekoflash.pro"
-    compileSdk = 36
+    compileSdk = 37
+
+    signingConfigs {
+        if (debugKeystorePath.isPresent) {
+            getByName("debug") {
+                storeFile = file(debugKeystorePath.get())
+                storePassword = debugKeystorePassword.getOrElse("android")
+                keyAlias = debugKeyAlias.getOrElse("androiddebugkey")
+                keyPassword = debugKeyPassword.getOrElse("android")
+            }
+        }
+    }
 
     defaultConfig {
         applicationId = "com.ncorror.nekoflash.pro"
         minSdk = 26
         targetSdk = 36
-        versionCode = 19
-        versionName = "0.19.0-dev"
+        versionCode = 20
+        versionName = "0.20.0-dev"
+    }
+
+    androidResources {
+        generateLocaleConfig = true
+        localeFilters += listOf("en", "ru")
+    }
+
+    buildFeatures {
+        compose = true
     }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+}
 
-    buildFeatures {
-        compose = true
+kotlin {
+    compilerOptions {
+        jvmTarget.set(JvmTarget.JVM_17)
     }
 }
 
@@ -31,10 +64,11 @@ dependencies {
     implementation(project(":core:transport"))
     implementation(project(":core:fastboot"))
     implementation(project(":core:adb"))
-    val composeBom = platform("androidx.compose:compose-bom:2026.05.01")
+
+    implementation(libs.androidx.activity.compose)
+    val composeBom = platform(libs.androidx.compose.bom)
     implementation(composeBom)
-    implementation("androidx.compose.material3:material3")
-    implementation("androidx.compose.ui:ui-tooling-preview")
-    implementation("androidx.activity:activity-compose:1.13.0")
-    debugImplementation("androidx.compose.ui:ui-tooling")
+    implementation(libs.androidx.compose.material3)
+    implementation(libs.androidx.compose.ui.tooling.preview)
+    debugImplementation(libs.androidx.compose.ui.tooling)
 }

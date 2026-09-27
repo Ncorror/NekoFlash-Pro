@@ -1,0 +1,17 @@
+build:
+  maxIssues: 0
+
+style:
+  ForbiddenImport:
+    active: true
+    imports:
+      - value: 'io.github.ncorror.nekoflash.protocol.**'
+        reason: 'usb android must not depend on protocol'
+      - value: 'io.github.ncorror.nekoflash.feature.**'
+        reason: 'usb android must not depend on feature'
+      - value: 'io.github.ncorror.nekoflash.vendor.**'
+        reason: 'usb android must not depend on vendor'
+      - value: 'io.github.ncorror.nekoflash.ui.**'
+        reason: 'usb android must not depend on UI'
+      - value: 'androidx.compose.**'
+        reason: 'usb android is a transport layer, not UI'

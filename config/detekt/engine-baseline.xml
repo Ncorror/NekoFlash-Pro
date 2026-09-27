@@ -1,0 +1,38 @@
+<?xml version="1.0" ?>
+<SmellBaseline>
+  <ManuallySuppressedIssues/>
+  <CurrentIssues>
+    <ID>ComplexCondition:TerminalParser.kt$TerminalParser$(option !in INSTALL_FLAGS &amp;&amp; !option.matches(SHORT_INSTALL_FLAGS) &amp;&amp; option != "--abi") || (op == "install" &amp;&amp; option.startsWith('-') &amp;&amp; !option.startsWith("--") &amp;&amp; 'p' in option)</ID>
+    <ID>ComplexCondition:TerminalParser.kt$TerminalParser$firstVerb == "oem" || (firstVerb != null &amp;&amp; firstVerb !in KNOWN_FASTBOOT_HOST_COMMANDS &amp;&amp; !firstVerb.startsWith("format:"))</ID>
+    <ID>CyclomaticComplexMethod:TerminalParser.kt$TerminalParser$private fun parseAdb(original: String, tokens: List&lt;Token&gt;): TerminalParseResult</ID>
+    <ID>CyclomaticComplexMethod:TerminalParser.kt$TerminalParser$private fun parseFastboot(tokens: List&lt;Token&gt;): TerminalParseResult</ID>
+    <ID>CyclomaticComplexMethod:TerminalParser.kt$TerminalParser$private fun parseInstall(op: String, args: List&lt;String&gt;): TerminalParseResult</ID>
+    <ID>CyclomaticComplexMethod:TerminalParser.kt$TerminalParser$private fun parseSync(args: List&lt;String&gt;): TerminalParseResult</ID>
+    <ID>CyclomaticComplexMethod:TerminalParser.kt$TerminalParser$private fun parseTransfer(op: String, args: List&lt;String&gt;): TerminalParseResult</ID>
+    <ID>CyclomaticComplexMethod:TerminalParser.kt$TerminalParser$private fun tokenize(line: String): List&lt;Token&gt;?</ID>
+    <ID>CyclomaticComplexMethod:TerminalPlan.kt$TerminalPlanCompiler$fun compile(invocation: TerminalInvocation): TerminalPlanResult</ID>
+    <ID>LongMethod:TerminalParser.kt$TerminalParser$private fun parseAdb(original: String, tokens: List&lt;Token&gt;): TerminalParseResult</ID>
+    <ID>LongMethod:TerminalParser.kt$TerminalParser$private fun parseFastboot(tokens: List&lt;Token&gt;): TerminalParseResult</ID>
+    <ID>LoopWithTooManyJumpStatements:TerminalParser.kt$TerminalParser$while</ID>
+    <ID>MagicNumber:TerminalParser.kt$TerminalParser$3</ID>
+    <ID>MagicNumber:TerminalParser.kt$TerminalParser$4</ID>
+    <ID>MagicNumber:TerminalParser.kt$TerminalParser$65535</ID>
+    <ID>MagicNumber:TerminalPlan.kt$TerminalPlanCompiler$0xffff_ffffL</ID>
+    <ID>MaxLineLength:TerminalCommand.kt$FastbootCommand$FlashRaw : FastbootCommand</ID>
+    <ID>MaxLineLength:TerminalParser.kt$TerminalParser$(op == "is-logical" || op == "logical-info") &amp;&amp; requireSize(1..1) -&gt; FastbootCommand.DeviceQuery(op, operands[0])</ID>
+    <ID>MaxLineLength:TerminalParser.kt$TerminalParser$AdbCommand.Shell(tokens.getOrNull(position)?.let { original.substring(it.start).trimEnd() } ?: "", tty, noExitCode)</ID>
+    <ID>MaxLineLength:TerminalParser.kt$TerminalParser$FastbootCommand.Format(operands[0], parameters.getOrNull(1)?.ifBlank { null }, parameters.getOrNull(2)?.ifBlank { null })</ID>
+    <ID>MaxLineLength:TerminalParser.kt$TerminalParser$if (args.isNotEmpty() &amp;&amp; args != listOf("-R")) return TerminalParseResult.Unsupported("adb", "$op ${args.joinToString(" ")}")</ID>
+    <ID>MaxLineLength:TerminalParser.kt$TerminalParser$op == "boot" &amp;&amp; requireSize(1..3) -&gt; FastbootCommand.Boot(operands[0], operands.getOrNull(1), operands.getOrNull(2))</ID>
+    <ID>MaxLineLength:TerminalParser.kt$TerminalParser$value == "-S"</ID>
+    <ID>MaxLineLength:TerminalParser.kt$TerminalParser$value.startsWith("--slot=") -&gt; options = options.copy(slot = value.substringAfter('=').ifEmpty { return invalidValue(value) })</ID>
+    <ID>MaxLineLength:TerminalParser.kt$TerminalParser.Companion$val SHELL_SHORTCUTS = setOf("getprop", "setprop", "pm", "am", "cmd", "settings", "wm", "input", "svc", "dumpsys", "cat", "ls", "cd", "pwd", "id", "su", "sh")</ID>
+    <ID>NestedBlockDepth:TerminalPlan.kt$TerminalPlanCompiler$fun compile(invocation: TerminalInvocation): TerminalPlanResult</ID>
+    <ID>ReturnCount:TerminalParser.kt$TerminalParser$fun parse(line: String): TerminalParseResult</ID>
+    <ID>ReturnCount:TerminalParser.kt$TerminalParser$private fun parseAdb(original: String, tokens: List&lt;Token&gt;): TerminalParseResult</ID>
+    <ID>ReturnCount:TerminalParser.kt$TerminalParser$private fun parseFastboot(tokens: List&lt;Token&gt;): TerminalParseResult</ID>
+    <ID>ReturnCount:TerminalParser.kt$TerminalParser$private fun parseInstall(op: String, args: List&lt;String&gt;): TerminalParseResult</ID>
+    <ID>ReturnCount:TerminalParser.kt$TerminalParser$private fun parseSync(args: List&lt;String&gt;): TerminalParseResult</ID>
+    <ID>ReturnCount:TerminalParser.kt$TerminalParser$private fun parseTransfer(op: String, args: List&lt;String&gt;): TerminalParseResult</ID>
+  </CurrentIssues>
+</SmellBaseline>

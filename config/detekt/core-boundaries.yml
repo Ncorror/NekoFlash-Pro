@@ -1,0 +1,21 @@
+build:
+  maxIssues: 0
+
+style:
+  ForbiddenImport:
+    active: true
+    imports:
+      - value: 'io.github.ncorror.nekoflash.usb.**'
+        reason: 'core modules must not depend on usb'
+      - value: 'io.github.ncorror.nekoflash.protocol.**'
+        reason: 'core modules must not depend on protocol'
+      - value: 'io.github.ncorror.nekoflash.feature.**'
+        reason: 'core modules must not depend on feature'
+      - value: 'io.github.ncorror.nekoflash.vendor.**'
+        reason: 'core modules must not depend on vendor'
+      - value: 'io.github.ncorror.nekoflash.ui.**'
+        reason: 'core modules must not depend on UI'
+      - value: 'android.**'
+        reason: 'core modules are pure JVM'
+      - value: 'androidx.**'
+        reason: 'core modules are pure JVM'
