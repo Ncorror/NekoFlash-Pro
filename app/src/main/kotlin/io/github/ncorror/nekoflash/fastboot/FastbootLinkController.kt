@@ -20,7 +20,6 @@ import io.github.ncorror.nekoflash.payload.DigestingSink
 import io.github.ncorror.nekoflash.payload.GeneratedPayload
 import io.github.ncorror.nekoflash.payload.GeneratedPayloadStream
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootDownload
-import io.github.ncorror.nekoflash.protocol.fastboot.FastbootDownloadOutcome
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootFetch
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootFetchOutcome
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootModeProbe
@@ -306,6 +305,7 @@ public class FastbootLinkController(
     public fun downloadFrom(
         then: List<String> = emptyList(),
         slot: String? = null,
+        sparseLimit: Long? = null,
         origin: () -> ArtifactSource,
     ) {
         val label = (listOf("выбранный файл") + then).joinToString(" ; ")
@@ -316,30 +316,15 @@ public class FastbootLinkController(
             val commands = (resolved as? SlotResolution.Resolved)?.commands.orEmpty()
             val source = origin()
             val size = source.identity.sizeBytes
-            if (resolved is SlotResolution.Failed) {
-                notResolved(then, resolved, lane.state)
-            } else if (size == null) {
-                FastbootConsoleState.NotAnswered(
+            when {
+                resolved is SlotResolution.Failed -> notResolved(then, resolved, lane.state)
+                size == null -> FastbootConsoleState.NotAnswered(
                     command = "download:",
                     detail = "провайдер не сообщает размер файла, " +
                         "а download: обязан объявить его до первого байта",
                     lane = lane.state,
                 )
-            } else {
-                val outcome = source.open().use { stream -> FastbootDownload(lane).send(stream, size) }
-                val complete = outcome is FastbootDownloadOutcome.Answered &&
-                    outcome.reply == FastbootReply.OKAY && outcome.bytesSent == size
-                when {
-                    commands.isEmpty() -> downloaded(size, outcome, lane.state)
-                    complete -> downloadedThen(size, commands, lane)
-                    else -> FastbootConsoleState.Planned(
-                        commands = listOf(downloadStep(size)) + commands,
-                        applied = 0,
-                        stoppedAt = 0,
-                        detail = describeDownload(outcome),
-                        lane = lane.state,
-                    )
-                }
+                else -> flashImage(lane, source, size, sparseLimit, commands)
             }
         }
     }

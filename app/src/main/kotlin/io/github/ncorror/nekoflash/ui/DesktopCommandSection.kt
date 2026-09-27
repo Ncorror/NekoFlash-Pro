@@ -205,12 +205,14 @@ private fun PlanPreview(plan: TerminalPlan, panel: DesktopCommandPanel) {
 private fun stepText(step: TerminalPlanStep): String {
     val slot = (step as? TerminalPlanStep.FastbootWire)?.slot ?: (step as? TerminalPlanStep.FastbootFlashImage)?.slot
     val flags = (step as? TerminalPlanStep.FastbootFlashImage)?.vbmetaFlags ?: 0
+    val sparse = (step as? TerminalPlanStep.FastbootFlashImage)?.sparseLimit
     val base = baseStepText(step)
-    val text = if (flags == 0) {
+    val flagged = if (flags == 0) {
         base
     } else {
         stringResource(R.string.command_step_vbmeta_flags, base, vbmetaFlagNames(flags))
     }
+    val text = if (sparse == null) flagged else stringResource(R.string.command_step_sparse_limit, flagged, sparse)
     return if (slot == null) text else stringResource(R.string.command_step_slot, text, slot)
 }
 

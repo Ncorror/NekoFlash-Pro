@@ -35,7 +35,7 @@ class TerminalParserTest {
     @Test
     fun sparseAndForceOptionsArePreserved() {
         val parsed = fastboot("fastboot -S 512M --force --disable-verity --disable-verification flash vbmeta vbmeta.img")
-        assertEquals("512M", parsed.options.sparseLimit)
+        assertEquals(512L shl 20, parsed.options.sparseLimit)
         assertTrue(parsed.options.force)
         assertTrue(parsed.options.disableVerity)
         assertTrue(parsed.options.disableVerification)
@@ -80,7 +80,11 @@ class TerminalParserTest {
     fun sparseSizeMustNotAbsorbFollowingFlag() {
         assertIs<TerminalParseResult.Invalid>(parser.parse("fastboot -S --force flash boot boot.img"))
         assertIs<TerminalParseResult.Invalid>(parser.parse("fastboot -S unlimited flash boot boot.img"))
-        assertEquals("0", fastboot("fastboot -S0 flash system system.img").options.sparseLimit)
+        assertEquals(0L, fastboot("fastboot -S0 flash system system.img").options.sparseLimit)
+        assertEquals(0x1000L, fastboot("fastboot -S 0x1000 flash system system.img").options.sparseLimit)
+        assertEquals(256L, fastboot("fastboot -S 256b flash system system.img").options.sparseLimit)
+        assertIs<TerminalParseResult.Invalid>(parser.parse("fastboot -S 99999999999999999999 flash boot boot.img"))
+        assertIs<TerminalParseResult.Invalid>(parser.parse("fastboot -S 9e flash boot boot.img"))
     }
 
     @Test
@@ -225,7 +229,7 @@ class TerminalParserTest {
         assertTrue(parsed.options.skipSecondary)
         assertEquals("a", fastboot("fastboot -a a flash boot b.img").options.setActiveSlot)
         assertEquals(FastbootCommand.SetActive("b"), fastboot("fastboot --set-active=b").command)
-        assertEquals("1G", fastboot("fastboot -S1G flash system s.img").options.sparseLimit)
+        assertEquals(1L shl 30, fastboot("fastboot -S1G flash system s.img").options.sparseLimit)
         assertIs<TerminalParseResult.Invalid>(parser.parse("fastboot --slot"))
         assertIs<TerminalParseResult.Invalid>(parser.parse("fastboot --slot= flash boot b.img"))
         assertIs<TerminalParseResult.Invalid>(parser.parse("fastboot"))

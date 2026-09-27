@@ -101,6 +101,13 @@ class DesktopCommandExecutorTest {
     }
 
     @Test
+    fun sparseLimitTravelsWithTheFlash() {
+        executor.execute(plan("fastboot -S 256M flash system system.img"), picked)
+
+        assertEquals(listOf("downloadThen flash:system S=268435456"), calls)
+    }
+
+    @Test
     fun shellModesReachTheTerminal() {
         executor.execute(plan("adb shell -T"), null)
         executor.execute(plan("adb shell -x"), null)
@@ -133,8 +140,14 @@ class DesktopCommandExecutorTest {
         }
         override fun fastbootVariable(name: String) { calls += "getvar $name" }
         override fun fastbootAllVariables() { calls += "getvar all" }
-        override fun fastbootDownloadThen(then: List<String>, slot: String?, origin: () -> ArtifactSource) {
-            calls += "downloadThen ${then.joinToString(",")}" + (slot?.let { " slot=$it" } ?: "")
+        override fun fastbootDownloadThen(
+            then: List<String>,
+            slot: String?,
+            sparseLimit: Long?,
+            origin: () -> ArtifactSource,
+        ) {
+            calls += "downloadThen ${then.joinToString(",")}" + (slot?.let { " slot=$it" } ?: "") +
+                (sparseLimit?.let { " S=$it" } ?: "")
         }
         override fun fastbootFetch(partition: String, destination: () -> ArtifactSink) { calls += "fetch $partition" }
         override fun adbShell(command: String) { calls += "shell $command" }

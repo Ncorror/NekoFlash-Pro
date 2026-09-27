@@ -55,7 +55,7 @@ class TerminalPlanCompilerTest {
             "fastboot --slot all flash boot boot.img",
             "fastboot --slot a getvar product",
             "fastboot --set-active=a getvar product",
-            "fastboot -S 512M flash system system.img",
+            "fastboot -S 512M erase system",
             "fastboot format userdata",
             "fastboot wipe-super super_empty.img",
             "fastboot flashall",
@@ -125,6 +125,15 @@ class TerminalPlanCompilerTest {
             steps("fastboot --disable-verity --disable-verification flash vbmeta vbmeta.img"),
         )
         assertIs<TerminalPlanResult.NotImplemented>(compiler.compile("fastboot --disable-verity flash boot boot.img"))
+    }
+
+    @Test
+    fun sparseLimitRidesOnFlash() {
+        assertEquals(listOf(TerminalPlanStep.FastbootFlashImage("system", "system.img", sparseLimit = 512L shl 20)),
+            steps("fastboot -S 512M flash system system.img"))
+        // `-S 0` — как без `-S`: предел назовёт устройство.
+        assertEquals(listOf(TerminalPlanStep.FastbootFlashImage("system", "system.img")),
+            steps("fastboot -S 0 flash system system.img"))
     }
 
     @Test

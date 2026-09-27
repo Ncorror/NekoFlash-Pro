@@ -18,7 +18,8 @@ data class FastbootOptions(
     val setActiveRequested: Boolean = false,
     val setActiveSlot: String? = null,
     val wipe: Boolean = false,
-    val sparseLimit: String? = null,
+    /** `-S` в байтах; `0` — как без него: предел назовёт устройство. */
+    val sparseLimit: Long? = null,
     val force: Boolean = false,
     val skipReboot: Boolean = false,
     val skipSecondary: Boolean = false,

@@ -24,7 +24,7 @@ interface DesktopCommandTargets {
     fun fastbootPlan(commands: List<String>, slot: String?)
     fun fastbootVariable(name: String)
     fun fastbootAllVariables()
-    fun fastbootDownloadThen(then: List<String>, slot: String?, origin: () -> ArtifactSource)
+    fun fastbootDownloadThen(then: List<String>, slot: String?, sparseLimit: Long?, origin: () -> ArtifactSource)
     fun fastbootFetch(partition: String, destination: () -> ArtifactSink)
     fun adbShell(command: String)
     fun adbInteractiveShell(firstLine: String?, mode: ShellMode)
@@ -111,10 +111,11 @@ class DesktopCommandExecutor(private val targets: DesktopCommandTargets) {
             is TerminalPlanStep.FastbootFlashImage -> targets.fastbootDownloadThen(
                 listOf("flash:${first.partition}") + wires,
                 slot,
+                first.sparseLimit,
                 file.open().withVbmetaFlags(first.vbmetaFlags),
             )
             is TerminalPlanStep.FastbootBootImage ->
-                targets.fastbootDownloadThen(listOf("boot") + wires, null, file.open())
+                targets.fastbootDownloadThen(listOf("boot") + wires, null, null, file.open())
             is TerminalPlanStep.FastbootFetch -> targets.fastbootFetch(first.partition, file.create())
             is TerminalPlanStep.FastbootGetvar -> targets.fastbootVariable(first.variable)
             TerminalPlanStep.FastbootGetvarAll -> targets.fastbootAllVariables()

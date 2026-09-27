@@ -2,7 +2,7 @@
 
 **Единственный источник статуса проекта.** Другие документы описывают цель и правила; что сделано — только здесь. Статус меняется тем же коммитом, что и код.
 
-Версия APK: `0.33.0-dev`
+Версия APK: `0.34.0-dev`
 
 Текущий этап: **Этап 3 — Команды настольных `adb`/`fastboot` поверх нового ядра**
 
@@ -88,7 +88,7 @@
 | Команды `adb devices [-l]`, `get-state`, `status`, `fastboot devices [-l]`, `status`; `adb shell -x`/`-T` без команды | `в репо` | `LocalReports`: строки Platform-Tools из состояния связи приложения, устройству ничего не уходит; `-T` — живая оболочка `shell,v2,raw:`, `-x` — `shell:`, режим виден в терминале (D054) |
 | Команды ADB: `install`, `install-multiple` с флагами `package` | `в репо` | `AdbInstallController`: `exec:cmd package install -S`, сессия `install-create`/`install-write`/`install-commit`, при сбое — `install-abandon` |
 | Общая проверка на телефоне | `проверено` | шаги A–I на 0.30.0, [журнал 07](07_BUILD_AND_TESTING.md#журнал-проверок-этого-apk) |
-| Проверка на телефоне: установка APK, `devices`/`get-state`, режимы оболочки, слоты, флаги vbmeta | `нет` | [07](07_BUILD_AND_TESTING.md#ручная-проверка-на-телефоне), план этапа 3, часть 2 |
+| Проверка на телефоне: установка APK, `devices`/`get-state`, режимы оболочки, слоты, флаги vbmeta, `flash -S` | `нет` | [07](07_BUILD_AND_TESTING.md#ручная-проверка-на-телефоне), план этапа 3, часть 2 |
 
 ## Этап 4 — Fastboot до конца
 
@@ -98,8 +98,8 @@
 | DATA IN `fetch`, частичный результат не выдаётся за целый | `в репо` | `FastbootLinkController.fetchPartitionTo`: инструмент «Прочитать раздел» и `fastboot fetch`; `complete` отдельным полем; архивный гейт §6.94 открыт |
 | Логические разделы, сценарии fastbootd | `в репо` | `FastbootPartitionIndex` в списке переменных консоли; `create-`/`delete-`/`resize-logical-partition` из поля команды, класс мутации `SUPER` |
 | План из нескольких команд (Quick Flash) | `в репо` | `FastbootPlan` через `FastbootLinkController.runPlan`: группа «Запись» и планы поля команды, остановка на первом непринятом шаге |
-| Sparse и разбиение по `max-download-size`, `-S` | `нет` | D053 |
-| `update`/`flashall`, `--force`, `--skip-*`, `--slot all` для `flash` | `нет` | зависят от sparse и повторной загрузки образа; D053 |
+| Sparse и разбиение по `max-download-size`, `-S` | `в репо` | `FastbootSparse` по AOSP `libsparse`; `flashImage`: образ больше предела уходит кусками, каждый — `download` + `flash:РАЗДЕЛ`; D056 |
+| `update`/`flashall`, `--force`, `--skip-*`, `--slot all` для `flash` | `нет` | нужны повторная загрузка образа под каждый слот и разбор архива образов; D053 |
 | `format`, `-w`: создание файловой системы на хосте | `нет` | D053 |
 | `wipe-super`, `vendor_boot:RAMDISK`: метаданные логических разделов и перепаковка | `нет` | D053 |
 | Длина Fastboot-команды: 64 или 4096 байт | `нет` | [06](06_MIGRATION.md#3-расхождения-которые-решаются-при-переносе) |
@@ -108,9 +108,9 @@
 
 | Пункт | Статус | Где |
 | --- | --- | --- |
-| Клиент доказательств Recovery | `в репо` | `AdbSyncController`, вердикт на экране ADB |
+| Клиент доказательств Recovery | `в репо` | `AdbRecoveryInstall` в `AdbSyncController`, вердикт на экране ADB |
 | Sideload по запросам: граница мутации, уникальный прогресс | `в репо` | `AdbSideloadController`, секция Sideload и `adb sideload` |
-| Снимок до Sideload, корреляция, вердикт | `в репо` | `AdbRecoveryBaseline` и `AdbRecoveryVerdict` в `AdbSideloadController` |
+| Снимок до Sideload, корреляция, вердикт | `в репо` | `AdbRecoveryBaseline`, `AdbRecoveryCorrelator` и `AdbRecoveryVerdict` в `AdbSyncController` |
 | Рабочее место Recovery | `в репо` | раздел «Устройство» в режиме `RECOVERY`/`SIDELOAD` |
 
 ## Этап 6 — Файлы и долгие операции

@@ -363,7 +363,8 @@
     <string name="terminal_mode_legacy">Режим: старый сервис shell:, без кода выхода (adb shell -x).</string>
     <string name="command_terminal_open">Оболочка открыта в разделе «Терминал». %1$s</string>
     <string name="command_terminal_mode_pty">Режим: терминал.</string>
-    <string name="command_note">Исполняют те же движки, что у кнопок и сырой консоли. Путь из команды напрямую не открывается: файл выбирается через Android и привязывается к показанному плану. Команда или опция без исполнителя отвечает «не реализовано» до отправки, а не превращается в другую команду.</string>
+    <string name="command_step_sparse_limit">%1$s; образ больше %2$d байт уходит кусками sparse не крупнее этого</string>
+    <string name="command_note">Исполняют те же движки, что у кнопок и сырой консоли. Путь из команды напрямую не открывается: файл выбирается через Android и привязывается к показанному плану. Команда или опция без исполнителя отвечает «не реализовано» до отправки, а не превращается в другую команду. `flash` образа больше max-download-size устройства уходит кусками sparse, как у настольного fastboot.</string>
     <string name="command_file_count">Команда называет файлов: %1$d, выбрано: %2$d. Ничего не отправлено.</string>
     <string name="command_run_open_many">Выбрать файлы и выполнить</string>
     <string name="command_step_adb_install">adb: установка выбранного пакета (%1$s), флаги package: %2$s</string>

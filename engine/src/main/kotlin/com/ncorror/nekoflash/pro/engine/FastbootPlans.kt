@@ -11,7 +11,7 @@ package com.ncorror.nekoflash.pro.engine
  */
 internal object FastbootPlans {
     fun compile(options: FastbootOptions, command: FastbootCommand): TerminalPlanResult {
-        val main = steps(command)?.let { withSlot(it, options.slot) }?.let { withVbmetaFlags(it, options) }
+        val main = steps(command)?.let { withSlot(it, options.slot) }?.let { withImageOptions(it, options) }
         // Без слота `--set-active` — «другой» слот: его уточнит устройство по
         // `current-slot` в той же операции, до первой команды.
         val activate = when {
@@ -20,6 +20,7 @@ internal object FastbootPlans {
             else -> null
         }
         val blocker = unsupportedOption(options) ?: slotBlocker(command, options.slot)
+            ?: sparseBlocker(command, options)
             ?: vbmetaBlocker(command, options)
             ?: hostScenario(command).takeIf { main == null }
         return when {
@@ -44,7 +45,6 @@ internal object FastbootPlans {
      */
     private fun unsupportedOption(options: FastbootOptions): String? = when {
         options.wipe -> "fastboot -w"
-        options.sparseLimit != null -> "fastboot -S"
         options.force -> "fastboot --force"
         options.skipReboot -> "fastboot --skip-reboot"
         options.skipSecondary -> "fastboot --skip-secondary"
@@ -68,6 +68,10 @@ internal object FastbootPlans {
         command is FastbootCommand.Flash -> "fastboot --slot all flash"
         else -> "fastboot --slot"
     }
+
+    /** `-S` режет образ для `flash`; у прочих команд ему не к чему применяться. */
+    private fun sparseBlocker(command: FastbootCommand, options: FastbootOptions): String? =
+        "fastboot -S".takeIf { options.sparseLimit != null && command !is FastbootCommand.Flash }
 
     private fun withSlot(steps: List<TerminalPlanStep>, slot: String?): List<TerminalPlanStep> =
         if (slot == null) {
@@ -93,11 +97,16 @@ internal object FastbootPlans {
         else -> "fastboot --disable-verification"
     }
 
-    private fun withVbmetaFlags(steps: List<TerminalPlanStep>, options: FastbootOptions): List<TerminalPlanStep> {
+    private fun withImageOptions(steps: List<TerminalPlanStep>, options: FastbootOptions): List<TerminalPlanStep> {
         val flags = (if (options.disableVerity) DISABLE_VERITY else 0) or
             (if (options.disableVerification) DISABLE_VERIFICATION else 0)
+        val sparse = options.sparseLimit?.takeIf { it != 0L }
         return steps.map { step ->
-            if (step is TerminalPlanStep.FastbootFlashImage && flags != 0) step.copy(vbmetaFlags = flags) else step
+            if (step is TerminalPlanStep.FastbootFlashImage) {
+                step.copy(vbmetaFlags = flags, sparseLimit = sparse)
+            } else {
+                step
+            }
         }
     }
 

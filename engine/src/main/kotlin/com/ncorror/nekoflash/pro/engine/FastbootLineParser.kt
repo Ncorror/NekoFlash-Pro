@@ -96,7 +96,7 @@ internal class FastbootLineParser(private val tokens: List<TerminalToken>) {
         const val FORMAT_PREFIX = "format:"
         const val UPDATE_SUPER = "update-super"
         const val DEVICES = "devices"
-        val SPARSE_SIZE = Regex("""(?:0[xX][0-9a-fA-F]+|[0-9]+)[KMGkmg]?""")
+        val SPARSE_SIZE = Regex("""(0[xX][0-9a-fA-F]+|[0-9]+)([bkmgtpeBKMGTPE]?)""")
         val FORMATS = Regex("""format(?::[^:]*(?::[^:]*)?)?""")
 
         val FLAGS: Map<String, (FastbootOptions) -> FastbootOptions> = mapOf(
@@ -190,7 +190,28 @@ internal class FastbootLineParser(private val tokens: List<TerminalToken>) {
 
         /** `-S` принимает размер, а не следующую опцию: `-S --force` — ошибка, а не лимит «--force». */
         fun sparse(options: FastbootOptions, value: String): FastbootOptions? =
-            value.takeIf { it.matches(SPARSE_SIZE) }?.let { options.copy(sparseLimit = it) }
+            byteCount(value)?.let { options.copy(sparseLimit = it) }
+
+        /**
+         * Размер, как его читает AOSP `ParseByteCount`: `0x` — шестнадцатеричное,
+         * иначе десятичное; буква `b`, `k`, `m`, `g`, `t`, `p`, `e` — множитель
+         * 1024 в степени её места. Переполнение — ошибка ввода.
+         */
+        fun byteCount(value: String): Long? {
+            val match = SPARSE_SIZE.matchEntire(value) ?: return null
+            val digits = match.groupValues[1]
+            val number = if (digits.length > 2 && digits[1].lowercaseChar() == 'x') {
+                digits.drop(2).toULongOrNull(HEX)
+            } else {
+                digits.toULongOrNull()
+            }
+            val shift = BYTE_SUFFIXES.indexOf(match.groupValues[2].lowercase()).coerceAtLeast(0) * BINARY_STEP
+            return number?.takeIf { it <= (Long.MAX_VALUE shr shift).toULong() }?.toLong()?.shl(shift)
+        }
+
+        const val HEX = 16
+        const val BINARY_STEP = 10
+        val BYTE_SUFFIXES = listOf("", "k", "m", "g", "t", "p", "e")
 
         fun flash(operands: List<String>, verdict: ParseVerdict): FastbootCommand? {
             val target = operands[0]

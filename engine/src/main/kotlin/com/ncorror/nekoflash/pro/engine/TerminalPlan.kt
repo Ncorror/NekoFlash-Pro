@@ -24,6 +24,11 @@ sealed interface TerminalPlanStep {
         val slot: String? = null,
         /** Биты `flags` заголовка vbmeta: `--disable-verity` = 1, `--disable-verification` = 2. */
         val vbmetaFlags: Int = 0,
+        /**
+         * `-S`: куски sparse не больше стольких байт. `null` — предел назовёт
+         * устройство (`max-download-size`), как у настольного клиента.
+         */
+        val sparseLimit: Long? = null,
     ) : TerminalPlanStep
 
     /** `download` выбранного файла и `boot`. */

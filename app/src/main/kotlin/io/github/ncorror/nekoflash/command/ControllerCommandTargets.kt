@@ -29,8 +29,12 @@ internal class ControllerCommandTargets(
     override fun fastbootPlan(commands: List<String>, slot: String?) = fastboot.runPlan(commands, slot)
     override fun fastbootVariable(name: String) = fastboot.readVariable(name)
     override fun fastbootAllVariables() = fastboot.readAllVariables()
-    override fun fastbootDownloadThen(then: List<String>, slot: String?, origin: () -> ArtifactSource) =
-        fastboot.downloadFrom(then, slot, origin)
+    override fun fastbootDownloadThen(
+        then: List<String>,
+        slot: String?,
+        sparseLimit: Long?,
+        origin: () -> ArtifactSource,
+    ) = fastboot.downloadFrom(then, slot, sparseLimit, origin)
     override fun fastbootFetch(partition: String, destination: () -> ArtifactSink) =
         fastboot.fetchPartitionTo(partition, destination)
     override fun adbShell(command: String) = adb.runCommand(command)
