@@ -67,9 +67,13 @@
 | `gradle/libs.versions.toml` | добавлен `kotlin-test-junit` | тесты `:engine` написаны на `kotlin.test`; в архиве такого модуля нет |
 | `.github/workflows/build.yml` | один workflow вместо `android-ci.yml`: версии actions этого репозитория, `setup-android` с платформой 37, сводка тестов, имена артефактов `NekoFlash-Pro-*`; вместо `check_docs_consistency.py` — `check_docs.py` | проверка документов архива сверяет его собственные файлы |
 | `scripts/ci/check_repository_hygiene.sh` | убрана сверка иконки с `docs/brand-reference/` | эталон иконки теперь внутри неизменяемого архива; иконки в приложении ещё нет |
-| `scripts/ci/check_kotlin_style.sh` | старый код репозитория (`legacy_inputs`) не проверяется, пока его не заменит модуль архива; `:engine` проверяется с baseline и своей границей `engine-boundaries.yml` | гейт включён сразу, а замечания старого кода не переносятся в новый |
+| `scripts/ci/check_kotlin_style.sh` | добавлена проверка `:engine` с baseline и своей границей `engine-boundaries.yml` | `:engine` — код этого репозитория; его прежние замечания записаны в baseline и снимаются на этапе 3 |
 | `scripts/dev/provision_android_toolchain.sh` | добавлено локальное зеркало Maven Central | из облачной среды Maven Central отвечает 429 на параллельные запросы Gradle |
 | `gradle/wrapper/gradle-wrapper.jar` | взят из архива вместо прежнего jar репозитория | jar архива совпадает с тем, что генерирует сам Gradle 9.5.0; прежний — нет |
+| `app/build.gradle.kts` | `applicationId` `com.ncorror.nekoflash.pro`, `versionCode` 21, `versionName` `0.21.0-dev` | D041: APK обновляет установленную сборку этого репозитория |
+| `app/src/main/res/values/strings.xml` | `app_name` — «NekoFlash Pro» | на том же телефоне может стоять APK архива «NekoFlash»; при проверке их нельзя путать |
+| `core/diagnostics/.../DiagnosticRedaction.kt` (+ тест) | новый файл | D050: обезличивание выгружаемого отчёта |
+| `app/.../NekoFlashApplication.kt` | `writeDiagnostics` обезличивает секции перед записью | D050 |
 
 ## 6. Где смотреть поведение перед реализацией
 

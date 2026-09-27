@@ -42,32 +42,12 @@ fi
 
 failures=0
 
-# Набор входов архива. Старый код этого репозитория, который заменяется
-# переносом (docs/06_MIGRATION.md), под гейт не попадает, пока его место не занял
-# модуль архива: список legacy_inputs только сокращается и исчезает на этапе 6.
-style_inputs=(
-    app/src/main core/model/src/main core/diagnostics/src/main core/operation/src/main
-    core/artifact/src/main usb/api/src/main usb/android/src/main protocol/adb/src/main
-)
-legacy_inputs=(app/src/main)
-
-inputs=()
-for input in "${style_inputs[@]}"; do
-    [ -d "$input" ] || continue
-    for legacy in "${legacy_inputs[@]}"; do
-        [ "$input" = "$legacy" ] && continue 2
-    done
-    inputs+=("$input")
-done
-
 echo "== style and complexity =="
-if [ "${#inputs[@]}" -eq 0 ]; then
-    echo "style: nothing ported yet"
-elif java -jar "$DETEKT_JAR" \
-    --input "$(IFS=,; echo "${inputs[*]}")" \
+if java -jar "$DETEKT_JAR" \
+    --input app/src/main,core/model/src/main,core/diagnostics/src/main,core/operation/src/main,core/artifact/src/main,usb/api/src/main,usb/android/src/main,protocol/adb/src/main \
     --config config/detekt/detekt.yml \
     --build-upon-default-config; then
-    echo "style: PASS (${inputs[*]})"
+    echo "style: PASS"
 else
     failures=$((failures + 1))
 fi

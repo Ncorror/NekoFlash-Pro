@@ -9,7 +9,7 @@ import xml.etree.ElementTree as ET
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "build" / "verification" / "test-summary.md"
 TEST_MODULES = (
-    "engine", "core/transport", "core/fastboot", "core/adb",
+    "app", "engine",
     "core/model", "core/diagnostics", "core/operation", "core/artifact",
     "usb/api", "usb/android", "protocol/adb", "protocol/fastboot",
 )

@@ -140,7 +140,8 @@ def check_ci_command() -> None:
     workflow = gradle_tokens(read(WORKFLOW), rel(WORKFLOW))
     if documented != workflow:
         fail(f"команда сборки в docs/07 и в {rel(WORKFLOW)} различается:\n  docs: {documented}\n  ci:   {workflow}")
-    jvm_modules = [module for module in settings_modules() if module != ":app"]
+    # Every module that has tests must be run by CI and listed in the test summary.
+    jvm_modules = [module for module in settings_modules() if (ROOT / module[1:].replace(":", "/") / "src/test").is_dir()]
     if "test" not in workflow:
         for module in jvm_modules:
             if f"{module}:test" not in workflow:
