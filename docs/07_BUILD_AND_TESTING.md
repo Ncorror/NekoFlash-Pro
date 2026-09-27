@@ -131,8 +131,8 @@ cd NekoFlash-Pro
 | POCO X3 Pro `vayu`, загрузчик разблокирован | основная цель | Fastboot `18D1:D00D` (`FF/42/03`), ADB `18D1:4EE7` (`FF/42/01`); bulk IN `0x81`, OUT `0x01`, `maxPacket=512`; `max-download-size` = 805306368 (768 МиБ) |
 | POCO X3 Pro `vayu`, загрузчик заблокирован | вторая цель | ADB-авторизация и повторное подключение по подписи |
 | POCO F5 `marble`, загрузчик разблокирован | цель в архиве | появилась 14.09.2026; здесь не использовалась |
-| Xiaomi `25053PC47G`, Android 16 | хост | |
-| POCO F7 / Redmi Turbo 4 Pro `onyx` | нестабильный USB в роли цели | не использовать как единственную проверку |
+| POCO F7 `onyx` (`25053PC47G`), Android 16 | хост | в роли хоста работает стабильно; особенность ниже относится к роли цели |
+| POCO F7 / Redmi Turbo 4 Pro `onyx` | нестабильный USB в роли цели (по архиву) | не использовать как единственную проверку цели |
 
 ## Установленные на железе факты
 
@@ -170,3 +170,4 @@ APK `com.ncorror.nekoflash.pro`, хост Xiaomi `25053PC47G` (Android 16), ес
 | 24.09.2026 | 0.11.0 | `vayu` разблокированный, ADB | `shell:getprop ro.product.device` → `vayu`; однажды `Unexpected ADB reply during authorization` при повторной попытке, причина не установлена |
 | 26.09.2026 | 0.16.0 | `vayu`, ADB и загрузчик | `ro.product.device` → `vayu`; повторные попытки дали `Unexpected ADB reply`, `ADB authorization not accepted`, `Invalid ADB property stream packet` — формат пакета тогда не записывался. Запись `recovery` 128 МиБ: `FAILED bytes=0/134217728`, `flash:` не отправлялся |
 | 26.09.2026 | 0.17.0 | `vayu`, загрузчик | `max-download-size` = 805306368; запись `recovery` 128 МиБ: `Unexpected Fastboot download DATA size`, 0 байт передано, `flash:` не отправлялся |
+| 27.09.2026 | 0.21.0 | `vayu` разблокированный, ADB; хост `onyx` | общая проверка этапа 2, шаги A–D пройдены: Welcome и разделы; новый ключ хоста → диалог на `vayu` → `CONNECTED` (режим `DEVICE`, `maxPayload` 1 МиБ); `getprop ro.product.device` → `vayu`, `logcat` остановлен Ctrl+C; после переподключения — подпись принята за 2 мс, без диалога; дребезг кабеля дал лишнее поколение, обе старые сессии закрыты. В ZIP серийный номер и Android ID заменены метками. Найдено: вывод терминала выталкивал поле ввода вниз — исправлено в 0.22.0 |

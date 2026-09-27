@@ -70,10 +70,11 @@
 | `scripts/ci/check_kotlin_style.sh` | добавлена проверка `:engine` с baseline и своей границей `engine-boundaries.yml` | `:engine` — код этого репозитория; его прежние замечания записаны в baseline и снимаются на этапе 3 |
 | `scripts/dev/provision_android_toolchain.sh` | добавлено локальное зеркало Maven Central | из облачной среды Maven Central отвечает 429 на параллельные запросы Gradle |
 | `gradle/wrapper/gradle-wrapper.jar` | взят из архива вместо прежнего jar репозитория | jar архива совпадает с тем, что генерирует сам Gradle 9.5.0; прежний — нет |
-| `app/build.gradle.kts` | `applicationId` `com.ncorror.nekoflash.pro`, `versionCode` 21, `versionName` `0.21.0-dev` | D041: APK обновляет установленную сборку этого репозитория |
+| `app/build.gradle.kts` | `applicationId` `com.ncorror.nekoflash.pro`, свой `versionCode`/`versionName` | D041: APK обновляет установленную сборку этого репозитория |
 | `app/src/main/res/values/strings.xml` | `app_name` — «NekoFlash Pro» | на том же телефоне может стоять APK архива «NekoFlash»; при проверке их нельзя путать |
 | `core/diagnostics/.../DiagnosticRedaction.kt` (+ тест) | новый файл | D050: обезличивание выгружаемого отчёта |
 | `app/.../NekoFlashApplication.kt` | `writeDiagnostics` обезличивает секции перед записью | D050 |
+| `app/.../ui/AdbWorkspace.kt` | вывод оболочки — в окне фиксированной высоты со своей прокруткой, моноширинным шрифтом и следованием за последней строкой; поле ввода с «Отправить» в одной строке, «Ctrl+C» и «Закрыть» — в другой | прогон этапа 2, шаг C: вывод `logcat` выталкивал поле ввода и кнопки вниз, до «Ctrl+C» приходилось догонять прокруткой |
 
 ## 6. Где смотреть поведение перед реализацией
 
