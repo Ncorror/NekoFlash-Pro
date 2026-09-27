@@ -1,9 +1,11 @@
 package io.github.ncorror.nekoflash.command
 
+import com.ncorror.nekoflash.pro.engine.SET_ACTIVE_OTHER
 import com.ncorror.nekoflash.pro.engine.TerminalFileNeed
 import com.ncorror.nekoflash.pro.engine.TerminalPlan
 import com.ncorror.nekoflash.pro.engine.TerminalPlanStep
 import com.ncorror.nekoflash.pro.engine.fileNeed
+import io.github.ncorror.nekoflash.artifact.VbmetaFlagsSource
 import io.github.ncorror.nekoflash.core.artifact.ArtifactSink
 import io.github.ncorror.nekoflash.core.artifact.ArtifactSource
 
@@ -16,10 +18,10 @@ import io.github.ncorror.nekoflash.core.artifact.ArtifactSource
  */
 interface DesktopCommandTargets {
     fun fastbootCommand(command: String)
-    fun fastbootPlan(commands: List<String>)
+    fun fastbootPlan(commands: List<String>, slot: String?)
     fun fastbootVariable(name: String)
     fun fastbootAllVariables()
-    fun fastbootDownloadThen(then: List<String>, origin: () -> ArtifactSource)
+    fun fastbootDownloadThen(then: List<String>, slot: String?, origin: () -> ArtifactSource)
     fun fastbootFetch(partition: String, destination: () -> ArtifactSink)
     fun adbShell(command: String)
     fun adbInteractiveShell(firstLine: String?)
@@ -28,16 +30,20 @@ interface DesktopCommandTargets {
     fun adbPull(remotePath: String, destination: () -> ArtifactSink)
     fun adbPush(remotePath: String, origin: () -> ArtifactSource)
     fun adbSideload(origin: () -> ArtifactSource)
+    fun adbInstall(origins: List<() -> ArtifactSource>, options: List<String>, several: Boolean)
 }
 
 /** Файл, выбранный через Android для шага плана. */
 sealed interface PickedFile {
     data class Open(val origin: () -> ArtifactSource) : PickedFile
+    data class OpenMany(val origins: List<() -> ArtifactSource>) : PickedFile
     data class Create(val destination: () -> ArtifactSink) : PickedFile
 }
 
 /** Где искать исход: у Fastboot-консоли или у соответствующей части ADB. */
-enum class DesktopCommandArea { FASTBOOT, ADB_SHELL, ADB_TERMINAL, ADB_SERVICE, ADB_REBOOT, ADB_FILES, ADB_SIDELOAD }
+enum class DesktopCommandArea {
+    FASTBOOT, ADB_SHELL, ADB_TERMINAL, ADB_SERVICE, ADB_REBOOT, ADB_FILES, ADB_SIDELOAD, ADB_INSTALL,
+}
 
 /** Чем кончилась попытка отдать план движкам. */
 sealed interface DesktopCommandStart {
@@ -45,6 +51,9 @@ sealed interface DesktopCommandStart {
 
     /** Плану нужен файл, а выбран другой или никакой: ничего не отправлено. */
     data object FileMissing : DesktopCommandStart
+
+    /** Команда называет [expected] файлов, а выбрано [picked]: ничего не отправлено. */
+    data class FileCount(val expected: Int, val picked: Int) : DesktopCommandStart
 }
 
 /**
@@ -57,29 +66,52 @@ sealed interface DesktopCommandStart {
  */
 class DesktopCommandExecutor(private val targets: DesktopCommandTargets) {
     fun execute(plan: TerminalPlan, file: PickedFile?): DesktopCommandStart {
-        val need = plan.fileStep?.fileNeed ?: TerminalFileNeed.NONE
-        val matches = when (need) {
-            TerminalFileNeed.NONE -> true
-            TerminalFileNeed.OPEN -> file is PickedFile.Open
-            TerminalFileNeed.CREATE -> file is PickedFile.Create
-        }
-        if (!matches) return DesktopCommandStart.FileMissing
         val first = plan.steps.first()
-        return DesktopCommandStart.Started(
+        return fileProblem(plan, file) ?: DesktopCommandStart.Started(
             if (first.isFastboot()) fastboot(plan.steps, file) else adb(first, file),
         )
     }
 
+    /** Подходит ли выбор плану; `null` — подходит. */
+    private fun fileProblem(plan: TerminalPlan, file: PickedFile?): DesktopCommandStart? {
+        val matches = when (plan.fileStep?.fileNeed ?: TerminalFileNeed.NONE) {
+            TerminalFileNeed.NONE -> true
+            TerminalFileNeed.OPEN -> file is PickedFile.Open
+            TerminalFileNeed.OPEN_MANY -> file is PickedFile.OpenMany
+            TerminalFileNeed.CREATE -> file is PickedFile.Create
+        }
+        val named = (plan.fileStep as? TerminalPlanStep.AdbInstall)?.names?.size
+        val picked = (file as? PickedFile.OpenMany)?.origins?.size
+        return when {
+            !matches -> DesktopCommandStart.FileMissing
+            named != null && picked != null && named != picked -> DesktopCommandStart.FileCount(named, picked)
+            else -> null
+        }
+    }
+
     private fun fastboot(steps: List<TerminalPlanStep>, file: PickedFile?): DesktopCommandArea {
         val wires = steps.filterIsInstance<TerminalPlanStep.FastbootWire>().map { it.command }
+        // `--slot` уточняется на устройстве, одним планом с командами.
+        val slot = steps.firstNotNullOfOrNull { step ->
+            (step as? TerminalPlanStep.FastbootWire)?.slot ?: (step as? TerminalPlanStep.FastbootFlashImage)?.slot
+        }
         when (val first = steps.first()) {
-            is TerminalPlanStep.FastbootFlashImage ->
-                targets.fastbootDownloadThen(listOf("flash:${first.partition}") + wires, file.open())
-            is TerminalPlanStep.FastbootBootImage -> targets.fastbootDownloadThen(listOf("boot") + wires, file.open())
+            is TerminalPlanStep.FastbootFlashImage -> targets.fastbootDownloadThen(
+                listOf("flash:${first.partition}") + wires,
+                slot,
+                file.open().withVbmetaFlags(first.vbmetaFlags),
+            )
+            is TerminalPlanStep.FastbootBootImage ->
+                targets.fastbootDownloadThen(listOf("boot") + wires, null, file.open())
             is TerminalPlanStep.FastbootFetch -> targets.fastbootFetch(first.partition, file.create())
             is TerminalPlanStep.FastbootGetvar -> targets.fastbootVariable(first.variable)
             TerminalPlanStep.FastbootGetvarAll -> targets.fastbootAllVariables()
-            else -> if (wires.size == 1) targets.fastbootCommand(wires.single()) else targets.fastbootPlan(wires)
+            // «Другой» слот уточняется на устройстве — это тоже план.
+            else -> if (wires.size == 1 && slot == null && wires.single() != SET_ACTIVE_OTHER) {
+                targets.fastbootCommand(wires.single())
+            } else {
+                targets.fastbootPlan(wires, slot)
+            }
         }
         return DesktopCommandArea.FASTBOOT
     }
@@ -95,6 +127,10 @@ class DesktopCommandExecutor(private val targets: DesktopCommandTargets) {
         is TerminalPlanStep.AdbPush ->
             DesktopCommandArea.ADB_FILES.also { targets.adbPush(step.remotePath, file.open()) }
         is TerminalPlanStep.AdbSideload -> DesktopCommandArea.ADB_SIDELOAD.also { targets.adbSideload(file.open()) }
+        is TerminalPlanStep.AdbInstall -> DesktopCommandArea.ADB_INSTALL.also {
+            val origins = (file as? PickedFile.OpenMany)?.origins ?: listOf(file.open())
+            targets.adbInstall(origins, step.options, step.several)
+        }
         else -> error("Fastboot step in an ADB plan: $step")
     }
 }
@@ -113,5 +149,9 @@ fun TerminalPlanStep.isFastboot(): Boolean = when (this) {
 }
 
 private fun PickedFile?.open(): () -> ArtifactSource = (this as PickedFile.Open).origin
+
+/** Источник с правленым заголовком vbmeta, если флаги заданы. */
+private fun (() -> ArtifactSource).withVbmetaFlags(flags: Int): () -> ArtifactSource =
+    if (flags == 0) this else ({ VbmetaFlagsSource(this(), flags) })
 
 private fun PickedFile?.create(): () -> ArtifactSink = (this as PickedFile.Create).destination

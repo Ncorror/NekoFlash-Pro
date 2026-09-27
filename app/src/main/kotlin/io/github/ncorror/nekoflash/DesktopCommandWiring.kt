@@ -1,5 +1,7 @@
 package io.github.ncorror.nekoflash
 
+import android.content.ContentResolver
+import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
@@ -40,39 +42,23 @@ internal fun desktopCommandPanel(
     fastbootLink: FastbootLinkController,
 ): DesktopCommandPanel {
     val context = LocalContext.current
-    val resolver = context.contentResolver
     val executor = remember(adbLink, fastbootLink) {
         DesktopCommandExecutor(ControllerCommandTargets(adbLink, fastbootLink, context.cacheDir))
     }
-    var pending by remember { mutableStateOf<TerminalPlan?>(null) }
     var area by remember { mutableStateOf<DesktopCommandArea?>(null) }
-    var fileMissing by remember { mutableStateOf(false) }
+    var fileProblem by remember { mutableStateOf<DesktopCommandStart?>(null) }
 
     fun run(plan: TerminalPlan, file: PickedFile?) {
-        when (val started = executor.execute(plan, file)) {
-            is DesktopCommandStart.Started -> {
-                area = started.area
-                fileMissing = false
-            }
-            DesktopCommandStart.FileMissing -> fileMissing = true
+        val started = executor.execute(plan, file)
+        if (started is DesktopCommandStart.Started) {
+            area = started.area
+            fileProblem = null
+        } else {
+            fileProblem = started
         }
     }
 
-    val openLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { chosen ->
-        val plan = pending
-        pending = null
-        if (plan != null) run(plan, chosen?.let { uri -> PickedFile.Open { SafArtifactSource(resolver, uri) } })
-    }
-    val createLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.CreateDocument("application/octet-stream"),
-    ) { destination ->
-        val plan = pending
-        pending = null
-        val name = plan?.fileStep?.let(::suggestedName) ?: DEFAULT_NAME
-        if (plan != null) {
-            run(plan, destination?.let { uri -> PickedFile.Create { SafArtifactSink(resolver, uri, name) } })
-        }
-    }
+    val onRun = rememberFilePickers(::run)
 
     val fastbootState by fastbootLink.state.collectAsState()
     val link = fastbootState as? FastbootLinkState.Connected
@@ -81,25 +67,13 @@ internal fun desktopCommandPanel(
         // устройства в загрузчике ADB нет, а в Android нет Fastboot.
         defaultTool = if (link != null) TerminalParser.Tool.FASTBOOT else TerminalParser.Tool.ADB,
         lock = link?.lock,
-        onRun = { plan ->
-            when (plan.fileStep?.fileNeed ?: TerminalFileNeed.NONE) {
-                TerminalFileNeed.NONE -> run(plan, null)
-                TerminalFileNeed.OPEN -> {
-                    pending = plan
-                    openLauncher.launch(arrayOf("*/*"))
-                }
-                TerminalFileNeed.CREATE -> {
-                    pending = plan
-                    createLauncher.launch(plan.fileStep?.let(::suggestedName) ?: DEFAULT_NAME)
-                }
-            }
-        },
+        onRun = onRun,
         onEdit = {
             area = null
-            fileMissing = false
+            fileProblem = null
         },
         area = area,
-        fileMissing = fileMissing,
+        fileProblem = fileProblem,
         outcomes = DesktopCommandOutcomes(
             fastboot = fastbootLink.console.collectAsState().value,
             shell = adbLink.command.collectAsState().value,
@@ -107,9 +81,54 @@ internal fun desktopCommandPanel(
             reboot = adbLink.reboot.collectAsState().value,
             files = adbLink.files.collectAsState().value,
             sideload = adbLink.sideload.collectAsState().value,
+            install = adbLink.install.collectAsState().value,
         ),
     )
 }
+
+/**
+ * Системные диалоги выбора файла для плана.
+ *
+ * Возвращает вход «исполнить план»: без файла план уходит сразу, с файлом —
+ * после диалога, и исполняется тот же план, что был показан.
+ */
+@Composable
+private fun rememberFilePickers(run: (TerminalPlan, PickedFile?) -> Unit): (TerminalPlan) -> Unit {
+    val resolver = LocalContext.current.contentResolver
+    var pending by remember { mutableStateOf<TerminalPlan?>(null) }
+    fun take(): TerminalPlan? = pending.also { pending = null }
+
+    val open = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { chosen ->
+        take()?.let { plan -> run(plan, opened(resolver, chosen)) }
+    }
+    val openMany = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { chosen ->
+        val origins = chosen.map { uri -> { SafArtifactSource(resolver, uri) } }
+        take()?.let { plan -> run(plan, origins.takeIf { it.isNotEmpty() }?.let(PickedFile::OpenMany)) }
+    }
+    val create = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/octet-stream"),
+    ) { destination ->
+        take()?.let { plan -> run(plan, created(resolver, destination, suggestedName(plan))) }
+    }
+    return { plan ->
+        when (plan.fileStep?.fileNeed ?: TerminalFileNeed.NONE) {
+            TerminalFileNeed.NONE -> run(plan, null)
+            TerminalFileNeed.OPEN -> open.launch(ANY).also { pending = plan }
+            TerminalFileNeed.OPEN_MANY -> openMany.launch(ANY).also { pending = plan }
+            TerminalFileNeed.CREATE -> create.launch(suggestedName(plan)).also { pending = plan }
+        }
+    }
+}
+
+private val ANY = arrayOf("*/*")
+
+private fun opened(resolver: ContentResolver, uri: Uri?): PickedFile? =
+    uri?.let { PickedFile.Open { SafArtifactSource(resolver, it) } }
+
+private fun created(resolver: ContentResolver, uri: Uri?, name: String): PickedFile? =
+    uri?.let { PickedFile.Create { SafArtifactSink(resolver, it, name) } }
+
+private fun suggestedName(plan: TerminalPlan): String = plan.fileStep?.let(::suggestedName) ?: DEFAULT_NAME
 
 /** Имя, которое предлагается в диалоге сохранения: из самой команды. */
 private fun suggestedName(step: TerminalPlanStep): String = when (step) {

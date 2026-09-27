@@ -18,11 +18,11 @@ internal class ControllerCommandTargets(
     private val stagingDirectory: File,
 ) : DesktopCommandTargets {
     override fun fastbootCommand(command: String) = fastboot.runCommand(command)
-    override fun fastbootPlan(commands: List<String>) = fastboot.runPlan(commands)
+    override fun fastbootPlan(commands: List<String>, slot: String?) = fastboot.runPlan(commands, slot)
     override fun fastbootVariable(name: String) = fastboot.readVariable(name)
     override fun fastbootAllVariables() = fastboot.readAllVariables()
-    override fun fastbootDownloadThen(then: List<String>, origin: () -> ArtifactSource) =
-        fastboot.downloadFrom(then, origin)
+    override fun fastbootDownloadThen(then: List<String>, slot: String?, origin: () -> ArtifactSource) =
+        fastboot.downloadFrom(then, slot, origin)
     override fun fastbootFetch(partition: String, destination: () -> ArtifactSink) =
         fastboot.fetchPartitionTo(partition, destination)
     override fun adbShell(command: String) = adb.runCommand(command)
@@ -33,4 +33,6 @@ internal class ControllerCommandTargets(
         adb.storage.readTo(remotePath, destination)
     override fun adbPush(remotePath: String, origin: () -> ArtifactSource) = adb.storage.writeFrom(remotePath, origin)
     override fun adbSideload(origin: () -> ArtifactSource) = adb.recovery.sideloadFrom(stagingDirectory, origin)
+    override fun adbInstall(origins: List<() -> ArtifactSource>, options: List<String>, several: Boolean) =
+        adb.packages.install(origins, options, several)
 }

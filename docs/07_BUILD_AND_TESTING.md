@@ -106,25 +106,22 @@ cd NekoFlash-Pro
 
 Минимальная матрица, которую постепенно покрываем: ADB в Android и Recovery; несколько потоков; `shell,v2` и откат; push/pull большого файла; install; загрузчик и fastbootd; DATA OUT большого образа; DATA IN; отключение во время чтения; отключение до и после границы мутации; Sideload с повторными запросами и переподключением; безопасные этапы Mi Unlock отдельно от разрушающих.
 
-### План общей проверки этапа 3
+### План проверки этапа 3, часть 2
 
-Критерии записаны до прогона. Цель — POCO X3 Pro `vayu` с разблокированным загрузчиком, хост Xiaomi `25053PC47G`. APK — артефакт `NekoFlash-Pro-debug-<номер>` последнего зелёного запуска CI на PR, ставится поверх. Все команды вводятся во вкладке «Терминал» в поле «Команда adb или fastboot»; перед «Выполнить» Preview показывает шаги.
+Критерии записаны до прогона. Цель — POCO X3 Pro `vayu` (без слотов A/B), хост Xiaomi `25053PC47G`, APK `0.32.0-dev` из CI поверх. Команды — в поле «Команда adb или fastboot» во вкладке «Терминал». Для установки нужен файл APK, чьё имя пакета известно: подходит сам APK NekoFlash Pro из артефакта CI (`com.ncorror.nekoflash.pro`) — на `vayu` он ставится как обычное приложение.
 
 | Шаг | Действие | Пройдено, если | Провал, если |
 | --- | --- | --- | --- |
-| A | `vayu` в Android, ADB подключён. `adb shell getprop ro.product.device` | Preview: «adb: shell getprop ro.product.device»; ответ `vayu`, код выхода 0 | другой шаг в Preview или нет ответа |
-| B | `adb getprop ro.product.device` | «Пока не реализовано: adb getprop. Ничего не отправлено.»; кнопки «Выполнить» нет | команда ушла как `shell` |
-| C | `adb logcat -s ActivityManager`; 60 с не трогать; «Ctrl+C» | открывается оболочка, вывод идёт в окне, Ctrl+C возвращает приглашение | оболочка закрылась сама — тогда ZIP с `waitedMs` (пункт этапа 3 про обрыв `logcat`) |
-| D | `adb push test.txt /sdcard/Download/` → выбрать любой небольшой файл; затем `adb pull /sdcard/Download/<имя>` → выбрать, куда сохранить | запись и чтение завершены, число байт совпадает, SHA-256 прочитанного показан | байты не совпали или ошибка без причины |
-| E | `adb reboot bootloader` | `vayu` в Fastboot, новая сессия; «Спросить устройство, кто оно» → «Загрузчик» | приложение держит старую сессию |
-| F | `getvar product` (без префикса: связь Fastboot есть); затем `fastboot getvar all` | `getvar:product → OKAY: vayu`; список из ~221 переменной в окне | `FAIL` на `product` |
-| G | `fastboot oem device-info` | показан ответ устройства (`OKAY` или `FAIL` с текстом — это его слово), полоса `IDLE` | ответ не показан или полоса потеряна |
-| H | `fastboot --slot a flash boot boot.img` | «Пока не реализовано: fastboot --slot. Ничего не отправлено.» | что-то ушло устройству |
-| I (по желанию) | `fastboot boot <образ recovery>` с образом TWRP/OrangeFox для `vayu`, который владелец проверил сам → выбрать файл | Preview: «download выбранного файла, затем boot»; план: ✓ `download:…`, ✓ `boot`; `vayu` загружается во временный recovery, разделы не меняются | загрузка не принята целиком, а `boot` всё равно ушёл |
-| J | `fastboot reboot` (из загрузчика или после I — `adb reboot`) | `vayu` в Android, ADB «Подключено» без диалога отладки | снова диалог отладки |
-| K | «Диагностика» → «Выгрузить диагностику» | ZIP без серийного номера и Android ID хоста | в ZIP есть серийный номер |
+| A | `adb install -r NekoFlash-Pro.apk` → выбрать APK | «Установлено: файлов 1, … байт. Устройство ответило: Success»; на `vayu` появилось «NekoFlash Pro» | нет `Success` без причины от `package` |
+| B | `adb uninstall com.ncorror.nekoflash.pro` | ответ `Success`, приложение пропало с `vayu` | другой ответ |
+| C | `adb install-multiple NekoFlash-Pro.apk` → выбрать тот же APK; затем снова B | «Установлено: файлов 1» через сессию (в ZIP — `install-create`, `install-write`, `install-commit`); удаление — `Success` | `install-abandon` без названной причины |
+| D | `adb shell -x id` | вывод `uid=2000(shell) …` | «не реализовано» или пусто |
+| E | `adb reboot bootloader`; «Спросить устройство, кто оно» | «Загрузчик» | — |
+| F | `fastboot --slot other erase cache`; затем `fastboot --set-active` | оба: план остановлен до первой команды, «--slot other: current-slot is …» — у `vayu` слотов нет, и ничего не отправлено | ушёл `erase` или `set_active` |
+| G (по желанию) | `fastboot --disable-verity --disable-verification flash vbmeta vbmeta.img` с `vbmeta.img` **текущей прошивки**, который владелец проверил сам | Preview называет флаги; план: ✓ `download:…`, ✓ `flash:vbmeta`; телефон загружается | `download` ушёл, хотя файл не AVB |
+| H | `fastboot reboot`; «Диагностика» → «Выгрузить диагностику» | `vayu` в Android; ZIP без серийного номера | — |
 
-Шаг I не пишет разделы, но загружает чужой образ: только с образом, который владелец проверил сам. Прислать: ZIP из шага K, скриншоты шагов A, B, C, D, F, H и I, если был.
+Шаг G меняет раздел `vbmeta`: только с образом от установленной прошивки. Прислать: ZIP из шага H, скриншоты шагов A, C, D, F и G, если был.
 
 ## Тестовые устройства
 

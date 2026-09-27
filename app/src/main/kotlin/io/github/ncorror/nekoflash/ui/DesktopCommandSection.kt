@@ -31,10 +31,12 @@ import com.ncorror.nekoflash.pro.engine.writesPartition
 import io.github.ncorror.nekoflash.R
 import io.github.ncorror.nekoflash.adb.AdbCommandState
 import io.github.ncorror.nekoflash.adb.AdbFileState
+import io.github.ncorror.nekoflash.adb.AdbInstallState
 import io.github.ncorror.nekoflash.adb.AdbRawServiceState
 import io.github.ncorror.nekoflash.adb.AdbRebootState
 import io.github.ncorror.nekoflash.adb.AdbSideloadState
 import io.github.ncorror.nekoflash.command.DesktopCommandArea
+import io.github.ncorror.nekoflash.command.DesktopCommandStart
 import io.github.ncorror.nekoflash.fastboot.FastbootConsoleState
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootLockStatus
 
@@ -62,8 +64,8 @@ data class DesktopCommandPanel(
     val onEdit: () -> Unit = {},
     /** Где искать исход последней команды. */
     val area: DesktopCommandArea? = null,
-    /** Плану был нужен файл, а его не выбрали: ничего не отправлено. */
-    val fileMissing: Boolean = false,
+    /** Выбор файла не подошёл плану: ничего не отправлено. */
+    val fileProblem: DesktopCommandStart? = null,
     val outcomes: DesktopCommandOutcomes = DesktopCommandOutcomes(),
 )
 
@@ -75,6 +77,7 @@ data class DesktopCommandOutcomes(
     val reboot: AdbRebootState = AdbRebootState.None,
     val files: AdbFileState = AdbFileState.None,
     val sideload: AdbSideloadState = AdbSideloadState.None,
+    val install: AdbInstallState = AdbInstallState.None,
 )
 
 @Composable
@@ -106,7 +109,12 @@ internal fun DesktopCommandSection(panel: DesktopCommandPanel) {
                 CommandLine(stringResource(R.string.command_not_implemented, result.what))
             is TerminalPlanResult.Ready -> PlanPreview(result.plan, panel)
         }
-        if (panel.fileMissing) CommandLine(stringResource(R.string.command_file_missing))
+        when (val problem = panel.fileProblem) {
+            is DesktopCommandStart.FileCount ->
+                CommandLine(stringResource(R.string.command_file_count, problem.expected, problem.picked))
+            null, is DesktopCommandStart.Started -> Unit
+            DesktopCommandStart.FileMissing -> CommandLine(stringResource(R.string.command_file_missing))
+        }
         CommandOutcome(panel.area, panel.outcomes)
         Text(text = stringResource(R.string.command_note), style = MaterialTheme.typography.bodySmall)
     }
@@ -169,6 +177,7 @@ private fun PlanPreview(plan: TerminalPlan, panel: DesktopCommandPanel) {
                 when (picks) {
                     TerminalFileNeed.NONE -> R.string.command_run
                     TerminalFileNeed.OPEN -> R.string.command_run_open
+                    TerminalFileNeed.OPEN_MANY -> R.string.command_run_open_many
                     TerminalFileNeed.CREATE -> R.string.command_run_create
                 },
             ),
@@ -176,8 +185,28 @@ private fun PlanPreview(plan: TerminalPlan, panel: DesktopCommandPanel) {
     }
 }
 
+/** Шаг и, если задан `--slot`, пометка, что имя уточнит устройство. */
 @Composable
-private fun stepText(step: TerminalPlanStep): String = when (step) {
+private fun stepText(step: TerminalPlanStep): String {
+    val slot = (step as? TerminalPlanStep.FastbootWire)?.slot ?: (step as? TerminalPlanStep.FastbootFlashImage)?.slot
+    val flags = (step as? TerminalPlanStep.FastbootFlashImage)?.vbmetaFlags ?: 0
+    val base = baseStepText(step)
+    val text = if (flags == 0) {
+        base
+    } else {
+        stringResource(R.string.command_step_vbmeta_flags, base, vbmetaFlagNames(flags))
+    }
+    return if (slot == null) text else stringResource(R.string.command_step_slot, text, slot)
+}
+
+/** Флаги так, как их пишет настольный `fastboot`. */
+private fun vbmetaFlagNames(flags: Int): String = listOfNotNull(
+    "--disable-verity".takeIf { flags and 1 != 0 },
+    "--disable-verification".takeIf { flags and 2 != 0 },
+).joinToString(" ")
+
+@Composable
+private fun baseStepText(step: TerminalPlanStep): String = when (step) {
     is TerminalPlanStep.FastbootWire -> stringResource(R.string.command_step_fastboot_wire, step.command)
     is TerminalPlanStep.FastbootGetvar -> stringResource(R.string.command_step_fastboot_getvar, step.variable)
     TerminalPlanStep.FastbootGetvarAll -> stringResource(R.string.command_step_fastboot_getvar_all)
@@ -195,6 +224,11 @@ private fun stepText(step: TerminalPlanStep): String = when (step) {
     is TerminalPlanStep.AdbPull -> stringResource(R.string.command_step_adb_pull, step.remotePath, step.localName)
     is TerminalPlanStep.AdbPush -> stringResource(R.string.command_step_adb_push, step.localName, step.remotePath)
     is TerminalPlanStep.AdbSideload -> stringResource(R.string.command_step_adb_sideload, step.archiveName)
+    is TerminalPlanStep.AdbInstall -> stringResource(
+        if (step.several) R.string.command_step_adb_install_multiple else R.string.command_step_adb_install,
+        step.names.joinToString(", "),
+        step.options.joinToString(" ").ifEmpty { "—" },
+    )
 }
 
 /** Исход — в той части, которой коснулась команда, тем же текстом, что и у кнопок. */
@@ -208,7 +242,23 @@ private fun CommandOutcome(area: DesktopCommandArea?, outcomes: DesktopCommandOu
         DesktopCommandArea.ADB_REBOOT -> CommandLine(rebootText(outcomes.reboot))
         DesktopCommandArea.ADB_FILES -> CommandLine(fileStateText(outcomes.files))
         DesktopCommandArea.ADB_SIDELOAD -> CommandLine(sideloadText(outcomes.sideload))
+        DesktopCommandArea.ADB_INSTALL -> CommandLine(installText(outcomes.install))
     }
+}
+
+/** Исход установки: ответ `package` как есть, байты — отдельно. */
+@Composable
+private fun installText(state: AdbInstallState): String = when (state) {
+    AdbInstallState.None -> ""
+    is AdbInstallState.Running ->
+        stringResource(R.string.install_running, state.stage, state.sentBytes, state.totalBytes)
+    is AdbInstallState.Finished -> stringResource(
+        if (state.success) R.string.install_success else R.string.install_refused,
+        state.files,
+        state.bytes,
+        state.answer,
+    )
+    is AdbInstallState.Failed -> stringResource(R.string.install_failed, state.detail)
 }
 
 @Composable

@@ -218,10 +218,16 @@ public class FastbootLinkController(
      * останавливается на первом непринятом шаге, чтобы не складывать
      * неизвестность с неизвестностью.
      */
-    public fun runPlan(commands: List<String>) {
+    public fun runPlan(commands: List<String>, slot: String? = null) {
         busy("fastboot_plan", commands.joinToString(" ; ")) { lane, _ ->
-            val outcome = FastbootPlan(commands).run(FastbootMutation(lane, FastbootGetVar(lane)))
-            planned(commands, outcome, lane.state)
+            when (val resolved = slotCommands(commands, slot, lane)) {
+                is SlotResolution.Failed -> notResolved(commands, resolved, lane.state)
+                is SlotResolution.Resolved -> planned(
+                    resolved.commands,
+                    FastbootPlan(resolved.commands).run(FastbootMutation(lane, FastbootGetVar(lane))),
+                    lane.state,
+                )
+            }
         }
     }
 
@@ -297,12 +303,22 @@ public class FastbootLinkController(
      * Команды идут, только если устройство приняло **весь** объём ответом
      * `OKAY`: из недогруженного буфера не прошивают.
      */
-    public fun downloadFrom(then: List<String> = emptyList(), origin: () -> ArtifactSource) {
+    public fun downloadFrom(
+        then: List<String> = emptyList(),
+        slot: String? = null,
+        origin: () -> ArtifactSource,
+    ) {
         val label = (listOf("выбранный файл") + then).joinToString(" ; ")
         busy("fastboot_download_file", label) { lane, _ ->
+            // Имена уточняются до первого байта: грузить файл под команду,
+            // которую не уточнить, незачем.
+            val resolved = slotCommands(then, slot, lane)
+            val commands = (resolved as? SlotResolution.Resolved)?.commands.orEmpty()
             val source = origin()
             val size = source.identity.sizeBytes
-            if (size == null) {
+            if (resolved is SlotResolution.Failed) {
+                notResolved(then, resolved, lane.state)
+            } else if (size == null) {
                 FastbootConsoleState.NotAnswered(
                     command = "download:",
                     detail = "провайдер не сообщает размер файла, " +
@@ -314,10 +330,10 @@ public class FastbootLinkController(
                 val complete = outcome is FastbootDownloadOutcome.Answered &&
                     outcome.reply == FastbootReply.OKAY && outcome.bytesSent == size
                 when {
-                    then.isEmpty() -> downloaded(size, outcome, lane.state)
-                    complete -> downloadedThen(size, then, lane)
+                    commands.isEmpty() -> downloaded(size, outcome, lane.state)
+                    complete -> downloadedThen(size, commands, lane)
                     else -> FastbootConsoleState.Planned(
-                        commands = listOf(downloadStep(size)) + then,
+                        commands = listOf(downloadStep(size)) + commands,
                         applied = 0,
                         stoppedAt = 0,
                         detail = describeDownload(outcome),

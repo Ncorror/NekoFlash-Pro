@@ -9,7 +9,7 @@ package com.ncorror.nekoflash.pro.engine
  */
 sealed interface TerminalPlanStep {
     /** Fastboot-команда как есть — тем же входом, что и поле произвольной команды. */
-    data class FastbootWire(val command: String) : TerminalPlanStep
+    data class FastbootWire(val command: String, val slot: String? = null) : TerminalPlanStep
 
     /** Одна переменная по имени, любая: списка разрешённых имён нет. */
     data class FastbootGetvar(val variable: String) : TerminalPlanStep
@@ -18,7 +18,13 @@ sealed interface TerminalPlanStep {
     data object FastbootGetvarAll : TerminalPlanStep
 
     /** `download` выбранного файла и `flash:PARTITION` одной операцией. */
-    data class FastbootFlashImage(val partition: String, val imageName: String?) : TerminalPlanStep
+    data class FastbootFlashImage(
+        val partition: String,
+        val imageName: String?,
+        val slot: String? = null,
+        /** Биты `flags` заголовка vbmeta: `--disable-verity` = 1, `--disable-verification` = 2. */
+        val vbmetaFlags: Int = 0,
+    ) : TerminalPlanStep
 
     /** `download` выбранного файла и `boot`. */
     data class FastbootBootImage(val imageName: String) : TerminalPlanStep
@@ -49,10 +55,23 @@ sealed interface TerminalPlanStep {
 
     /** Sideload выбранного архива. */
     data class AdbSideload(val archiveName: String) : TerminalPlanStep
+
+    /**
+     * Установка пакетов: одиночная `install` или сессия `install-multiple`.
+     * [options] уходят `package` как есть — это его флаги, не наши.
+     */
+    data class AdbInstall(val names: List<String>, val options: List<String>, val several: Boolean) :
+        TerminalPlanStep
 }
 
+/**
+ * `set_active` на «другой» слот: противоположный `current-slot`, который
+ * уточняет исполнитель на устройстве до отправки.
+ */
+const val SET_ACTIVE_OTHER: String = "set_active:other"
+
 /** Какой файл нужен шагу и в какую сторону он идёт. */
-enum class TerminalFileNeed { NONE, OPEN, CREATE }
+enum class TerminalFileNeed { NONE, OPEN, OPEN_MANY, CREATE }
 
 /** Нужен ли шагу файл, выбранный через Android. */
 val TerminalPlanStep.fileNeed: TerminalFileNeed
@@ -66,6 +85,8 @@ val TerminalPlanStep.fileNeed: TerminalFileNeed
         is TerminalPlanStep.FastbootFetch,
         is TerminalPlanStep.AdbPull,
         -> TerminalFileNeed.CREATE
+
+        is TerminalPlanStep.AdbInstall -> if (several) TerminalFileNeed.OPEN_MANY else TerminalFileNeed.OPEN
 
         else -> TerminalFileNeed.NONE
     }

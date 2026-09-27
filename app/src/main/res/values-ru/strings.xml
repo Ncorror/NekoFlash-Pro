@@ -356,4 +356,14 @@
     <string name="command_step_adb_push">adb: выбранный файл (%1$s) в %2$s</string>
     <string name="command_step_adb_sideload">adb: sideload выбранного архива (%1$s)</string>
     <string name="command_note">Исполняют те же движки, что у кнопок и сырой консоли. Путь из команды напрямую не открывается: файл выбирается через Android и привязывается к показанному плану. Команда или опция без исполнителя отвечает «не реализовано» до отправки, а не превращается в другую команду.</string>
+    <string name="command_file_count">Команда называет файлов: %1$d, выбрано: %2$d. Ничего не отправлено.</string>
+    <string name="command_run_open_many">Выбрать файлы и выполнить</string>
+    <string name="command_step_adb_install">adb: установка выбранного пакета (%1$s), флаги package: %2$s</string>
+    <string name="command_step_adb_install_multiple">adb: сессия установки выбранных пакетов (%1$s), флаги package: %2$s</string>
+    <string name="install_running">Установка: %1$s, отправлено %2$d из %3$d байт</string>
+    <string name="install_success">Установлено: файлов %1$d, %2$d байт. Устройство ответило: %3$s</string>
+    <string name="install_refused">Не установлено: файлов %1$d, отправлено %2$d байт. Устройство ответило: %3$s</string>
+    <string name="install_failed">Установка не дошла до ответа устройства: %1$s</string>
+    <string name="command_step_slot">%1$s — слот %2$s: суффикс получит только раздел, у которого has-slot отвечает yes</string>
+    <string name="command_step_vbmeta_flags">%1$s; в заголовке vbmeta до первого байта выставляется %2$s</string>
 </resources>

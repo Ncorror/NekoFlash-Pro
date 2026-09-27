@@ -133,6 +133,8 @@ public class AdbLinkController(
      */
     private val sideloads = AdbSideloadController(executor, diagnostics, operations, holdProcess)
 
+    private val installs = AdbInstallController(executor, diagnostics)
+
     /**
      * Владелец пробросов портов.
      *
@@ -187,6 +189,9 @@ public class AdbLinkController(
 
     /** Состояние передачи пакета в Recovery. */
     public val sideload: StateFlow<AdbSideloadState> = sideloads.state
+
+    /** Состояние установки пакетов. */
+    public val install: StateFlow<AdbInstallState> = installs.state
 
     /** Состояние последнего запроса перезагрузки. */
     public val reboot: StateFlow<AdbRebootState> = reboots.state
@@ -290,6 +295,18 @@ public class AdbLinkController(
      * (`15` §4.1).
      */
     public val storage: StorageActions = StorageActions()
+
+    /** Установка пакетов — `adb install` и `adb install-multiple`. */
+    public val packages: PackageActions = PackageActions()
+
+    /** Установка пакетов: одна грань, чтобы не раздувать сам контроллер. */
+    public inner class PackageActions internal constructor() {
+        /** Устанавливает выбранные файлы; [several] — сессией, как `install-multiple`. */
+        public fun install(origins: List<() -> ArtifactSource>, options: List<String>, several: Boolean) {
+            val live = connection ?: return
+            installs.install(live, origins, options, several)
+        }
+    }
 
     /** Проверка пути, чтение, запись — и то же самое через выбор файла. */
     public inner class StorageActions internal constructor() {

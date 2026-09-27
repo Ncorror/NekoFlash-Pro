@@ -84,13 +84,36 @@ class DesktopCommandExecutorTest {
         )
     }
 
+    @Test
+    fun installBindsEveryNamedFileToOnePick() {
+        val two = PickedFile.OpenMany(listOf({ error("x") }, { error("y") }))
+        assertEquals(
+            DesktopCommandStart.FileCount(expected = 3, picked = 2),
+            executor.execute(plan("adb install-multiple a.apk b.apk c.apk"), two),
+        )
+        executor.execute(plan("adb install-multiple -rg base.apk split.apk"), two)
+        executor.execute(plan("adb install -r app.apk"), picked)
+
+        assertEquals(listOf("install 2 -r,-g true", "install 1 -r false"), calls)
+    }
+
+    @Test
+    fun slotTravelsWithTheCommandsItNames() {
+        executor.execute(plan("fastboot --slot other flash boot boot.img"), picked)
+        executor.execute(plan("fastboot --slot all erase cache"), null)
+
+        assertEquals(listOf("downloadThen flash:boot slot=other", "plan erase:cache slot=all"), calls)
+    }
+
     private class RecordingTargets(private val calls: MutableList<String>) : DesktopCommandTargets {
         override fun fastbootCommand(command: String) { calls += "command $command" }
-        override fun fastbootPlan(commands: List<String>) { calls += "plan ${commands.joinToString(",")}" }
+        override fun fastbootPlan(commands: List<String>, slot: String?) {
+            calls += "plan ${commands.joinToString(",")}" + (slot?.let { " slot=$it" } ?: "")
+        }
         override fun fastbootVariable(name: String) { calls += "getvar $name" }
         override fun fastbootAllVariables() { calls += "getvar all" }
-        override fun fastbootDownloadThen(then: List<String>, origin: () -> ArtifactSource) {
-            calls += "downloadThen ${then.joinToString(",")}"
+        override fun fastbootDownloadThen(then: List<String>, slot: String?, origin: () -> ArtifactSource) {
+            calls += "downloadThen ${then.joinToString(",")}" + (slot?.let { " slot=$it" } ?: "")
         }
         override fun fastbootFetch(partition: String, destination: () -> ArtifactSink) { calls += "fetch $partition" }
         override fun adbShell(command: String) { calls += "shell $command" }
@@ -100,5 +123,8 @@ class DesktopCommandExecutorTest {
         override fun adbPull(remotePath: String, destination: () -> ArtifactSink) { calls += "pull $remotePath" }
         override fun adbPush(remotePath: String, origin: () -> ArtifactSource) { calls += "push $remotePath" }
         override fun adbSideload(origin: () -> ArtifactSource) { calls += "sideload" }
+        override fun adbInstall(origins: List<() -> ArtifactSource>, options: List<String>, several: Boolean) {
+            calls += "install ${origins.size} ${options.joinToString(",")} $several"
+        }
     }
 }
