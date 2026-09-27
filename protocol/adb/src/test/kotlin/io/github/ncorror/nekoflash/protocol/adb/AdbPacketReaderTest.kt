@@ -35,6 +35,39 @@ class AdbPacketReaderTest {
     }
 
     /**
+     * Короткий отрезок ожидания относится к новому кадру, а не к нагрузке
+     * начатого: прогон этапа 2 терял рамку `logcat` на 250 мс отрезке.
+     */
+    @Test
+    fun payloadOfAStartedFrameGetsTheFullPatience() {
+        val payload = ByteArray(42_422) { (it % 251).toByte() }
+        val handle = handleWith(
+            completed(header(AdbCommand.WRTE, arg0 = 1, arg1 = 1, payload = payload)),
+            completed(payload),
+        )
+
+        val outcome = AdbPacketReader(handle, MAX_PAYLOAD).read(timeoutMillis = 250)
+
+        assertTrue(outcome is AdbReadOutcome.Received)
+        assertEquals(listOf(250, AdbPacketReader.PAYLOAD_TIMEOUT_MS), handle.receiveTimeouts)
+    }
+
+    /** Сорванная нагрузка называет терпение, с которым её ждали. */
+    @Test
+    fun failedPayloadNamesItsTimeout() {
+        val payload = ByteArray(96_390)
+        val handle = handleWith(
+            completed(header(AdbCommand.WRTE, arg0 = 1, arg1 = 1, payload = payload)),
+            FakeUsbTransportHandle.Transfer.Failed(UsbTransferFailure.NOT_COMPLETED),
+        )
+
+        val failure = AdbPacketReader(handle, MAX_PAYLOAD).read(timeoutMillis = 250) as AdbReadOutcome.Failed
+
+        assertEquals(AdbReadFailure.PAYLOAD_TRANSFER_FAILED, failure.reason)
+        assertEquals("expected=96390 timeoutMs=${AdbPacketReader.PAYLOAD_TIMEOUT_MS}", failure.detail)
+    }
+
+    /**
      * Тот самый доказанный на `vayu` отказ: устройство завершило передачу
      * короче объявленного. Дочитывать остаток нельзя, кадр потерян.
      */

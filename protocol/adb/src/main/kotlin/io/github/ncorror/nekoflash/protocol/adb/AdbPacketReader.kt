@@ -125,7 +125,12 @@ public class AdbPacketReader(
         val payload = if (header.payloadLength == 0) {
             PayloadOutcome.Ready(EMPTY_PAYLOAD)
         } else {
-            readPayload(header.payloadLength, timeoutMillis)
+            // Заголовок уже принят, значит кадр начат: короткий отрезок цикла
+            // раскладки нужен для ожидания **нового** кадра, а не для середины
+            // начатого. Прогон этапа 2 на `vayu`: `logcat` приносил кадры по
+            // 42–96 КиБ, нагрузка приходила позже 250 мс отрезка, и оболочка
+            // закрывалась с потерянной рамкой при живом кабеле.
+            readPayload(header.payloadLength, maxOf(timeoutMillis, PAYLOAD_TIMEOUT_MS))
         }
         return when (payload) {
             is PayloadOutcome.Other -> payload.result
@@ -233,7 +238,7 @@ public class AdbPacketReader(
                     UsbTransferFailure.NOT_HELD -> AdbReadOutcome.Closed
                     UsbTransferFailure.NOT_COMPLETED -> AdbReadOutcome.Failed(
                         AdbReadFailure.PAYLOAD_TRANSFER_FAILED,
-                        "expected=$length",
+                        "expected=$length timeoutMs=$timeoutMillis",
                     )
                 },
             )
@@ -253,6 +258,9 @@ public class AdbPacketReader(
     public companion object {
         /** Значение из A2 (`USB_READ_TIMEOUT_MS`). */
         public const val DEFAULT_RECEIVE_TIMEOUT_MS: Int = 5_000
+
+        /** Терпение на нагрузку начатого кадра, каким бы коротким ни был отрезок ожидания. */
+        public const val PAYLOAD_TIMEOUT_MS: Int = DEFAULT_RECEIVE_TIMEOUT_MS
 
         private val EMPTY_PAYLOAD = ByteArray(0)
     }
