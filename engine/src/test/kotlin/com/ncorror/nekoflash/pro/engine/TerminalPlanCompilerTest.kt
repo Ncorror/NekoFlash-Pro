@@ -24,8 +24,8 @@ class TerminalPlanCompilerTest {
         assertEquals(listOf(TerminalPlanStep.FastbootWire("oem unlock")), steps("fastboot oem unlock"))
         assertEquals(listOf(TerminalPlanStep.FastbootWire("reboot-bootloader")), steps("fastboot reboot bootloader"))
         assertEquals(listOf(TerminalPlanStep.FastbootWire("getvar:product")), steps("fastboot raw getvar:product"))
-        assertEquals(listOf(TerminalPlanStep.FastbootWire("erase:cache")), steps("fastboot erase cache"))
-        assertEquals(listOf(TerminalPlanStep.FastbootWire("set_active:b")), steps("fastboot set_active b"))
+        assertEquals(listOf(TerminalPlanStep.FastbootWire("erase:cache", CURRENT_SLOT)), steps("fastboot erase cache"))
+        assertEquals(listOf(TerminalPlanStep.FastbootWire("set_active:b", CURRENT_SLOT)), steps("fastboot set_active b"))
         assertEquals(listOf(TerminalPlanStep.FastbootWire("flashing unlock")), steps("fastboot flashing unlock"))
         // Неизвестный глагол — vendor-команда устройства (`04` §3, правило 3).
         assertEquals(listOf(TerminalPlanStep.FastbootWire("vendor-thing x")), steps("fastboot vendor-thing x"))
@@ -34,14 +34,14 @@ class TerminalPlanCompilerTest {
     @Test
     fun flashBindsOnePickedFileAndSetActiveFollowsIt() {
         val flash = steps("fastboot flash boot_a boot.img")
-        assertEquals(listOf(TerminalPlanStep.FastbootFlashImage("boot_a", "boot.img")), flash)
+        assertEquals(listOf(TerminalPlanStep.FastbootFlashImage("boot_a", "boot.img", CURRENT_SLOT)), flash)
         assertEquals(TerminalFileNeed.OPEN, flash.single().fileNeed)
         assertEquals(true, flash.single().writesPartition)
 
         assertEquals(
             listOf(
-                TerminalPlanStep.FastbootFlashImage("boot", "boot.img"),
-                TerminalPlanStep.FastbootWire("set_active:a"),
+                TerminalPlanStep.FastbootFlashImage("boot", "boot.img", CURRENT_SLOT),
+                TerminalPlanStep.FastbootWire("set_active:a", CURRENT_SLOT),
             ),
             steps("fastboot --set-active=a flash boot boot.img"),
         )
@@ -52,7 +52,7 @@ class TerminalPlanCompilerTest {
         for (command in listOf(
             "fastboot --force getvar product",
             "fastboot -w getvar version",
-            "fastboot --slot all flash boot boot.img",
+            "fastboot --slot all fetch boot boot.img",
             "fastboot --slot a getvar product",
             "fastboot --set-active=a getvar product",
             "fastboot -S 512M erase system",
@@ -109,19 +109,31 @@ class TerminalPlanCompilerTest {
         assertEquals(TerminalFileNeed.OPEN_MANY, steps("adb install-multiple a.apk").single().fileNeed)
     }
 
+    /** `fastboot.cpp`: без значения `--set-active` — слот из `--slot`, без него текущий. */
     @Test
-    fun setActiveWithoutASlotMeansTheOtherOne() {
+    fun setActiveWithoutASlotMeansTheSlotOptionOrTheCurrentOne() {
         assertEquals(
-            listOf(TerminalPlanStep.FastbootFlashImage("boot", "boot.img"), TerminalPlanStep.FastbootWire(SET_ACTIVE_OTHER)),
+            listOf(
+                TerminalPlanStep.FastbootFlashImage("boot", "boot.img", CURRENT_SLOT),
+                TerminalPlanStep.FastbootWire(SET_ACTIVE_DEFAULT, CURRENT_SLOT),
+            ),
             steps("fastboot --set-active flash boot boot.img"),
         )
-        assertEquals(listOf(TerminalPlanStep.FastbootWire(SET_ACTIVE_OTHER)), steps("fastboot --set-active"))
+        assertEquals(listOf(TerminalPlanStep.FastbootWire(SET_ACTIVE_DEFAULT, CURRENT_SLOT)), steps("fastboot --set-active"))
+        assertEquals(listOf(TerminalPlanStep.FastbootWire(SET_ACTIVE_DEFAULT, "b")), steps("fastboot --slot b --set-active"))
+        assertEquals(false, compiler.compile("fastboot set_active ''") is TerminalPlanResult.Ready)
+    }
+
+    @Test
+    fun rawAndOemGoWithoutASlot() {
+        assertEquals(listOf(TerminalPlanStep.FastbootWire("erase:cache")), steps("fastboot raw erase:cache"))
+        assertEquals(listOf(TerminalPlanStep.FastbootWire("oem device-info")), steps("fastboot oem device-info"))
     }
 
     @Test
     fun verityFlagsPatchTheVbmetaImageOnly() {
         assertEquals(
-            listOf(TerminalPlanStep.FastbootFlashImage("vbmeta", "vbmeta.img", vbmetaFlags = 3)),
+            listOf(TerminalPlanStep.FastbootFlashImage("vbmeta", "vbmeta.img", CURRENT_SLOT, vbmetaFlags = 3)),
             steps("fastboot --disable-verity --disable-verification flash vbmeta vbmeta.img"),
         )
         assertIs<TerminalPlanResult.NotImplemented>(compiler.compile("fastboot --disable-verity flash boot boot.img"))
@@ -129,10 +141,12 @@ class TerminalPlanCompilerTest {
 
     @Test
     fun sparseLimitRidesOnFlash() {
-        assertEquals(listOf(TerminalPlanStep.FastbootFlashImage("system", "system.img", sparseLimit = 512L shl 20)),
-            steps("fastboot -S 512M flash system system.img"))
+        assertEquals(
+            listOf(TerminalPlanStep.FastbootFlashImage("system", "system.img", CURRENT_SLOT, sparseLimit = 512L shl 20)),
+            steps("fastboot -S 512M flash system system.img"),
+        )
         // `-S 0` — как без `-S`: предел назовёт устройство.
-        assertEquals(listOf(TerminalPlanStep.FastbootFlashImage("system", "system.img")),
+        assertEquals(listOf(TerminalPlanStep.FastbootFlashImage("system", "system.img", CURRENT_SLOT)),
             steps("fastboot -S 0 flash system system.img"))
     }
 
@@ -141,6 +155,9 @@ class TerminalPlanCompilerTest {
         assertEquals(listOf(TerminalPlanStep.FastbootFlashImage("boot", "boot.img", "a")),
             steps("fastboot --slot a flash boot boot.img"))
         assertEquals(listOf(TerminalPlanStep.FastbootWire("erase:cache", "all")), steps("fastboot --slot=all erase cache"))
+        assertEquals(listOf(TerminalPlanStep.FastbootFlashImage("boot", "boot.img", "all")),
+            steps("fastboot --slot all flash boot boot.img"))
+        assertEquals(listOf(TerminalPlanStep.FastbootFetch("boot", "boot.img", "b")), steps("fastboot --slot b fetch boot boot.img"))
     }
 
     @Test

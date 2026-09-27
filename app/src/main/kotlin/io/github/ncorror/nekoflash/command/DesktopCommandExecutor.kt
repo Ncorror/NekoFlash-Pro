@@ -1,7 +1,6 @@
 package io.github.ncorror.nekoflash.command
 
 import com.ncorror.nekoflash.pro.engine.LocalReportKind
-import com.ncorror.nekoflash.pro.engine.SET_ACTIVE_OTHER
 import com.ncorror.nekoflash.pro.engine.ShellMode
 import com.ncorror.nekoflash.pro.engine.TerminalFileNeed
 import com.ncorror.nekoflash.pro.engine.TerminalParser
@@ -25,7 +24,7 @@ interface DesktopCommandTargets {
     fun fastbootVariable(name: String)
     fun fastbootAllVariables()
     fun fastbootDownloadThen(then: List<String>, slot: String?, sparseLimit: Long?, origin: () -> ArtifactSource)
-    fun fastbootFetch(partition: String, destination: () -> ArtifactSink)
+    fun fastbootFetch(partition: String, slot: String?, destination: () -> ArtifactSink)
     fun adbShell(command: String)
     fun adbInteractiveShell(firstLine: String?, mode: ShellMode)
     fun adbService(service: String)
@@ -116,11 +115,11 @@ class DesktopCommandExecutor(private val targets: DesktopCommandTargets) {
             )
             is TerminalPlanStep.FastbootBootImage ->
                 targets.fastbootDownloadThen(listOf("boot") + wires, null, null, file.open())
-            is TerminalPlanStep.FastbootFetch -> targets.fastbootFetch(first.partition, file.create())
+            is TerminalPlanStep.FastbootFetch -> targets.fastbootFetch(first.partition, first.slot, file.create())
             is TerminalPlanStep.FastbootGetvar -> targets.fastbootVariable(first.variable)
             TerminalPlanStep.FastbootGetvarAll -> targets.fastbootAllVariables()
-            // «Другой» слот уточняется на устройстве — это тоже план.
-            else -> if (wires.size == 1 && slot == null && wires.single() != SET_ACTIVE_OTHER) {
+            // Слот уточняется на устройстве — это тоже план.
+            else -> if (wires.size == 1 && slot == null) {
                 targets.fastbootCommand(wires.single())
             } else {
                 targets.fastbootPlan(wires, slot)

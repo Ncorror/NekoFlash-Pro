@@ -163,8 +163,8 @@ internal class FastbootLineParser(private val tokens: List<TerminalToken>) {
                     ?.let { FastbootCommand.UpdateSuper(it[0], it.size == 2) }
             },
             "fetch" to Rule(PAIR) { _, operands, _ -> FastbootCommand.Fetch(operands[0], operands[1]) },
-            "set_active" to Rule(ONE) { _, operands, _ -> FastbootCommand.SetActive(operands[0]) },
-            "set-active" to Rule(ONE) { _, operands, _ -> FastbootCommand.SetActive(operands[0]) },
+            "set_active" to Rule(ONE) { _, operands, _ -> setActive(operands[0]) },
+            "set-active" to Rule(ONE) { _, operands, _ -> setActive(operands[0]) },
             "getvar" to Rule(OPTIONAL) { _, operands, _ -> FastbootCommand.Getvar(operands.firstOrNull() ?: "all") },
             "reboot" to Rule(OPTIONAL) { op, operands, verdict -> reboot(op, operands.firstOrNull(), verdict) },
             "is-logical" to Rule(ONE) { op, operands, _ -> FastbootCommand.DeviceQuery(op, operands[0]) },
@@ -187,6 +187,9 @@ internal class FastbootLineParser(private val tokens: List<TerminalToken>) {
         )
 
         val KNOWN_HOST_COMMANDS = RULES.keys + setOf("format", "stage", "get_staged", "raw", "service")
+
+        /** Пустой слот `set_active` — не слот: `verify_slot` отказал бы ему. */
+        fun setActive(slot: String): FastbootCommand? = slot.ifEmpty { null }?.let(FastbootCommand::SetActive)
 
         /** `-S` принимает размер, а не следующую опцию: `-S --force` — ошибка, а не лимит «--force». */
         fun sparse(options: FastbootOptions, value: String): FastbootOptions? =

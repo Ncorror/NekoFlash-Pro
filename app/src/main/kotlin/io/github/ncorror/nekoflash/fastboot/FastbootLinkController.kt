@@ -330,12 +330,19 @@ public class FastbootLinkController(
     }
 
     /** Читает раздел в место, выбранное пользователем. */
-    public fun fetchPartitionTo(partition: String, destination: () -> ArtifactSink) {
-        busy("fastboot_fetch_file", partition) { lane, name ->
-            val sink = destination()
-            val writer = ArtifactWriter(sink)
-            val outcome = FastbootFetch(lane, FastbootGetVar(lane)).fetch(name, WriterStream(writer))
-            saved(name, writer, outcome, lane.state)
+    public fun fetchPartitionTo(partition: String, slot: String? = null, destination: () -> ArtifactSink) {
+        busy("fastboot_fetch_file", partition) { lane, typed ->
+            // `fastboot fetch` уточняет имя раздела так же, как `flash`: до
+            // первого байта, по `has-slot` и `current-slot`.
+            when (val resolved = slotCommands(listOf(FETCH + typed), slot, lane)) {
+                is SlotResolution.Failed -> notResolved(listOf(FETCH + typed), resolved, lane.state)
+                is SlotResolution.Resolved -> {
+                    val name = resolved.commands.single().removePrefix(FETCH)
+                    val writer = ArtifactWriter(destination())
+                    val outcome = FastbootFetch(lane, FastbootGetVar(lane)).fetch(name, WriterStream(writer))
+                    saved(name, writer, outcome, lane.state)
+                }
+            }
         }
     }
 
@@ -617,6 +624,7 @@ public class FastbootLinkController(
     }
 
     private companion object {
+        const val FETCH = "fetch:"
         const val DIAGNOSTIC_CATEGORY = "fastboot"
 
         /** Вопросы, ответ на которые в выгрузку не идёт. Совпадение — по вопросу. */

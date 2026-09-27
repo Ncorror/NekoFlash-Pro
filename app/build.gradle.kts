@@ -50,8 +50,8 @@ android {
         applicationId = "com.ncorror.nekoflash.pro"
         minSdk = 26
         targetSdk = 36
-        versionCode = 35
-        versionName = "0.35.0-dev"
+        versionCode = 36
+        versionName = "0.36.0-dev"
     }
 
     androidResources {

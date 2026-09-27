@@ -35,8 +35,8 @@ internal class ControllerCommandTargets(
         sparseLimit: Long?,
         origin: () -> ArtifactSource,
     ) = fastboot.downloadFrom(then, slot, sparseLimit, origin)
-    override fun fastbootFetch(partition: String, destination: () -> ArtifactSink) =
-        fastboot.fetchPartitionTo(partition, destination)
+    override fun fastbootFetch(partition: String, slot: String?, destination: () -> ArtifactSink) =
+        fastboot.fetchPartitionTo(partition, slot, destination)
     override fun adbShell(command: String) = adb.runCommand(command)
     override fun adbInteractiveShell(firstLine: String?, mode: ShellMode) = adb.startShell(
         firstLine,

@@ -2,7 +2,7 @@
 
 **Единственный источник статуса проекта.** Другие документы описывают цель и правила; что сделано — только здесь. Статус меняется тем же коммитом, что и код.
 
-Версия APK: `0.35.0-dev`
+Версия APK: `0.36.0-dev`
 
 Текущий этап: **Этап 3 — Команды настольных `adb`/`fastboot` поверх нового ядра**
 
@@ -81,7 +81,7 @@
 | `fastboot flash РАЗДЕЛ` с файлом, выбранным через Android: `download` + `flash:` одной операцией | `в репо` | `FastbootLinkController.downloadFrom(then)`: команды идут, только если устройство приняло весь объём с `OKAY` |
 | `:engine` без baseline detekt | `в репо` | baseline удалён, парсер разделён на части |
 | `--set-active=СЛОТ` вместе с `flash`, `boot` и wire-командами | `в репо` | `set_active` следом в той же операции |
-| `--slot` со слотом `a`, `b` или `other` для `flash`, `--slot all` для `erase`, `--set-active` без слота и `set_active other` | `в репо` | `FastbootSlotTargets`: суффикс только при `has-slot` = `yes`, `other` — от `current-slot`, всё в той же операции до первой команды |
+| Слоты как у настольного `fastboot`: `--slot` по `slot-count`, `all` для `flash`/`erase`, без `--slot` — текущий слот, `--set-active` без значения, `set_active`, `fetch` со слотом | `в репо` | `FastbootSlotTargets` по `verify_slot`/`do_for_partitions`: суффикс только при `has-slot` = `yes`; `--slot all flash` грузит файл под каждый слот (`flashImage`); всё до первой команды; D058 |
 | `--disable-verity`, `--disable-verification` при `flash vbmeta*` | `в репо` | `VbmetaFlagsSource`: биты `flags` заголовка AVB правятся потоком, не-AVB образ — отказ до отправки |
 | Команды ADB: `shell`, `shell -t`, `logcat`, `exec`, `push`/`pull` одного файла, `sideload`, `reboot`, `root`/`unroot`, `remount`, `usb`, `tcpip`, `uninstall`, `raw` | `в репо` | те же сервисы, что у настольного клиента; `logcat` и `shell -t` — в живой оболочке терминала |
 | Команды ADB: `shell -T КОМАНДА` (разовая без PTY), `shell -x КОМАНДА` (старый `shell:` без кода выхода) | `в репо` | |
@@ -99,7 +99,7 @@
 | Логические разделы, сценарии fastbootd | `в репо` | `FastbootPartitionIndex` в списке переменных консоли; `create-`/`delete-`/`resize-logical-partition` из поля команды, класс мутации `SUPER` |
 | План из нескольких команд (Quick Flash) | `в репо` | `FastbootPlan` через `FastbootLinkController.runPlan`: группа «Запись» и планы поля команды, остановка на первом непринятом шаге |
 | Sparse и разбиение по `max-download-size`, `-S` | `в репо` | `FastbootSparse` по AOSP `libsparse`; `flashImage`: образ больше предела уходит кусками, каждый — `download` + `flash:РАЗДЕЛ`; D056 |
-| `update`/`flashall`, `--force`, `--skip-*`, `--slot all` для `flash` | `нет` | нужны повторная загрузка образа под каждый слот и разбор архива образов; D053 |
+| `update`/`flashall`, `--force`, `--skip-*` | `нет` | нужен разбор архива образов и `android-info.txt`; D053 |
 | `format`, `-w`: создание файловой системы на хосте | `нет` | D053 |
 | `wipe-super`, `vendor_boot:RAMDISK`: метаданные логических разделов и перепаковка | `нет` | D053 |
 | Длина Fastboot-команды: 64 или 4096 байт | `в репо` | `FastbootLane.MAX_COMMAND_BYTES` = 4096 по AOSP `FB_COMMAND_SZ` (D057); на `vayu` — шаг F2 плана проверки [07](07_BUILD_AND_TESTING.md#ручная-проверка-на-телефоне) |

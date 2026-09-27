@@ -12,6 +12,7 @@ import io.github.ncorror.nekoflash.protocol.fastboot.FastbootReply
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootSparse
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootVariable
 import io.github.ncorror.nekoflash.protocol.fastboot.SparseDataReader
+import io.github.ncorror.nekoflash.protocol.fastboot.SparseImage
 
 /**
  * Выбранный файл в буфер устройства и [commands] следом — целиком или кусками.
@@ -28,11 +29,11 @@ internal fun flashImage(
     sparseLimit: Long?,
     commands: List<String>,
 ): FastbootConsoleState {
-    val limit = if (commands.firstOrNull()?.startsWith(FLASH) == true) pieceLimit(lane, size, sparseLimit) else 0L
-    return if (limit > 0) {
-        flashInPieces(lane, source, size, limit, commands)
-    } else {
+    val flashes = commands.takeWhile { it.startsWith(FLASH) }
+    return if (flashes.isEmpty()) {
         downloadWhole(lane, source, size, commands)
+    } else {
+        flashEach(lane, ImageLoad(source, size, sparseLimit), flashes, commands.drop(flashes.size))
     }
 }
 
@@ -57,45 +58,58 @@ private fun downloadWhole(
     }
 }
 
+/** Что прошивается: файл, его размер и `-S`. */
+private class ImageLoad(val source: ArtifactSource, val size: Long, val sparseLimit: Long?)
+
 /**
- * Куски по очереди: `download` куска, `flash:` того же раздела, следующий.
+ * Каждый `flash:` — своя загрузка файла, целиком или кусками sparse.
  *
- * Файл читается дважды: сначала целиком — чтобы разметить блоки, как делает
- * `libsparse`, потом по порядку кусков. План на экране — все шаги сразу, и
- * он останавливается на первом непринятом: кусок, не принятый целиком, не
- * прошивается, а после отказа `flash:` следующие куски не идут.
+ * Несколько `flash:` подряд даёт `--slot all`: под каждый слот файл грузится
+ * заново, как в `do_for_partitions`, — буфер устройства после `flash:` мог
+ * очиститься. Для кусков файл сначала читается целиком, чтобы разметить блоки,
+ * как делает `libsparse`, потом по порядку кусков. План на экране — все шаги
+ * сразу, и он останавливается на первом непринятом: кусок, не принятый
+ * целиком, не прошивается, а после отказа `flash:` дальше ничего не идёт.
  */
-private fun flashInPieces(
+private fun flashEach(
     lane: FastbootLane,
-    source: ArtifactSource,
-    size: Long,
-    limit: Long,
-    commands: List<String>,
+    load: ImageLoad,
+    flashes: List<String>,
+    rest: List<String>,
 ): FastbootConsoleState {
-    val flash = commands.first()
-    val rest = commands.drop(1)
-    val pieces = FastbootSparse.resparse(FastbootSparse.read(source::open, size), limit)
-    val steps = pieces.flatMap { listOf(downloadStep(it.sparseLength), flash) } + rest
-    val stopped = source.open().use { input ->
-        val reader = SparseDataReader(input)
-        pieces.withIndex().firstNotNullOfOrNull { (index, piece) ->
-            val outcome = FastbootDownload(lane).send(piece.stream(reader), piece.sparseLength)
-            if (accepted(outcome, piece.sparseLength)) {
-                flashed(lane, flash)?.let { detail -> stoppedAt(steps, 2 * index + 1, detail, lane) }
-            } else {
-                stoppedAt(steps, 2 * index, describeDownload(outcome), lane)
+    val limit = pieceLimit(lane, load.size, load.sparseLimit)
+    val pieces: List<SparseImage?> = if (limit > 0) {
+        FastbootSparse.resparse(FastbootSparse.read(load.source::open, load.size), limit)
+    } else {
+        listOf(null)
+    }
+    val lengths = pieces.map { it?.sparseLength ?: load.size }
+    val steps = flashes.flatMap { flash -> lengths.flatMap { listOf(downloadStep(it), flash) } } + rest
+    val stopped = flashes.withIndex().firstNotNullOfOrNull { (target, flash) ->
+        load.source.open().use { input ->
+            val reader = SparseDataReader(input)
+            pieces.withIndex().firstNotNullOfOrNull { (index, piece) ->
+                val at = 2 * (target * pieces.size + index)
+                val outcome = FastbootDownload(lane).send(piece?.stream(reader) ?: input, lengths[index])
+                if (accepted(outcome, lengths[index])) {
+                    flashed(lane, flash)?.let { detail -> stoppedAt(steps, at + 1, detail, lane) }
+                } else {
+                    stoppedAt(steps, at, describeDownload(outcome), lane)
+                }
             }
         }
     }
-    return stopped ?: if (rest.isEmpty()) {
+    return stopped ?: finished(lane, steps, rest)
+}
+
+/** Все загрузки приняты: остаток плана — тем же планом, что у кнопок. */
+private fun finished(lane: FastbootLane, steps: List<String>, rest: List<String>): FastbootConsoleState {
+    val done = steps.size - rest.size
+    return if (rest.isEmpty()) {
         FastbootConsoleState.Planned(steps, applied = steps.size, stoppedAt = null, detail = "", lane = lane.state)
     } else {
         val tail = planned(rest, FastbootPlan(rest).run(mutation(lane)), lane.state) as FastbootConsoleState.Planned
-        tail.copy(
-            commands = steps,
-            applied = tail.applied + 2 * pieces.size,
-            stoppedAt = tail.stoppedAt?.plus(2 * pieces.size),
-        )
+        tail.copy(commands = steps, applied = tail.applied + done, stoppedAt = tail.stoppedAt?.plus(done))
     }
 }
 

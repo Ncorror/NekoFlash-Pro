@@ -79,6 +79,24 @@ class FastbootImageFlashTest {
         assertArrayEquals(image, device.partition.copyOf(image.size))
     }
 
+    /** `--slot all`: под каждый слот файл грузится заново — буфер после `flash:` мог очиститься. */
+    @Test
+    fun everySlotGetsItsOwnDownload() {
+        val device = Device(maxDownloadSize = "1048576")
+
+        val state = flashImage(
+            FastbootLane(device),
+            Bytes(image),
+            image.size.toLong(),
+            null,
+            listOf("flash:boot_a", "flash:boot_b"),
+        )
+
+        val size = "download:%08x".format(image.size)
+        assertEquals(listOf("getvar:max-download-size", size, "flash:boot_a", size, "flash:boot_b"), device.commands)
+        assertEquals(null, (state as FastbootConsoleState.Planned).stoppedAt)
+    }
+
     @Test
     fun aRefusedFlashStopsTheRemainingPieces() {
         val device = Device(maxDownloadSize = "0x8000", refuseFlash = true)

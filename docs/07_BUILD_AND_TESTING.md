@@ -108,7 +108,7 @@ cd NekoFlash-Pro
 
 ### План проверки этапа 3, часть 2
 
-Критерии записаны до прогона. Цель — POCO X3 Pro `vayu` (без слотов A/B), хост Xiaomi `25053PC47G`, APK `0.35.0-dev` или новее из CI поверх. Команды — в поле «Команда adb или fastboot» во вкладке «Терминал». Для установки нужен файл APK, чьё имя пакета известно: подходит сам APK NekoFlash Pro из артефакта CI (`com.ncorror.nekoflash.pro`) — на `vayu` он ставится как обычное приложение.
+Критерии записаны до прогона. Цель — POCO X3 Pro `vayu` (без слотов A/B), хост Xiaomi `25053PC47G`, APK `0.36.0-dev` или новее из CI поверх. Команды — в поле «Команда adb или fastboot» во вкладке «Терминал». Для установки нужен файл APK, чьё имя пакета известно: подходит сам APK NekoFlash Pro из артефакта CI (`com.ncorror.nekoflash.pro`) — на `vayu` он ставится как обычное приложение.
 
 | Шаг | Действие | Пройдено, если | Провал, если |
 | --- | --- | --- | --- |
@@ -119,7 +119,7 @@ cd NekoFlash-Pro
 | D2 | `adb devices -l`, затем `adb get-state`, затем `adb status` | `List of devices attached` и строка `СЕРИЙНЫЙ device usb:… product:… model:… device:vayu transport_id:…`; `device`; `adb: device СЕРИЙНЫЙ, … features` | «не реализовано» или ответ расходится со строкой соединения |
 | D3 | «Закрыть» оболочку, если открыта; `adb shell -T`, в терминале ввести `tty`; закрыть; `adb shell -x`, ввести `tty` | после `-T` под терминалом «Режим: без терминала», ответ `not a tty`; после `-x` — «Режим: старый сервис shell:», ответ `/dev/pts/…` | оба раза один и тот же режим |
 | E | `adb reboot bootloader`; «Спросить устройство, кто оно» | «Загрузчик» | — |
-| F | `fastboot --slot other erase cache`; затем `fastboot --set-active` | оба: план остановлен до первой команды, «--slot other: current-slot is …» — у `vayu` слотов нет, и ничего не отправлено | ушёл `erase` или `set_active` |
+| F | `fastboot --slot other erase cache`; затем `fastboot --set-active`; затем `fastboot erase cache` без `--slot` | первые два: план остановлен до первой команды с причиной («Device does not support slots» или «current-slot is not reported…») — у `vayu` слотов нет; третий: ушёл `erase:cache` без суффикса | ушёл `erase` или `set_active` в первых двух; у третьего суффикс `_a`/`_b` |
 | F2 | `fastboot oem aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`, затем «Спросить устройство, кто оно» | команда ушла (не «не помещается в кадр»), устройство ответило — `FAIL` или `OKAY`; опрос после неё — «Загрузчик» | «не помещается в кадр 64»; после команды полоса потеряла рамку |
 | G (по желанию) | `fastboot --disable-verity --disable-verification flash vbmeta vbmeta.img` с `vbmeta.img` **текущей прошивки**, который владелец проверил сам | Preview называет флаги; план: ✓ `download:…`, ✓ `flash:vbmeta`; телефон загружается | `download` ушёл, хотя файл не AVB |
 | G2 (по желанию) | `fastboot -S 16M flash boot boot.img` с `boot.img` **текущей прошивки**, который владелец проверил сам | план: `getvar` не спрашивается; файл больше 16 МиБ — несколько пар ✓ `download:…` + ✓ `flash:boot`, каждый `download` не больше `01000000`, меньше — одна пара; телефон загружается | пара не принята без ответа устройства; телефон не загружается |

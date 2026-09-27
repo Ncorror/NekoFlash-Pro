@@ -21,7 +21,9 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
+import com.ncorror.nekoflash.pro.engine.CURRENT_SLOT
 import com.ncorror.nekoflash.pro.engine.LocalReportKind
+import com.ncorror.nekoflash.pro.engine.SET_ACTIVE_DEFAULT
 import com.ncorror.nekoflash.pro.engine.ShellMode
 import com.ncorror.nekoflash.pro.engine.TerminalFileNeed
 import com.ncorror.nekoflash.pro.engine.TerminalParser
@@ -200,10 +202,13 @@ private fun PlanPreview(plan: TerminalPlan, panel: DesktopCommandPanel) {
     }
 }
 
-/** Шаг и, если задан `--slot`, пометка, что имя уточнит устройство. */
+/** Шаг и, если имя или слот уточнит устройство, пометка об этом. */
 @Composable
 private fun stepText(step: TerminalPlanStep): String {
-    val slot = (step as? TerminalPlanStep.FastbootWire)?.slot ?: (step as? TerminalPlanStep.FastbootFlashImage)?.slot
+    // У `set_active` слот — сама команда; пометка о суффиксе раздела к нему не относится.
+    val slot = (step as? TerminalPlanStep.FastbootWire)?.takeUnless { it.command.startsWith(SET_ACTIVE_DEFAULT) }?.slot
+        ?: (step as? TerminalPlanStep.FastbootFlashImage)?.slot
+        ?: (step as? TerminalPlanStep.FastbootFetch)?.slot
     val flags = (step as? TerminalPlanStep.FastbootFlashImage)?.vbmetaFlags ?: 0
     val sparse = (step as? TerminalPlanStep.FastbootFlashImage)?.sparseLimit
     val base = baseStepText(step)
@@ -213,7 +218,11 @@ private fun stepText(step: TerminalPlanStep): String {
         stringResource(R.string.command_step_vbmeta_flags, base, vbmetaFlagNames(flags))
     }
     val text = if (sparse == null) flagged else stringResource(R.string.command_step_sparse_limit, flagged, sparse)
-    return if (slot == null) text else stringResource(R.string.command_step_slot, text, slot)
+    return when (slot) {
+        null -> text
+        CURRENT_SLOT -> stringResource(R.string.command_step_current_slot, text)
+        else -> stringResource(R.string.command_step_slot, text, slot)
+    }
 }
 
 /** Флаги так, как их пишет настольный `fastboot`. */
@@ -224,7 +233,11 @@ private fun vbmetaFlagNames(flags: Int): String = listOfNotNull(
 
 @Composable
 private fun baseStepText(step: TerminalPlanStep): String = when (step) {
-    is TerminalPlanStep.FastbootWire -> stringResource(R.string.command_step_fastboot_wire, step.command)
+    is TerminalPlanStep.FastbootWire -> if (step.command == SET_ACTIVE_DEFAULT) {
+        stringResource(R.string.command_step_set_active_default)
+    } else {
+        stringResource(R.string.command_step_fastboot_wire, step.command)
+    }
     is TerminalPlanStep.FastbootGetvar -> stringResource(R.string.command_step_fastboot_getvar, step.variable)
     TerminalPlanStep.FastbootGetvarAll -> stringResource(R.string.command_step_fastboot_getvar_all)
     is TerminalPlanStep.FastbootFlashImage ->

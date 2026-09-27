@@ -361,6 +361,7 @@
     <string name="command_terminal_open">The shell is open in the Terminal section. %1$s</string>
     <string name="command_terminal_mode_pty">Mode: terminal.</string>
     <string name="command_step_sparse_limit">%1$s; an image over %2$d bytes goes in sparse pieces of at most that size</string>
+    <string name="command_step_set_active_default">fastboot: set_active to the --slot slot, or to the current one without --slot; not sent if the device does not name it</string>
     <string name="command_note">The same engines run this as the buttons and the raw console. A path in the command is never opened directly: the file is picked through Android and bound to the plan shown above. A command or option without an executor answers \"not implemented\" before anything is sent, instead of turning into a different command. `flash` of an image larger than the device\'s max-download-size goes in sparse pieces, as with desktop fastboot.</string>
     <string name="command_file_count">The command names %1$d files, and %2$d were picked. Nothing was sent.</string>
     <string name="command_run_open_many">Pick the files and run</string>
@@ -370,6 +371,7 @@
     <string name="install_success">Installed: %1$d file(s), %2$d bytes. The device answered: %3$s</string>
     <string name="install_refused">Not installed: %1$d file(s), %2$d bytes sent. The device answered: %3$s</string>
     <string name="install_failed">The installation did not reach the device\'s answer: %1$s</string>
-    <string name="command_step_slot">%1$s — slot %2$s: the name gets a suffix only if has-slot answers yes</string>
+    <string name="command_step_slot">%1$s — slot %2$s, checked against slot-count; a partition gets the suffix only if has-slot answers yes</string>
+    <string name="command_step_current_slot">%1$s — a partition whose has-slot answers yes gets the current slot suffix, as with desktop fastboot</string>
     <string name="command_step_vbmeta_flags">%1$s; the vbmeta header gets %2$s before the first byte</string>
 </resources>

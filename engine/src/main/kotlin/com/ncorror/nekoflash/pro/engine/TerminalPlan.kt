@@ -8,7 +8,13 @@ package com.ncorror.nekoflash.pro.engine
  * команды никогда не открывается напрямую (`04` §3, правило 7).
  */
 sealed interface TerminalPlanStep {
-    /** Fastboot-команда как есть — тем же входом, что и поле произвольной команды. */
+    /**
+     * Fastboot-команда — тем же входом, что и поле произвольной команды.
+     *
+     * [slot] не `null` у команд, имя которых уточняет настольный клиент
+     * (`flash:`, `erase:`, `set_active:`): это `--slot` или [CURRENT_SLOT].
+     * Без него команда уходит как набрана.
+     */
     data class FastbootWire(val command: String, val slot: String? = null) : TerminalPlanStep
 
     /** Одна переменная по имени, любая: списка разрешённых имён нет. */
@@ -34,8 +40,9 @@ sealed interface TerminalPlanStep {
     /** `download` выбранного файла и `boot`. */
     data class FastbootBootImage(val imageName: String) : TerminalPlanStep
 
-    /** `fetch:PARTITION` в место, выбранное через Android. */
-    data class FastbootFetch(val partition: String, val destinationName: String) : TerminalPlanStep
+    /** `fetch:PARTITION` в место, выбранное через Android; [slot] — как у [FastbootWire]. */
+    data class FastbootFetch(val partition: String, val destinationName: String, val slot: String? = null) :
+        TerminalPlanStep
 
     /** Одиночная команда оболочки: вывод и код выхода. */
     data class AdbShellCommand(val command: String) : TerminalPlanStep
@@ -80,10 +87,16 @@ sealed interface TerminalPlanStep {
 }
 
 /**
- * `set_active` на «другой» слот: противоположный `current-slot`, который
- * уточняет исполнитель на устройстве до отправки.
+ * «`--slot` не задан»: раздел со слотами получает суффикс текущего слота, как
+ * у настольного клиента без `--slot`.
  */
-const val SET_ACTIVE_OTHER: String = "set_active:other"
+const val CURRENT_SLOT: String = ""
+
+/**
+ * `set_active` без слота — `--set-active` без значения: слот из `--slot`, а
+ * без него текущий. Уточняет исполнитель на устройстве до отправки.
+ */
+const val SET_ACTIVE_DEFAULT: String = "set_active:"
 
 /** Режим живой оболочки — как у настольного `adb shell`. */
 enum class ShellMode {

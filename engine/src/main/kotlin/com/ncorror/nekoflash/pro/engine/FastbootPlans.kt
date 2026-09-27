@@ -11,13 +11,14 @@ package com.ncorror.nekoflash.pro.engine
  */
 internal object FastbootPlans {
     fun compile(options: FastbootOptions, command: FastbootCommand): TerminalPlanResult {
-        val main = steps(command)?.let { withSlot(it, options.slot) }?.let { withImageOptions(it, options) }
-        // Без слота `--set-active` — «другой» слот: его уточнит устройство по
-        // `current-slot` в той же операции, до первой команды.
-        val activate = when {
-            options.setActiveSlot != null -> TerminalPlanStep.FastbootWire("set_active:${options.setActiveSlot}")
-            options.setActiveRequested -> TerminalPlanStep.FastbootWire(SET_ACTIVE_OTHER)
-            else -> null
+        val slot = options.slot ?: CURRENT_SLOT
+        val main = steps(command)?.let { withSlot(it, command, slot) }?.let { withImageOptions(it, options) }
+        // Без значения `--set-active` — слот из `--slot`, а без него текущий:
+        // так решает `fastboot.cpp`. Уточняется на устройстве, до первой команды.
+        val activate = if (options.setActiveRequested) {
+            TerminalPlanStep.FastbootWire("set_active:${options.setActiveSlot.orEmpty()}", slot)
+        } else {
+            null
         }
         val blocker = unsupportedOption(options) ?: slotBlocker(command, options.slot)
             ?: sparseBlocker(command, options)
@@ -54,36 +55,54 @@ internal object FastbootPlans {
     }
 
     /**
-     * `--slot` уточняет имя раздела у `flash` и `erase`; имя уточняется на
-     * устройстве по `has-slot`, до отправки первой команды.
+     * `--slot` уточняет имя раздела у `flash`, `erase`, `fetch` и слот
+     * `set_active`; имя уточняется на устройстве по `slot-count`, `has-slot` и
+     * `current-slot`, до отправки первой команды.
      *
-     * `--slot all` для `flash` означало бы две записи одного буфера, а
-     * загрузчик вправе очистить его после первой: настольный клиент грузит
-     * образ заново, здесь это пока не сделано.
+     * `--slot all` у `fetch` настольный клиент пишет оба раздела подряд в один
+     * файл; здесь такого исполнителя нет.
      */
     private fun slotBlocker(command: FastbootCommand, slot: String?): String? = when {
         slot == null -> null
-        command is FastbootCommand.Erase -> null
-        command is FastbootCommand.Flash && !slot.equals(ALL, ignoreCase = true) -> null
-        command is FastbootCommand.Flash -> "fastboot --slot all flash"
+        command is FastbootCommand.Fetch && slot == ALL -> "fastboot --slot all fetch"
+        command.takesSlot() -> null
         else -> "fastboot --slot"
+    }
+
+    private fun FastbootCommand.takesSlot(): Boolean = when (this) {
+        is FastbootCommand.Flash,
+        is FastbootCommand.Erase,
+        is FastbootCommand.Fetch,
+        is FastbootCommand.SetActive,
+        -> true
+        else -> false
     }
 
     /** `-S` режет образ для `flash`; у прочих команд ему не к чему применяться. */
     private fun sparseBlocker(command: FastbootCommand, options: FastbootOptions): String? =
         "fastboot -S".takeIf { options.sparseLimit != null && command !is FastbootCommand.Flash }
 
-    private fun withSlot(steps: List<TerminalPlanStep>, slot: String?): List<TerminalPlanStep> =
-        if (slot == null) {
-            steps
-        } else {
+    /**
+     * Слот — у команд, которые настольный клиент пропускает через
+     * `do_for_partitions` и `verify_slot`: `flash`, `erase`, `fetch`,
+     * `set_active`. `raw` и `oem` уходят как набраны, без слота.
+     */
+    private fun withSlot(
+        steps: List<TerminalPlanStep>,
+        command: FastbootCommand,
+        slot: String,
+    ): List<TerminalPlanStep> =
+        if (command.takesSlot()) {
             steps.map { step ->
                 when (step) {
                     is TerminalPlanStep.FastbootFlashImage -> step.copy(slot = slot)
                     is TerminalPlanStep.FastbootWire -> step.copy(slot = slot)
+                    is TerminalPlanStep.FastbootFetch -> step.copy(slot = slot)
                     else -> step
                 }
             }
+        } else {
+            steps
         }
 
     /**
@@ -116,7 +135,7 @@ internal object FastbootPlans {
         is FastbootCommand.Boot -> command.takeIf { it.ramdisk == null && it.second == null }
             ?.let { listOf(TerminalPlanStep.FastbootBootImage(it.kernel)) }
         is FastbootCommand.Fetch -> listOf(TerminalPlanStep.FastbootFetch(command.partition, command.destination))
-        is FastbootCommand.SetActive -> listOf(TerminalPlanStep.FastbootWire("set_active:${command.slot ?: OTHER}"))
+        is FastbootCommand.SetActive -> listOf(TerminalPlanStep.FastbootWire("set_active:${command.slot.orEmpty()}"))
         is FastbootCommand.Getvar -> listOf(
             if (command.variable == ALL) {
                 TerminalPlanStep.FastbootGetvarAll
@@ -151,7 +170,6 @@ internal object FastbootPlans {
     }
 
     private const val ALL = "all"
-    private const val OTHER = "other"
     private const val VBMETA = "vbmeta"
     private const val DISABLE_VERITY = 1
     private const val DISABLE_VERIFICATION = 2

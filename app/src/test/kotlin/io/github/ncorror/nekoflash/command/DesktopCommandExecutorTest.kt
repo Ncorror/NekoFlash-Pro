@@ -33,7 +33,8 @@ class DesktopCommandExecutorTest {
         val start = executor.execute(plan("fastboot --set-active=b flash boot boot.img"), picked)
 
         assertEquals(DesktopCommandStart.Started(DesktopCommandArea.FASTBOOT), start)
-        assertEquals(listOf("downloadThen flash:boot,set_active:b"), calls)
+        // Без `--slot` слот уточнит устройство: пустой — «текущий».
+        assertEquals(listOf("downloadThen flash:boot,set_active:b slot="), calls)
     }
 
     @Test
@@ -52,7 +53,7 @@ class DesktopCommandExecutorTest {
         executor.execute(plan("fastboot fetch vendor_boot out.img"), saved)
 
         assertEquals(
-            listOf("getvar product", "getvar all", "command oem unlock", "downloadThen boot", "fetch vendor_boot"),
+            listOf("getvar product", "getvar all", "command oem unlock", "downloadThen boot", "fetch vendor_boot slot="),
             calls,
         )
     }
@@ -104,7 +105,7 @@ class DesktopCommandExecutorTest {
     fun sparseLimitTravelsWithTheFlash() {
         executor.execute(plan("fastboot -S 256M flash system system.img"), picked)
 
-        assertEquals(listOf("downloadThen flash:system S=268435456"), calls)
+        assertEquals(listOf("downloadThen flash:system slot= S=268435456"), calls)
     }
 
     @Test
@@ -129,8 +130,18 @@ class DesktopCommandExecutorTest {
     fun slotTravelsWithTheCommandsItNames() {
         executor.execute(plan("fastboot --slot other flash boot boot.img"), picked)
         executor.execute(plan("fastboot --slot all erase cache"), null)
+        executor.execute(plan("fastboot erase cache"), null)
+        executor.execute(plan("fastboot raw erase:cache"), null)
 
-        assertEquals(listOf("downloadThen flash:boot slot=other", "plan erase:cache slot=all"), calls)
+        assertEquals(
+            listOf(
+                "downloadThen flash:boot slot=other",
+                "plan erase:cache slot=all",
+                "plan erase:cache slot=",
+                "command erase:cache",
+            ),
+            calls,
+        )
     }
 
     private class RecordingTargets(private val calls: MutableList<String>) : DesktopCommandTargets {
@@ -149,7 +160,9 @@ class DesktopCommandExecutorTest {
             calls += "downloadThen ${then.joinToString(",")}" + (slot?.let { " slot=$it" } ?: "") +
                 (sparseLimit?.let { " S=$it" } ?: "")
         }
-        override fun fastbootFetch(partition: String, destination: () -> ArtifactSink) { calls += "fetch $partition" }
+        override fun fastbootFetch(partition: String, slot: String?, destination: () -> ArtifactSink) {
+            calls += "fetch $partition" + (slot?.let { " slot=$it" } ?: "")
+        }
         override fun adbShell(command: String) { calls += "shell $command" }
         override fun adbInteractiveShell(firstLine: String?, mode: ShellMode) {
             calls += "interactive" + (firstLine?.let { " $it" } ?: "") + (if (mode == ShellMode.PTY) "" else " $mode")
