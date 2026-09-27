@@ -4,6 +4,9 @@ import com.ncorror.nekoflash.pro.engine.LocalReportKind
 import com.ncorror.nekoflash.pro.engine.ShellMode
 import com.ncorror.nekoflash.pro.engine.TerminalParser
 import io.github.ncorror.nekoflash.adb.AdbLinkController
+import io.github.ncorror.nekoflash.adb.PullTarget
+import io.github.ncorror.nekoflash.adb.PushSource
+import io.github.ncorror.nekoflash.artifact.LocalFolder
 import io.github.ncorror.nekoflash.core.artifact.ArtifactSink
 import io.github.ncorror.nekoflash.core.artifact.ArtifactSource
 import io.github.ncorror.nekoflash.core.model.SessionGeneration
@@ -48,9 +51,11 @@ internal class ControllerCommandTargets(
     )
     override fun adbService(service: String) = adb.callRawService(service)
     override fun adbReboot(target: String) = adb.requestReboot(target)
-    override fun adbPull(remotePath: String, destination: () -> ArtifactSink) =
-        adb.storage.readTo(remotePath, destination)
-    override fun adbPush(remotePath: String, origin: () -> ArtifactSource) = adb.storage.writeFrom(remotePath, origin)
+    override fun adbPull(remotePaths: List<String>, localName: String?, folder: () -> LocalFolder) =
+        adb.storage.pull(remotePaths) { PullTarget(folder(), localName) }
+
+    override fun adbPush(localNames: List<String>, picked: PickedFile, remotePath: String, sync: Boolean) =
+        adb.storage.push({ pushSources(localNames, picked) }, remotePath, sync)
     override fun adbSideload(origin: () -> ArtifactSource) = adb.recovery.sideloadFrom(stagingDirectory, origin)
     override fun adbInstall(origins: List<() -> ArtifactSource>, options: List<String>, several: Boolean) =
         adb.packages.install(origins, options, several)
@@ -64,4 +69,25 @@ internal class ControllerCommandTargets(
             TerminalParser.Tool.FASTBOOT -> LocalReports.fastboot(kind, fastboot.state.value, identity)
         }
     }
+}
+
+/**
+ * Источники `adb push`: выбранная папка или файлы — под именами из команды.
+ * Размер и время спрашиваются у провайдера здесь, на рабочем потоке.
+ */
+internal fun pushSources(names: List<String>, picked: PickedFile): List<PushSource> = when (picked) {
+    is PickedFile.Folder -> listOf(PushSource.Folder(names.single(), picked.folder()))
+    is PickedFile.Open -> listOf(file(names.single(), picked.origin))
+    is PickedFile.OpenMany -> names.zip(picked.origins) { name, origin -> file(name, origin) }
+    is PickedFile.Create -> error("push needs a source, not a destination")
+}
+
+private fun file(name: String, origin: () -> ArtifactSource): PushSource.File {
+    val source = origin()
+    return PushSource.File(
+        name = name,
+        sizeBytes = source.identity.sizeBytes ?: -1L,
+        modifiedAtMillis = source.openedStamp.modifiedAtMillis,
+        open = { source },
+    )
 }

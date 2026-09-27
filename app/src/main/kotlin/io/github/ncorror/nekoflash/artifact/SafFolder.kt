@@ -1,0 +1,91 @@
+package io.github.ncorror.nekoflash.artifact
+
+import android.content.ContentResolver
+import android.net.Uri
+import android.provider.DocumentsContract
+import io.github.ncorror.nekoflash.core.artifact.ArtifactSink
+import java.io.IOException
+
+/**
+ * Папка SAF: дерево, выбранное через `OpenDocumentTree`, и документ в нём.
+ *
+ * Имя, которое уже занято, не получает от провайдера суффикса «(1)»:
+ * существующий документ находится и переписывается, как файл настольного
+ * клиента, а не кладётся рядом под другим именем.
+ */
+internal class SafFolder(
+    private val resolver: ContentResolver,
+    private val tree: Uri,
+    private val documentId: String = DocumentsContract.getTreeDocumentId(tree),
+    override val name: String = documentId.substringAfterLast('/').substringAfterLast(':'),
+) : LocalFolder {
+    private val document: Uri get() = DocumentsContract.buildDocumentUriUsingTree(tree, documentId)
+
+    override fun entries(): List<LocalEntry> {
+        val children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, documentId)
+        val cursor = resolver.query(children, COLUMNS, null, null, null)
+            ?: throw IOException("провайдер не перечислил $name")
+        return cursor.use {
+            buildList {
+                while (it.moveToNext()) {
+                    val id = it.getString(0)
+                    val childName = it.getString(1) ?: id
+                    add(
+                        if (it.getString(2) == DocumentsContract.Document.MIME_TYPE_DIR) {
+                            LocalEntry.Folder(childName, SafFolder(resolver, tree, id, childName))
+                        } else {
+                            val uri = DocumentsContract.buildDocumentUriUsingTree(tree, id)
+                            LocalEntry.File(
+                                name = childName,
+                                sizeBytes = if (it.isNull(SIZE)) 0L else it.getLong(SIZE),
+                                modifiedAtMillis = if (it.isNull(MODIFIED)) null else it.getLong(MODIFIED),
+                                open = { SafArtifactSource(resolver, uri) },
+                            )
+                        },
+                    )
+                }
+            }
+        }
+    }
+
+    override fun folder(name: String): LocalFolder =
+        (entries().firstOrNull { it.name == name } as? LocalEntry.Folder)?.folder
+            ?: SafFolder(resolver, tree, create(DocumentsContract.Document.MIME_TYPE_DIR, name), name)
+
+    override fun file(name: String): ArtifactSink {
+        val existing = entries().firstOrNull { it.name == name }
+        val id = when (existing) {
+            is LocalEntry.Folder -> throw IOException("$name — папка, а не файл")
+            is LocalEntry.File -> childId(name)
+            null -> create(BINARY, name)
+        }
+        return SafArtifactSink(resolver, DocumentsContract.buildDocumentUriUsingTree(tree, id), name)
+    }
+
+    private fun childId(name: String): String {
+        val children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, documentId)
+        return resolver.query(children, COLUMNS, null, null, null)?.use { cursor ->
+            generateSequence { if (cursor.moveToNext()) cursor.getString(0) to cursor.getString(1) else null }
+                .firstOrNull { (_, childName) -> childName == name }?.first
+        } ?: throw IOException("$name пропал из ${this.name}")
+    }
+
+    private fun create(mime: String, name: String): String {
+        val created = DocumentsContract.createDocument(resolver, document, mime, name)
+            ?: throw IOException("провайдер не создал $name в ${this.name}")
+        return DocumentsContract.getDocumentId(created)
+    }
+
+    private companion object {
+        const val BINARY = "application/octet-stream"
+        const val SIZE = 3
+        const val MODIFIED = 4
+        val COLUMNS = arrayOf(
+            DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+            DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+            DocumentsContract.Document.COLUMN_MIME_TYPE,
+            DocumentsContract.Document.COLUMN_SIZE,
+            DocumentsContract.Document.COLUMN_LAST_MODIFIED,
+        )
+    }
+}

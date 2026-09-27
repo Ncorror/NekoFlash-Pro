@@ -2,7 +2,7 @@
 
 **Единственный источник статуса проекта.** Другие документы описывают цель и правила; что сделано — только здесь. Статус меняется тем же коммитом, что и код.
 
-Версия APK: `0.36.0-dev`
+Версия APK: `0.37.0-dev`
 
 Текущий этап: **Этап 3 — Команды настольных `adb`/`fastboot` поверх нового ядра**
 
@@ -88,7 +88,7 @@
 | Команды `adb devices [-l]`, `get-state`, `status`, `fastboot devices [-l]`, `status`; `adb shell -x`/`-T` без команды | `в репо` | `LocalReports`: строки Platform-Tools из состояния связи приложения, устройству ничего не уходит; `-T` — живая оболочка `shell,v2,raw:`, `-x` — `shell:`, режим виден в терминале (D054) |
 | Команды ADB: `install`, `install-multiple` с флагами `package` | `в репо` | `AdbInstallController`: `exec:cmd package install -S`, сессия `install-create`/`install-write`/`install-commit`, при сбое — `install-abandon` |
 | Общая проверка на телефоне | `проверено` | шаги A–I на 0.30.0, [журнал 07](07_BUILD_AND_TESTING.md#журнал-проверок-этого-apk) |
-| Проверка на телефоне: установка APK, `devices`/`get-state`, режимы оболочки, слоты, флаги vbmeta, `flash -S` | `нет` | [07](07_BUILD_AND_TESTING.md#ручная-проверка-на-телефоне), план этапа 3, часть 2 |
+| Проверка на телефоне: установка APK, `devices`/`get-state`, режимы оболочки, слоты, флаги vbmeta, `flash -S`, `push`/`pull` каталогов | `нет` | [07](07_BUILD_AND_TESTING.md#ручная-проверка-на-телефоне), план этапа 3, часть 2 |
 
 ## Этап 4 — Fastboot до конца
 
@@ -120,8 +120,9 @@
 | Источник и приёмник SAF, SHA-256, стажирование | `в репо` | `SafArtifactSource`, `SafArtifactSink`, `DigestingSink`, `ArtifactStaging.decide` в Sideload; архивный гейт §6.84 не проведён |
 | История операций и восстановление после смерти процесса | `в репо` | `OperationEngine`: `OperationRecovery.restore` при старте |
 | Центр операций, исход `Неизвестно` с подсказкой проверки | `в репо` | раздел «Операции» (`OperationsPanel`) |
-| push/pull в выбранное место | `в репо` | `AdbSyncController.readTo`/`writeFrom`: кнопки и `adb push`/`pull` |
-| `adb push`/`pull` нескольких файлов и каталогов с опциями, `adb sync` | `нет` | D053 |
+| push/pull в выбранное место | `в репо` | кнопки — `AdbSyncController.readTo`/`writeFrom`; `adb push`/`pull` — строкой ниже |
+| `adb push`/`pull` нескольких файлов и каталогов, `--sync`, `-q`, `-Z` | `в репо` | `AdbTreePush`/`AdbTreePull` по `do_sync_push`/`do_sync_pull` (AOSP android11), `LIST` в `AdbSyncList`, папка — через `OpenDocumentTree`; D059 |
+| `adb sync`; `pull -a`, `-z`, `push -n` | `нет` | `sync` — каталог сборки как выбранная папка; `-a` — время и режим, которых SAF не выставляет; `-z`/`-n` — `sync` второй версии; D059 |
 | `install`/`install-multiple` | `в репо` | из поля команды (этап 3); отдельной кнопки нет |
 
 ## Этап 7 — Интерфейс целиком

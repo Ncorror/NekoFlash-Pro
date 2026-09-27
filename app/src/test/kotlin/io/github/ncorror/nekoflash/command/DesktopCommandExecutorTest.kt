@@ -6,6 +6,7 @@ import com.ncorror.nekoflash.pro.engine.TerminalParser
 import com.ncorror.nekoflash.pro.engine.TerminalPlan
 import com.ncorror.nekoflash.pro.engine.TerminalPlanCompiler
 import com.ncorror.nekoflash.pro.engine.TerminalPlanResult
+import io.github.ncorror.nekoflash.artifact.LocalFolder
 import io.github.ncorror.nekoflash.core.artifact.ArtifactSink
 import io.github.ncorror.nekoflash.core.artifact.ArtifactSource
 import org.junit.Assert.assertEquals
@@ -27,6 +28,7 @@ class DesktopCommandExecutorTest {
 
     private val picked = PickedFile.Open { error("not opened in this test") }
     private val saved = PickedFile.Create { error("not created in this test") }
+    private val folder = PickedFile.Folder { error("not listed in this test") }
 
     @Test
     fun flashIsOneDownloadWithTheCommandsAfterIt() {
@@ -65,7 +67,7 @@ class DesktopCommandExecutorTest {
             executor.execute(plan("adb shell"), null),
             executor.execute(plan("adb root"), null),
             executor.execute(plan("adb reboot bootloader"), null),
-            executor.execute(plan("adb pull /sdcard/a.txt"), saved),
+            executor.execute(plan("adb pull /sdcard/a.txt"), folder),
             executor.execute(plan("adb push a.txt /sdcard/"), picked),
             executor.execute(plan("adb sideload ota.zip"), picked),
             executor.execute(plan("adb logcat -s Tag"), null),
@@ -74,14 +76,14 @@ class DesktopCommandExecutorTest {
         assertEquals(
             listOf(
                 "shell id", "interactive", "service root:", "reboot bootloader",
-                "pull /sdcard/a.txt", "push /sdcard/a.txt", "sideload", "interactive logcat -s Tag",
+                "pull /sdcard/a.txt into=.", "push a.txt -> /sdcard/", "sideload", "interactive logcat -s Tag",
             ),
             calls,
         )
         assertEquals(
             listOf(
                 DesktopCommandArea.ADB_SHELL, DesktopCommandArea.ADB_TERMINAL, DesktopCommandArea.ADB_SERVICE,
-                DesktopCommandArea.ADB_REBOOT, DesktopCommandArea.ADB_FILES, DesktopCommandArea.ADB_FILES,
+                DesktopCommandArea.ADB_REBOOT, DesktopCommandArea.ADB_TRANSFER, DesktopCommandArea.ADB_TRANSFER,
                 DesktopCommandArea.ADB_SIDELOAD, DesktopCommandArea.ADB_TERMINAL,
             ),
             areas,
@@ -99,6 +101,20 @@ class DesktopCommandExecutorTest {
         executor.execute(plan("adb install -r app.apk"), picked)
 
         assertEquals(listOf("install 2 -r,-g true", "install 1 -r false"), calls)
+    }
+
+    @Test
+    fun severalSourcesBindToOnePickOfTheSameCount() {
+        val two = PickedFile.OpenMany(listOf({ error("x") }, { error("y") }))
+        assertEquals(DesktopCommandStart.FileCount(3, 2), executor.execute(plan("adb push a b c /sdcard/"), two))
+        executor.execute(plan("adb push --sync a b /sdcard/"), two)
+        executor.execute(plan("adb push photos /sdcard/"), folder)
+        executor.execute(plan("adb pull /sdcard/DCIM photos"), folder)
+
+        assertEquals(
+            listOf("push a,b -> /sdcard/ sync", "push photos -> /sdcard/", "pull /sdcard/DCIM into=photos"),
+            calls,
+        )
     }
 
     @Test
@@ -169,8 +185,12 @@ class DesktopCommandExecutorTest {
         }
         override fun adbService(service: String) { calls += "service $service" }
         override fun adbReboot(target: String) { calls += "reboot $target" }
-        override fun adbPull(remotePath: String, destination: () -> ArtifactSink) { calls += "pull $remotePath" }
-        override fun adbPush(remotePath: String, origin: () -> ArtifactSource) { calls += "push $remotePath" }
+        override fun adbPull(remotePaths: List<String>, localName: String?, folder: () -> LocalFolder) {
+            calls += "pull ${remotePaths.joinToString(" ")} into=${localName ?: "."}"
+        }
+        override fun adbPush(localNames: List<String>, picked: PickedFile, remotePath: String, sync: Boolean) {
+            calls += "push ${localNames.joinToString(",")} -> $remotePath" + if (sync) " sync" else ""
+        }
         override fun adbSideload(origin: () -> ArtifactSource) { calls += "sideload" }
         override fun adbInstall(origins: List<() -> ArtifactSource>, options: List<String>, several: Boolean) {
             calls += "install ${origins.size} ${options.joinToString(",")} $several"

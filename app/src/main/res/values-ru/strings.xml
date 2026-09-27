@@ -352,8 +352,6 @@
     <string name="command_step_adb_interactive">adb: интерактивная оболочка ниже</string>
     <string name="command_step_adb_service">adb: сервис %1$s</string>
     <string name="command_step_adb_reboot">adb: reboot:%1$s</string>
-    <string name="command_step_adb_pull">adb: %1$s в место, которое вы выберете (%2$s)</string>
-    <string name="command_step_adb_push">adb: выбранный файл (%1$s) в %2$s</string>
     <string name="command_step_adb_sideload">adb: sideload выбранного архива (%1$s)</string>
     <string name="command_step_adb_shell_raw">adb: интерактивная оболочка ниже, без терминала (shell,v2,raw:)</string>
     <string name="command_step_adb_shell_legacy">adb: интерактивная оболочка ниже через старый сервис shell:, без кода выхода</string>
@@ -365,6 +363,16 @@
     <string name="command_terminal_mode_pty">Режим: терминал.</string>
     <string name="command_step_sparse_limit">%1$s; образ больше %2$d байт уходит кусками sparse не крупнее этого</string>
     <string name="command_step_set_active_default">fastboot: set_active на слот из --slot, а без него на текущий; если устройство его не называет, не отправляется</string>
+    <string name="command_step_adb_pull">adb: %1$s в папку, которую вы выберете</string>
+    <string name="command_step_adb_pull_named">adb: %1$s под именем %2$s в папку, которую вы выберете</string>
+    <string name="command_step_adb_push">adb: %1$s (файл или папка, которые вы выберете) в %2$s</string>
+    <string name="command_step_adb_push_sync">adb: %1$s (файл или папка, которые вы выберете) в %2$s, пропуская файлы с тем же временем на устройстве (--sync)</string>
+    <string name="command_run_folder">Выбрать папку и выполнить</string>
+    <string name="command_run_save_folder">Выбрать папку для сохранения и выполнить</string>
+    <string name="transfer_running">Перенос: %1$s…</string>
+    <string name="transfer_failed">%1$s не выполнен: %2$s</string>
+    <string name="transfer_done">Готово: файлов %1$d, байт %2$d, пропущено %3$d.</string>
+    <string name="transfer_done_with_errors">Закончено с ошибками: файлов %1$d, байт %2$d, пропущено %3$d.</string>
     <string name="command_note">Исполняют те же движки, что у кнопок и сырой консоли. Путь из команды напрямую не открывается: файл выбирается через Android и привязывается к показанному плану. Команда или опция без исполнителя отвечает «не реализовано» до отправки, а не превращается в другую команду. `flash` образа больше max-download-size устройства уходит кусками sparse, как у настольного fastboot.</string>
     <string name="command_file_count">Команда называет файлов: %1$d, выбрано: %2$d. Ничего не отправлено.</string>
     <string name="command_run_open_many">Выбрать файлы и выполнить</string>

@@ -19,6 +19,7 @@ import com.ncorror.nekoflash.pro.engine.fileNeed
 import io.github.ncorror.nekoflash.adb.AdbLinkController
 import io.github.ncorror.nekoflash.artifact.SafArtifactSink
 import io.github.ncorror.nekoflash.artifact.SafArtifactSource
+import io.github.ncorror.nekoflash.artifact.SafFolder
 import io.github.ncorror.nekoflash.command.DesktopCommandArea
 import io.github.ncorror.nekoflash.command.DesktopCommandExecutor
 import io.github.ncorror.nekoflash.command.DesktopCommandStart
@@ -83,9 +84,9 @@ internal fun desktopCommandPanel(
             shell = adbLink.command.collectAsState().value,
             service = adbLink.rawService.collectAsState().value,
             reboot = adbLink.reboot.collectAsState().value,
-            files = adbLink.files.collectAsState().value,
             sideload = adbLink.sideload.collectAsState().value,
             install = adbLink.install.collectAsState().value,
+            transfer = adbLink.transfer.collectAsState().value,
             terminal = adbLink.terminal.collectAsState().value,
         ),
     )
@@ -98,7 +99,7 @@ internal fun desktopCommandPanel(
  * после диалога, и исполняется тот же план, что был показан.
  */
 @Composable
-private fun rememberFilePickers(run: (TerminalPlan, PickedFile?) -> Unit): (TerminalPlan) -> Unit {
+private fun rememberFilePickers(run: (TerminalPlan, PickedFile?) -> Unit): (TerminalPlan, Boolean) -> Unit {
     val resolver = LocalContext.current.contentResolver
     var pending by remember { mutableStateOf<TerminalPlan?>(null) }
     fun take(): TerminalPlan? = pending.also { pending = null }
@@ -115,15 +116,32 @@ private fun rememberFilePickers(run: (TerminalPlan, PickedFile?) -> Unit): (Term
     ) { destination ->
         take()?.let { plan -> run(plan, created(resolver, destination, suggestedName(plan))) }
     }
-    return { plan ->
-        when (plan.fileStep?.fileNeed ?: TerminalFileNeed.NONE) {
-            TerminalFileNeed.NONE -> run(plan, null)
-            TerminalFileNeed.OPEN -> open.launch(ANY).also { pending = plan }
-            TerminalFileNeed.OPEN_MANY -> openMany.launch(ANY).also { pending = plan }
-            TerminalFileNeed.CREATE -> create.launch(suggestedName(plan)).also { pending = plan }
+    val tree = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { chosen ->
+        take()?.let { plan -> run(plan, chosen?.let { uri -> PickedFile.Folder { SafFolder(resolver, uri) } }) }
+    }
+    return { plan, asFolder ->
+        val need = plan.fileStep?.fileNeed ?: TerminalFileNeed.NONE
+        if (need == TerminalFileNeed.NONE) {
+            run(plan, null)
+        } else {
+            pending = plan
+            when (dialogFor(need, asFolder)) {
+                TerminalFileNeed.FOLDER -> tree.launch(null)
+                TerminalFileNeed.OPEN_MANY -> openMany.launch(ANY)
+                TerminalFileNeed.CREATE -> create.launch(suggestedName(plan))
+                else -> open.launch(ANY)
+            }
         }
     }
 }
+
+/** Какой диалог открыть: у «файла или папки» решает выбор оператора. */
+private fun dialogFor(need: TerminalFileNeed, asFolder: Boolean): TerminalFileNeed =
+    if (need == TerminalFileNeed.OPEN_OR_FOLDER) {
+        if (asFolder) TerminalFileNeed.FOLDER else TerminalFileNeed.OPEN
+    } else {
+        need
+    }
 
 private val ANY = arrayOf("*/*")
 
@@ -138,7 +156,6 @@ private fun suggestedName(plan: TerminalPlan): String = plan.fileStep?.let(::sug
 /** Имя, которое предлагается в диалоге сохранения: из самой команды. */
 private fun suggestedName(step: TerminalPlanStep): String = when (step) {
     is TerminalPlanStep.FastbootFetch -> step.destinationName.substringAfterLast('/')
-    is TerminalPlanStep.AdbPull -> step.localName.substringAfterLast('/')
     else -> DEFAULT_NAME
 }.ifBlank { DEFAULT_NAME }
 

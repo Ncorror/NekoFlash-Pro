@@ -89,30 +89,31 @@ internal object AdbPlans {
             single(TerminalPlanStep.AdbService(name))
         }
 
-    private fun pull(command: AdbCommand.Pull): TerminalPlanResult = when {
-        command.options != FileTransferOptions() -> notImplemented("adb pull OPTIONS")
-        command.sources.size != 1 -> notImplemented("adb pull SEVERAL")
-        else -> single(
-            TerminalPlanStep.AdbPull(
-                remotePath = command.sources.single(),
-                localName = command.destination.takeUnless { it == "." }
-                    ?: command.sources.single().substringAfterLast('/'),
-            ),
-        )
+    /**
+     * `-q` и `-Z` исполняются как есть: вывода прогресса нет, сжатия тоже.
+     * `-a` — время и режим файла, которых папка Android выставить не даёт;
+     * `-z` и `-n` — возможности `sync` второй версии, которой здесь нет.
+     */
+    private fun transferBlocker(op: String, options: FileTransferOptions): String? = when {
+        options.preserveAttributes -> "adb $op -a"
+        options.compression != null -> "adb $op -z"
+        options.dryRun -> "adb $op -n"
+        else -> null
     }
 
-    private fun push(command: AdbCommand.Push): TerminalPlanResult = when {
-        command.options != FileTransferOptions() -> notImplemented("adb push OPTIONS")
-        command.sources.size != 1 -> notImplemented("adb push SEVERAL")
-        else -> {
-            val source = command.sources.single()
-            // Каталог назначения, названный с косой чертой, получает имя файла,
-            // как у настольного клиента. Без черты путь — это путь файла:
-            // проверить, каталог ли это, можно только на устройстве.
-            val remote = command.destination.let { if (it.endsWith('/')) it + source.substringAfterLast('/') else it }
-            single(TerminalPlanStep.AdbPush(source, remote))
-        }
+    /** Куда сохранять — по правилам `do_sync_pull`; путь назначения стал папкой и именем в ней. */
+    private fun pull(command: AdbCommand.Pull): TerminalPlanResult {
+        val destination = command.destination
+        val intoFolder = destination == "." || destination == "./" || destination.endsWith('/')
+        val name = if (intoFolder) null else destination.substringAfterLast('/')
+        return transferBlocker("pull", command.options)?.let(::notImplemented)
+            ?: single(TerminalPlanStep.AdbPull(command.sources, name))
     }
+
+    /** Имена на устройстве строит исполнитель: каталог ли назначение, знает только устройство. */
+    private fun push(command: AdbCommand.Push): TerminalPlanResult =
+        transferBlocker("push", command.options)?.let(::notImplemented)
+            ?: single(TerminalPlanStep.AdbPush(command.sources, command.destination, command.options.syncOnly))
 
     private const val REBOOT = "reboot:"
     private const val NO_TTY = "-T"

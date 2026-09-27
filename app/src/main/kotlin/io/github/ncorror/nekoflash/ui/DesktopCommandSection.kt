@@ -35,12 +35,12 @@ import com.ncorror.nekoflash.pro.engine.fileNeed
 import com.ncorror.nekoflash.pro.engine.writesPartition
 import io.github.ncorror.nekoflash.R
 import io.github.ncorror.nekoflash.adb.AdbCommandState
-import io.github.ncorror.nekoflash.adb.AdbFileState
 import io.github.ncorror.nekoflash.adb.AdbInstallState
 import io.github.ncorror.nekoflash.adb.AdbRawServiceState
 import io.github.ncorror.nekoflash.adb.AdbRebootState
 import io.github.ncorror.nekoflash.adb.AdbSideloadState
 import io.github.ncorror.nekoflash.adb.AdbTerminalState
+import io.github.ncorror.nekoflash.adb.AdbTransferState
 import io.github.ncorror.nekoflash.command.DesktopCommandArea
 import io.github.ncorror.nekoflash.command.DesktopCommandStart
 import io.github.ncorror.nekoflash.fastboot.FastbootConsoleState
@@ -59,8 +59,11 @@ data class DesktopCommandPanel(
     val defaultTool: TerminalParser.Tool = TerminalParser.Tool.ADB,
     /** Замок Fastboot этой generation, если связь есть: задаёт форму подтверждения. */
     val lock: FastbootLockStatus? = null,
-    /** Исполнить план; выбор файла, если он нужен, берёт на себя проводка. */
-    val onRun: (TerminalPlan) -> Unit = {},
+    /**
+     * Исполнить план; выбор файла, если он нужен, берёт на себя проводка.
+     * Второй аргумент — выбрать папку, а не файл, там, где годится и то и другое.
+     */
+    val onRun: (TerminalPlan, Boolean) -> Unit = { _, _ -> },
     /**
      * Строку поменяли: исход прошлой команды больше не относится к ней.
      *
@@ -83,9 +86,9 @@ data class DesktopCommandOutcomes(
     val shell: AdbCommandState = AdbCommandState.None,
     val service: AdbRawServiceState = AdbRawServiceState.None,
     val reboot: AdbRebootState = AdbRebootState.None,
-    val files: AdbFileState = AdbFileState.None,
     val sideload: AdbSideloadState = AdbSideloadState.None,
     val install: AdbInstallState = AdbInstallState.None,
+    val transfer: AdbTransferState = AdbTransferState.None,
     val terminal: AdbTerminalState = AdbTerminalState(),
 )
 
@@ -177,9 +180,31 @@ private fun PlanPreview(plan: TerminalPlan, panel: DesktopCommandPanel) {
         )
     }
     val picks = plan.fileStep?.fileNeed ?: TerminalFileNeed.NONE
+    val enabled = !needsWord || typed.trim().equals(CONFIRM_WORD, ignoreCase = true)
+    if (picks == TerminalFileNeed.OPEN_OR_FOLDER) {
+        // Файл это или папка, по имени в команде не узнать: выбирает оператор.
+        Button(onClick = { panel.onRun(plan, false) }, enabled = enabled) {
+            Text(stringResource(R.string.command_run_open))
+        }
+        Button(onClick = { panel.onRun(plan, true) }, enabled = enabled) {
+            Text(stringResource(R.string.command_run_folder))
+        }
+    } else {
+        RunButton(plan, panel, picks, writes, enabled)
+    }
+}
+
+@Composable
+private fun RunButton(
+    plan: TerminalPlan,
+    panel: DesktopCommandPanel,
+    picks: TerminalFileNeed,
+    writes: Boolean,
+    enabled: Boolean,
+) {
     Button(
-        onClick = { panel.onRun(plan) },
-        enabled = !needsWord || typed.trim().equals(CONFIRM_WORD, ignoreCase = true),
+        onClick = { panel.onRun(plan, picks == TerminalFileNeed.FOLDER) },
+        enabled = enabled,
         colors = if (writes) {
             ButtonDefaults.buttonColors(
                 containerColor = MaterialTheme.colorScheme.error,
@@ -193,9 +218,10 @@ private fun PlanPreview(plan: TerminalPlan, panel: DesktopCommandPanel) {
             stringResource(
                 when (picks) {
                     TerminalFileNeed.NONE -> R.string.command_run
-                    TerminalFileNeed.OPEN -> R.string.command_run_open
+                    TerminalFileNeed.OPEN, TerminalFileNeed.OPEN_OR_FOLDER -> R.string.command_run_open
                     TerminalFileNeed.OPEN_MANY -> R.string.command_run_open_many
                     TerminalFileNeed.CREATE -> R.string.command_run_create
+                    TerminalFileNeed.FOLDER -> R.string.command_run_save_folder
                 },
             ),
         )
@@ -259,8 +285,14 @@ private fun baseStepText(step: TerminalPlanStep): String = when (step) {
     )
     is TerminalPlanStep.AdbService -> stringResource(R.string.command_step_adb_service, step.service)
     is TerminalPlanStep.AdbReboot -> stringResource(R.string.command_step_adb_reboot, step.target)
-    is TerminalPlanStep.AdbPull -> stringResource(R.string.command_step_adb_pull, step.remotePath, step.localName)
-    is TerminalPlanStep.AdbPush -> stringResource(R.string.command_step_adb_push, step.localName, step.remotePath)
+    is TerminalPlanStep.AdbPull -> step.localName
+        ?.let { stringResource(R.string.command_step_adb_pull_named, step.remotePaths.joinToString(" "), it) }
+        ?: stringResource(R.string.command_step_adb_pull, step.remotePaths.joinToString(" "))
+    is TerminalPlanStep.AdbPush -> stringResource(
+        if (step.sync) R.string.command_step_adb_push_sync else R.string.command_step_adb_push,
+        step.localNames.joinToString(" "),
+        step.remotePath,
+    )
     is TerminalPlanStep.AdbSideload -> stringResource(R.string.command_step_adb_sideload, step.archiveName)
     is TerminalPlanStep.AdbInstall -> stringResource(
         if (step.several) R.string.command_step_adb_install_multiple else R.string.command_step_adb_install,
@@ -285,7 +317,7 @@ private fun CommandOutcome(area: DesktopCommandArea?, outcomes: DesktopCommandOu
         DesktopCommandArea.ADB_SHELL -> ShellOutcome(outcomes.shell)
         DesktopCommandArea.ADB_SERVICE -> CommandLine(rawServiceText(outcomes.service))
         DesktopCommandArea.ADB_REBOOT -> CommandLine(rebootText(outcomes.reboot))
-        DesktopCommandArea.ADB_FILES -> CommandLine(fileStateText(outcomes.files))
+        DesktopCommandArea.ADB_TRANSFER -> TransferOutcome(outcomes.transfer)
         DesktopCommandArea.ADB_SIDELOAD -> CommandLine(sideloadText(outcomes.sideload))
         DesktopCommandArea.ADB_INSTALL -> CommandLine(installText(outcomes.install))
     }
@@ -296,6 +328,35 @@ private fun localReportName(kind: LocalReportKind): String = when (kind) {
     LocalReportKind.DEVICES_LONG -> "devices -l"
     LocalReportKind.GET_STATE -> "get-state"
     LocalReportKind.STATUS -> "status"
+}
+
+/** Итог переноса — числа и строки настольного клиента, как он их пишет. */
+@Composable
+private fun TransferOutcome(state: AdbTransferState) {
+    when (state) {
+        AdbTransferState.None -> Unit
+        is AdbTransferState.Running -> CommandLine(stringResource(R.string.transfer_running, state.what))
+        is AdbTransferState.Failed -> CommandLine(stringResource(R.string.transfer_failed, state.what, state.detail))
+        is AdbTransferState.Finished -> {
+            val report = state.report
+            CommandLine(
+                stringResource(
+                    if (report.success) R.string.transfer_done else R.string.transfer_done_with_errors,
+                    report.files,
+                    report.bytes,
+                    report.skipped,
+                ),
+            )
+            if (report.messages.isNotEmpty()) {
+                SelectionContainer {
+                    Text(
+                        text = report.messages.joinToString("\n"),
+                        style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                    )
+                }
+            }
+        }
+    }
 }
 
 /** Исход установки: ответ `package` как есть, байты — отдельно. */

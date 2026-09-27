@@ -7,6 +7,7 @@ import com.ncorror.nekoflash.pro.engine.TerminalParser
 import com.ncorror.nekoflash.pro.engine.TerminalPlan
 import com.ncorror.nekoflash.pro.engine.TerminalPlanStep
 import com.ncorror.nekoflash.pro.engine.fileNeed
+import io.github.ncorror.nekoflash.artifact.LocalFolder
 import io.github.ncorror.nekoflash.artifact.VbmetaFlagsSource
 import io.github.ncorror.nekoflash.core.artifact.ArtifactSink
 import io.github.ncorror.nekoflash.core.artifact.ArtifactSource
@@ -29,8 +30,8 @@ interface DesktopCommandTargets {
     fun adbInteractiveShell(firstLine: String?, mode: ShellMode)
     fun adbService(service: String)
     fun adbReboot(target: String)
-    fun adbPull(remotePath: String, destination: () -> ArtifactSink)
-    fun adbPush(remotePath: String, origin: () -> ArtifactSource)
+    fun adbPull(remotePaths: List<String>, localName: String?, folder: () -> LocalFolder)
+    fun adbPush(localNames: List<String>, picked: PickedFile, remotePath: String, sync: Boolean)
     fun adbSideload(origin: () -> ArtifactSource)
     fun adbInstall(origins: List<() -> ArtifactSource>, options: List<String>, several: Boolean)
 
@@ -43,11 +44,12 @@ sealed interface PickedFile {
     data class Open(val origin: () -> ArtifactSource) : PickedFile
     data class OpenMany(val origins: List<() -> ArtifactSource>) : PickedFile
     data class Create(val destination: () -> ArtifactSink) : PickedFile
+    data class Folder(val folder: () -> LocalFolder) : PickedFile
 }
 
 /** Где искать исход: у Fastboot-консоли или у соответствующей части ADB. */
 enum class DesktopCommandArea {
-    FASTBOOT, ADB_SHELL, ADB_TERMINAL, ADB_SERVICE, ADB_REBOOT, ADB_FILES, ADB_SIDELOAD, ADB_INSTALL,
+    FASTBOOT, ADB_SHELL, ADB_TERMINAL, ADB_SERVICE, ADB_REBOOT, ADB_TRANSFER, ADB_SIDELOAD, ADB_INSTALL,
 }
 
 /** Чем кончилась попытка отдать план движкам. */
@@ -90,8 +92,14 @@ class DesktopCommandExecutor(private val targets: DesktopCommandTargets) {
             TerminalFileNeed.OPEN -> file is PickedFile.Open
             TerminalFileNeed.OPEN_MANY -> file is PickedFile.OpenMany
             TerminalFileNeed.CREATE -> file is PickedFile.Create
+            TerminalFileNeed.FOLDER -> file is PickedFile.Folder
+            TerminalFileNeed.OPEN_OR_FOLDER -> file is PickedFile.Open || file is PickedFile.Folder
         }
-        val named = (plan.fileStep as? TerminalPlanStep.AdbInstall)?.names?.size
+        val named = when (val step = plan.fileStep) {
+            is TerminalPlanStep.AdbInstall -> step.names.size
+            is TerminalPlanStep.AdbPush -> step.localNames.size.takeIf { it > 1 }
+            else -> null
+        }
         val picked = (file as? PickedFile.OpenMany)?.origins?.size
         return when {
             !matches -> DesktopCommandStart.FileMissing
@@ -134,10 +142,12 @@ class DesktopCommandExecutor(private val targets: DesktopCommandTargets) {
             DesktopCommandArea.ADB_TERMINAL.also { targets.adbInteractiveShell(step.firstLine, step.mode) }
         is TerminalPlanStep.AdbService -> DesktopCommandArea.ADB_SERVICE.also { targets.adbService(step.service) }
         is TerminalPlanStep.AdbReboot -> DesktopCommandArea.ADB_REBOOT.also { targets.adbReboot(step.target) }
-        is TerminalPlanStep.AdbPull ->
-            DesktopCommandArea.ADB_FILES.also { targets.adbPull(step.remotePath, file.create()) }
-        is TerminalPlanStep.AdbPush ->
-            DesktopCommandArea.ADB_FILES.also { targets.adbPush(step.remotePath, file.open()) }
+        is TerminalPlanStep.AdbPull -> DesktopCommandArea.ADB_TRANSFER.also {
+            targets.adbPull(step.remotePaths, step.localName, (file as PickedFile.Folder).folder)
+        }
+        is TerminalPlanStep.AdbPush -> DesktopCommandArea.ADB_TRANSFER.also {
+            targets.adbPush(step.localNames, checkNotNull(file), step.remotePath, step.sync)
+        }
         is TerminalPlanStep.AdbSideload -> DesktopCommandArea.ADB_SIDELOAD.also { targets.adbSideload(file.open()) }
         is TerminalPlanStep.AdbInstall -> DesktopCommandArea.ADB_INSTALL.also {
             val origins = (file as? PickedFile.OpenMany)?.origins ?: listOf(file.open())

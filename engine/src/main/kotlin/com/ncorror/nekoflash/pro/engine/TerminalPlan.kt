@@ -69,11 +69,22 @@ sealed interface TerminalPlanStep {
     /** `reboot:TARGET`, с разбором ухода устройства. */
     data class AdbReboot(val target: String) : TerminalPlanStep
 
-    /** Файл устройства в место, выбранное через Android. */
-    data class AdbPull(val remotePath: String, val localName: String) : TerminalPlanStep
+    /**
+     * Файлы и каталоги устройства в папку, выбранную через Android.
+     *
+     * [localName] `null` — назначение и есть выбранная папка (`.` или путь с
+     * `/` на конце); иначе папка — его родитель, а имя — последнее слово пути.
+     */
+    data class AdbPull(val remotePaths: List<String>, val localName: String?) : TerminalPlanStep
 
-    /** Файл, выбранный через Android, на устройство. */
-    data class AdbPush(val localName: String, val remotePath: String) : TerminalPlanStep
+    /**
+     * Файлы или папка, выбранные через Android, на устройство.
+     *
+     * [localNames] — как источники назвал оператор: по ним строятся имена на
+     * устройстве. [sync] — `--sync`.
+     */
+    data class AdbPush(val localNames: List<String>, val remotePath: String, val sync: Boolean = false) :
+        TerminalPlanStep
 
     /** Sideload выбранного архива. */
     data class AdbSideload(val archiveName: String) : TerminalPlanStep
@@ -113,21 +124,26 @@ enum class ShellMode {
 /** Что спрашивают у приложения о связи. */
 enum class LocalReportKind { DEVICES, DEVICES_LONG, GET_STATE, STATUS }
 
-/** Какой файл нужен шагу и в какую сторону он идёт. */
-enum class TerminalFileNeed { NONE, OPEN, OPEN_MANY, CREATE }
+/**
+ * Какой файл нужен шагу и в какую сторону он идёт.
+ *
+ * [FOLDER] — папка, куда сохранять; [OPEN_OR_FOLDER] — один источник, файл или
+ * папка: что именно, по имени в команде не узнать, и выбирает оператор.
+ */
+enum class TerminalFileNeed { NONE, OPEN, OPEN_MANY, CREATE, FOLDER, OPEN_OR_FOLDER }
 
 /** Нужен ли шагу файл, выбранный через Android. */
 val TerminalPlanStep.fileNeed: TerminalFileNeed
     get() = when (this) {
         is TerminalPlanStep.FastbootFlashImage,
         is TerminalPlanStep.FastbootBootImage,
-        is TerminalPlanStep.AdbPush,
         is TerminalPlanStep.AdbSideload,
         -> TerminalFileNeed.OPEN
 
-        is TerminalPlanStep.FastbootFetch,
-        is TerminalPlanStep.AdbPull,
-        -> TerminalFileNeed.CREATE
+        is TerminalPlanStep.FastbootFetch -> TerminalFileNeed.CREATE
+        is TerminalPlanStep.AdbPull -> TerminalFileNeed.FOLDER
+        is TerminalPlanStep.AdbPush ->
+            if (localNames.size == 1) TerminalFileNeed.OPEN_OR_FOLDER else TerminalFileNeed.OPEN_MANY
 
         is TerminalPlanStep.AdbInstall -> if (several) TerminalFileNeed.OPEN_MANY else TerminalFileNeed.OPEN
 

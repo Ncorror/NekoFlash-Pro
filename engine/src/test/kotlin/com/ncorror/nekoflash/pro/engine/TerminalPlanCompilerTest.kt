@@ -92,12 +92,19 @@ class TerminalPlanCompilerTest {
     }
 
     @Test
-    fun transfersNameTheirFiles() {
-        assertEquals(listOf(TerminalPlanStep.AdbPull("/sdcard/a.txt", "a.txt")), steps("adb pull /sdcard/a.txt"))
-        assertEquals(listOf(TerminalPlanStep.AdbPush("a.txt", "/sdcard/a.txt")), steps("adb push a.txt /sdcard/"))
-        assertEquals(listOf(TerminalPlanStep.AdbPush("a.txt", "/sdcard/b.txt")), steps("adb push a.txt /sdcard/b.txt"))
-        assertIs<TerminalPlanResult.NotImplemented>(compiler.compile("adb push a b /sdcard/"))
-        assertIs<TerminalPlanResult.NotImplemented>(compiler.compile("adb pull -a /sdcard/a.txt"))
+    fun transfersFollowTheDesktopClientRules() {
+        assertEquals(listOf(TerminalPlanStep.AdbPull(listOf("/sdcard/a.txt"), null)), steps("adb pull /sdcard/a.txt"))
+        assertEquals(listOf(TerminalPlanStep.AdbPull(listOf("/sdcard/DCIM"), "photos")), steps("adb pull /sdcard/DCIM photos"))
+        assertEquals(listOf(TerminalPlanStep.AdbPull(listOf("/a", "/b"), null)), steps("adb pull -q /a /b out/"))
+        assertEquals(listOf(TerminalPlanStep.AdbPush(listOf("a.txt"), "/sdcard/")), steps("adb push a.txt /sdcard/"))
+        assertEquals(listOf(TerminalPlanStep.AdbPush(listOf("a", "b"), "/sdcard", sync = true)),
+            steps("adb push --sync -Z a b /sdcard"))
+        assertEquals(TerminalFileNeed.OPEN_OR_FOLDER, steps("adb push photos /sdcard/").single().fileNeed)
+        assertEquals(TerminalFileNeed.OPEN_MANY, steps("adb push a b /sdcard/").single().fileNeed)
+        assertEquals(TerminalFileNeed.FOLDER, steps("adb pull /sdcard/a").single().fileNeed)
+        for (command in listOf("adb pull -a /sdcard/a.txt", "adb push -n a /sdcard/", "adb pull -z brotli /sdcard/a")) {
+            assertIs<TerminalPlanResult.NotImplemented>(compiler.compile(command), command)
+        }
     }
 
     @Test

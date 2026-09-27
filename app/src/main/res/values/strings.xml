@@ -349,8 +349,6 @@
     <string name="command_step_adb_interactive">adb: the interactive shell below</string>
     <string name="command_step_adb_service">adb: service %1$s</string>
     <string name="command_step_adb_reboot">adb: reboot:%1$s</string>
-    <string name="command_step_adb_pull">adb: %1$s into a place you choose (%2$s)</string>
-    <string name="command_step_adb_push">adb: the picked file (%1$s) to %2$s</string>
     <string name="command_step_adb_sideload">adb: sideload of the picked archive (%1$s)</string>
     <string name="command_step_adb_shell_raw">adb: the interactive shell below, without a terminal (shell,v2,raw:)</string>
     <string name="command_step_adb_shell_legacy">adb: the interactive shell below over the plain shell: service, without an exit code</string>
@@ -362,6 +360,16 @@
     <string name="command_terminal_mode_pty">Mode: terminal.</string>
     <string name="command_step_sparse_limit">%1$s; an image over %2$d bytes goes in sparse pieces of at most that size</string>
     <string name="command_step_set_active_default">fastboot: set_active to the --slot slot, or to the current one without --slot; not sent if the device does not name it</string>
+    <string name="command_step_adb_pull">adb: %1$s into the folder you choose</string>
+    <string name="command_step_adb_pull_named">adb: %1$s as %2$s in the folder you choose</string>
+    <string name="command_step_adb_push">adb: %1$s (a file or folder you pick) to %2$s</string>
+    <string name="command_step_adb_push_sync">adb: %1$s (a file or folder you pick) to %2$s, skipping files with the same time on the device (--sync)</string>
+    <string name="command_run_folder">Pick a folder and run</string>
+    <string name="command_run_save_folder">Choose a folder to save into and run</string>
+    <string name="transfer_running">Transferring: %1$s…</string>
+    <string name="transfer_failed">%1$s did not run: %2$s</string>
+    <string name="transfer_done">Done: %1$d files, %2$d bytes, skipped %3$d.</string>
+    <string name="transfer_done_with_errors">Finished with errors: %1$d files, %2$d bytes, skipped %3$d.</string>
     <string name="command_note">The same engines run this as the buttons and the raw console. A path in the command is never opened directly: the file is picked through Android and bound to the plan shown above. A command or option without an executor answers \"not implemented\" before anything is sent, instead of turning into a different command. `flash` of an image larger than the device\'s max-download-size goes in sparse pieces, as with desktop fastboot.</string>
     <string name="command_file_count">The command names %1$d files, and %2$d were picked. Nothing was sent.</string>
     <string name="command_run_open_many">Pick the files and run</string>

@@ -110,6 +110,8 @@ public class AdbSyncSession(
 
     private val upload = AdbSyncUpload(exchange)
 
+    private val listing = AdbSyncList(exchange)
+
     /** Открыта ли сессия. */
     public val active: Boolean
         get() = exchange.active
@@ -120,6 +122,10 @@ public class AdbSyncSession(
 
     /** Закрывает сессию. */
     public fun close(): Unit = exchange.close()
+
+    /** Содержимое каталога: `LIST`, с `.` и `..`, как их прислало устройство. */
+    public fun list(path: String, timeoutMillis: Int = DEFAULT_TIMEOUT_MS): AdbSyncOutcome<List<AdbSyncEntry>> =
+        listing.list(path, timeoutMillis)
 
     /**
      * Спрашивает сведения о пути.

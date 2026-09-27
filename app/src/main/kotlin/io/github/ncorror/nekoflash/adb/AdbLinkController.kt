@@ -135,6 +135,7 @@ public class AdbLinkController(
     private val sideloads = AdbSideloadController(executor, diagnostics, operations, holdProcess)
 
     private val installs = AdbInstallController(executor, diagnostics)
+    private val transfers = AdbTransferController(executor, diagnostics)
 
     /**
      * Владелец пробросов портов.
@@ -193,6 +194,9 @@ public class AdbLinkController(
 
     /** Состояние установки пакетов. */
     public val install: StateFlow<AdbInstallState> = installs.state
+
+    /** Последний `adb push`/`pull` из поля команды: несколько файлов и каталоги. */
+    public val transfer: StateFlow<AdbTransferState> = transfers.state
 
     /** Состояние последнего запроса перезагрузки. */
     public val reboot: StateFlow<AdbRebootState> = reboots.state
@@ -311,6 +315,18 @@ public class AdbLinkController(
 
     /** Проверка пути, чтение, запись — и то же самое через выбор файла. */
     public inner class StorageActions internal constructor() {
+
+        /** `adb push`: файлы и папки, выбранные через Android, по правилам настольного клиента. */
+        internal fun push(sources: () -> List<PushSource>, destination: String, sync: Boolean) {
+            val live = connection ?: return
+            transfers.push(live, sources, destination, sync)
+        }
+
+        /** `adb pull`: пути устройства в папку, выбранную через Android. */
+        internal fun pull(sources: List<String>, target: () -> PullTarget) {
+            val live = connection ?: return
+            transfers.pull(live, sources, target)
+        }
 
         /** Спрашивает сведения о пути на устройстве. */
         public fun describe(path: String) {

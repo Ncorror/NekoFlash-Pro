@@ -74,6 +74,46 @@ class AdbSyncSessionTest {
         assertFalse(outcome.value.regularFile)
     }
 
+    /** `LIST`: записи `DENT`, а `DONE` той же длины добирается целиком. */
+    @Test
+    fun listReturnsEveryEntryAndConsumesTheWholeDone() {
+        val device = Device(
+            okay(),
+            data(
+                dent(DIRECTORY, 0, 5, ".") + dent(REGULAR, 1234, 99, "a.txt") +
+                    dent(DIRECTORY, 0, 7, "фото") + dent(0, 0, 0, ""),
+            ),
+            data(statBody(mode = REGULAR, size = 7, time = 1)),
+        )
+        val session = device.opened()
+
+        val outcome = session.list("/sdcard") as AdbSyncOutcome.Done
+
+        assertEquals(listOf(".", "a.txt", "фото"), outcome.value.map { it.name })
+        assertEquals(1234L, outcome.value[1].stat.size)
+        assertTrue(outcome.value[2].stat.directory)
+        // После `DONE` следующая операция читает свой ответ, а не хвост списка.
+        assertEquals(7L, (session.stat("/sdcard/a.txt") as AdbSyncOutcome.Done).value.size)
+    }
+
+    @Test
+    fun aListRefusalCarriesTheDeviceMessage() {
+        val device = Device(okay(), data(AdbSyncProtocol.message(AdbSyncProtocol.ID_FAIL, "denied".toByteArray())))
+
+        val outcome = device.opened().list("/data") as AdbSyncOutcome.Failed
+
+        assertEquals(AdbSyncFailure.DEVICE_REFUSED, outcome.reason)
+    }
+
+    @Test
+    fun aNameLongerThanTheClientAcceptsIsRefused() {
+        val device = Device(okay(), data(AdbSyncProtocol.header(AdbSyncProtocol.ID_DENT, REGULAR) + intLe(1) + intLe(1) + intLe(256)))
+
+        val outcome = device.opened().list("/sdcard") as AdbSyncOutcome.Failed
+
+        assertEquals(AdbSyncFailure.INVALID_LENGTH, outcome.reason)
+    }
+
     @Test
     fun refusalCarriesTheDeviceMessage() {
         val message = "permission denied".toByteArray()
@@ -310,6 +350,13 @@ class AdbSyncSessionTest {
         const val LOCAL_ID = 1
         const val REGULAR = AdbSyncProtocol.MODE_REGULAR_FILE or 0x1A4
         const val DIRECTORY = AdbSyncProtocol.MODE_DIRECTORY or 0x1ED
+
+        /** `DENT`; с нулевым режимом и пустым именем — это `DONE`. */
+        fun dent(mode: Int, size: Int, time: Int, name: String): ByteArray {
+            val bytes = name.toByteArray()
+            val id = if (mode == 0 && name.isEmpty()) AdbSyncProtocol.ID_DONE else AdbSyncProtocol.ID_DENT
+            return AdbSyncProtocol.header(id, mode) + intLe(size) + intLe(time) + intLe(bytes.size) + bytes
+        }
 
         fun statBody(mode: Int, size: Int, time: Int): ByteArray =
             AdbSyncProtocol.header(AdbSyncProtocol.ID_STAT, mode) +

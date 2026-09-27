@@ -71,6 +71,9 @@ public object AdbSyncProtocol {
     /** Тип «обычный файл». */
     public const val MODE_REGULAR_FILE: Int = 0x8000
 
+    /** Тип «символьная ссылка» в режиме. */
+    public const val MODE_SYMLINK: Int = 0xA000
+
     /**
      * Режим создаваемого файла по умолчанию — `0644`.
      *
