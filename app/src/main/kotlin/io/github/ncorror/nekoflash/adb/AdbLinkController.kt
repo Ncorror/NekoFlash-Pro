@@ -15,6 +15,7 @@ import io.github.ncorror.nekoflash.protocol.adb.AdbKeyStore
 import io.github.ncorror.nekoflash.protocol.adb.AdbShellOutcome
 import io.github.ncorror.nekoflash.usb.api.UsbAutoConnectPolicy
 import io.github.ncorror.nekoflash.usb.api.UsbClaimResult
+import io.github.ncorror.nekoflash.protocol.adb.AdbShellMode
 import io.github.ncorror.nekoflash.usb.api.UsbSession
 import io.github.ncorror.nekoflash.usb.api.UsbSessionCoordinator
 import io.github.ncorror.nekoflash.usb.api.UsbInterfaceKind
@@ -429,13 +430,15 @@ public class AdbLinkController(
      * Одноразовые команды и файловые операции при этом остаются доступны:
      * каждая работает на своём логическом потоке и ждёт на своём ящике.
      */
-    public fun startShell(firstLine: String? = null) {
+    public fun startShell(firstLine: String? = null, mode: AdbShellMode = AdbShellMode.PTY) {
         val live = connection ?: return
         // Живая оболочка уже есть — строка уходит в неё, как если бы её набрали.
+        // Её режим виден в состоянии терминала: вторую, другого режима, рядом
+        // не открыть, а подменять открытую без спроса нельзя.
         if (shellSessions.active) {
             firstLine?.let(shellSessions::sendInput)
         } else {
-            shellSessions.start(live, firstLine)
+            shellSessions.start(live, firstLine, mode)
         }
     }
 

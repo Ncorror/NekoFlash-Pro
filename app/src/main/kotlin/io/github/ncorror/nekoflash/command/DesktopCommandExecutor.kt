@@ -1,7 +1,10 @@
 package io.github.ncorror.nekoflash.command
 
+import com.ncorror.nekoflash.pro.engine.LocalReportKind
 import com.ncorror.nekoflash.pro.engine.SET_ACTIVE_OTHER
+import com.ncorror.nekoflash.pro.engine.ShellMode
 import com.ncorror.nekoflash.pro.engine.TerminalFileNeed
+import com.ncorror.nekoflash.pro.engine.TerminalParser
 import com.ncorror.nekoflash.pro.engine.TerminalPlan
 import com.ncorror.nekoflash.pro.engine.TerminalPlanStep
 import com.ncorror.nekoflash.pro.engine.fileNeed
@@ -24,13 +27,16 @@ interface DesktopCommandTargets {
     fun fastbootDownloadThen(then: List<String>, slot: String?, origin: () -> ArtifactSource)
     fun fastbootFetch(partition: String, destination: () -> ArtifactSink)
     fun adbShell(command: String)
-    fun adbInteractiveShell(firstLine: String?)
+    fun adbInteractiveShell(firstLine: String?, mode: ShellMode)
     fun adbService(service: String)
     fun adbReboot(target: String)
     fun adbPull(remotePath: String, destination: () -> ArtifactSink)
     fun adbPush(remotePath: String, origin: () -> ArtifactSource)
     fun adbSideload(origin: () -> ArtifactSource)
     fun adbInstall(origins: List<() -> ArtifactSource>, options: List<String>, several: Boolean)
+
+    /** Ответ приложения о своей связи: `devices`, `get-state`, `status`. */
+    fun localReport(tool: TerminalParser.Tool, kind: LocalReportKind): String
 }
 
 /** Файл, выбранный через Android для шага плана. */
@@ -54,6 +60,9 @@ sealed interface DesktopCommandStart {
 
     /** Команда называет [expected] файлов, а выбрано [picked]: ничего не отправлено. */
     data class FileCount(val expected: Int, val picked: Int) : DesktopCommandStart
+
+    /** Ответило само приложение; устройству ничего не отправлено. */
+    data class Answered(val text: String) : DesktopCommandStart
 }
 
 /**
@@ -67,6 +76,9 @@ sealed interface DesktopCommandStart {
 class DesktopCommandExecutor(private val targets: DesktopCommandTargets) {
     fun execute(plan: TerminalPlan, file: PickedFile?): DesktopCommandStart {
         val first = plan.steps.first()
+        if (first is TerminalPlanStep.LocalReport) {
+            return DesktopCommandStart.Answered(targets.localReport(first.tool, first.kind))
+        }
         return fileProblem(plan, file) ?: DesktopCommandStart.Started(
             if (first.isFastboot()) fastboot(plan.steps, file) else adb(first, file),
         )
@@ -119,7 +131,7 @@ class DesktopCommandExecutor(private val targets: DesktopCommandTargets) {
     private fun adb(step: TerminalPlanStep, file: PickedFile?): DesktopCommandArea = when (step) {
         is TerminalPlanStep.AdbShellCommand -> DesktopCommandArea.ADB_SHELL.also { targets.adbShell(step.command) }
         is TerminalPlanStep.AdbInteractiveShell ->
-            DesktopCommandArea.ADB_TERMINAL.also { targets.adbInteractiveShell(step.firstLine) }
+            DesktopCommandArea.ADB_TERMINAL.also { targets.adbInteractiveShell(step.firstLine, step.mode) }
         is TerminalPlanStep.AdbService -> DesktopCommandArea.ADB_SERVICE.also { targets.adbService(step.service) }
         is TerminalPlanStep.AdbReboot -> DesktopCommandArea.ADB_REBOOT.also { targets.adbReboot(step.target) }
         is TerminalPlanStep.AdbPull ->

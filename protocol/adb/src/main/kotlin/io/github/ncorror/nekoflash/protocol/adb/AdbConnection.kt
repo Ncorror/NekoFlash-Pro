@@ -266,13 +266,17 @@ public class AdbConnection(
      * железе: `07` §6.41 — одноразовые команды при живой оболочке, §6.43 —
      * чтение файла во время трёхминутного `logcat`.
      */
-    public fun interactiveShell(diagnostics: DiagnosticSink = DiagnosticSink { }): AdbInteractiveShell {
+    public fun interactiveShell(
+        diagnostics: DiagnosticSink = DiagnosticSink { },
+        mode: AdbShellMode = AdbShellMode.PTY,
+    ): AdbInteractiveShell {
         ensureDispatching()
         return AdbInteractiveShell(
             writer = writer,
             dispatcher = dispatcher,
-            useShellV2 = supportsShellV2,
+            useShellV2 = supportsShellV2 && mode != AdbShellMode.LEGACY,
             diagnostics = diagnostics,
+            raw = mode == AdbShellMode.RAW,
         )
     }
 

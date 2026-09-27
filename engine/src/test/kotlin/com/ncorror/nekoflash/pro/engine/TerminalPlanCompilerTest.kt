@@ -64,8 +64,7 @@ class TerminalPlanCompilerTest {
             "fastboot boot kernel ramdisk",
             "adb install --no-streaming app.apk",
             "adb install --fastdeploy app.apk",
-            "adb shell -x",
-            "adb shell -T",
+            "fastboot -s ABC devices",
         )) {
             assertIs<TerminalPlanResult.NotImplemented>(compiler.compile(command), command)
         }
@@ -133,6 +132,26 @@ class TerminalPlanCompilerTest {
         assertEquals(listOf(TerminalPlanStep.FastbootFlashImage("boot", "boot.img", "a")),
             steps("fastboot --slot a flash boot boot.img"))
         assertEquals(listOf(TerminalPlanStep.FastbootWire("erase:cache", "all")), steps("fastboot --slot=all erase cache"))
+    }
+
+    @Test
+    fun shellWithoutACommandOpensTheModeItNames() {
+        assertEquals(listOf(TerminalPlanStep.AdbInteractiveShell(mode = ShellMode.LEGACY)), steps("adb shell -x"))
+        assertEquals(listOf(TerminalPlanStep.AdbInteractiveShell(mode = ShellMode.RAW)), steps("adb shell -T"))
+        assertEquals(listOf(TerminalPlanStep.AdbInteractiveShell(mode = ShellMode.PTY)), steps("adb shell -t"))
+    }
+
+    @Test
+    fun devicesStateAndStatusAreAnsweredByTheApp() {
+        fun report(tool: TerminalParser.Tool, kind: LocalReportKind) = listOf(TerminalPlanStep.LocalReport(tool, kind))
+        assertEquals(report(TerminalParser.Tool.ADB, LocalReportKind.DEVICES), steps("adb devices"))
+        assertEquals(report(TerminalParser.Tool.ADB, LocalReportKind.DEVICES_LONG), steps("adb devices -l"))
+        assertEquals(report(TerminalParser.Tool.ADB, LocalReportKind.GET_STATE), steps("adb get-state"))
+        assertEquals(report(TerminalParser.Tool.ADB, LocalReportKind.STATUS), steps("adb status"))
+        assertEquals(report(TerminalParser.Tool.FASTBOOT, LocalReportKind.DEVICES), steps("fastboot devices"))
+        assertEquals(report(TerminalParser.Tool.FASTBOOT, LocalReportKind.DEVICES_LONG), steps("fastboot devices -l"))
+        assertEquals(report(TerminalParser.Tool.FASTBOOT, LocalReportKind.STATUS), steps("fastboot status"))
+        assertIs<TerminalPlanResult.NotImplemented>(compiler.compile("fastboot --set-active=a devices"))
     }
 
     @Test

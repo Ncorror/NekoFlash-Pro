@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
@@ -20,6 +21,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
+import com.ncorror.nekoflash.pro.engine.LocalReportKind
+import com.ncorror.nekoflash.pro.engine.ShellMode
 import com.ncorror.nekoflash.pro.engine.TerminalFileNeed
 import com.ncorror.nekoflash.pro.engine.TerminalParser
 import com.ncorror.nekoflash.pro.engine.TerminalPlan
@@ -35,6 +38,7 @@ import io.github.ncorror.nekoflash.adb.AdbInstallState
 import io.github.ncorror.nekoflash.adb.AdbRawServiceState
 import io.github.ncorror.nekoflash.adb.AdbRebootState
 import io.github.ncorror.nekoflash.adb.AdbSideloadState
+import io.github.ncorror.nekoflash.adb.AdbTerminalState
 import io.github.ncorror.nekoflash.command.DesktopCommandArea
 import io.github.ncorror.nekoflash.command.DesktopCommandStart
 import io.github.ncorror.nekoflash.fastboot.FastbootConsoleState
@@ -66,6 +70,8 @@ data class DesktopCommandPanel(
     val area: DesktopCommandArea? = null,
     /** Выбор файла не подошёл плану: ничего не отправлено. */
     val fileProblem: DesktopCommandStart? = null,
+    /** Ответ самого приложения: `devices`, `get-state`, `status`. */
+    val answer: String? = null,
     val outcomes: DesktopCommandOutcomes = DesktopCommandOutcomes(),
 )
 
@@ -78,6 +84,7 @@ data class DesktopCommandOutcomes(
     val files: AdbFileState = AdbFileState.None,
     val sideload: AdbSideloadState = AdbSideloadState.None,
     val install: AdbInstallState = AdbInstallState.None,
+    val terminal: AdbTerminalState = AdbTerminalState(),
 )
 
 @Composable
@@ -112,8 +119,16 @@ internal fun DesktopCommandSection(panel: DesktopCommandPanel) {
         when (val problem = panel.fileProblem) {
             is DesktopCommandStart.FileCount ->
                 CommandLine(stringResource(R.string.command_file_count, problem.expected, problem.picked))
-            null, is DesktopCommandStart.Started -> Unit
+            null, is DesktopCommandStart.Started, is DesktopCommandStart.Answered -> Unit
             DesktopCommandStart.FileMissing -> CommandLine(stringResource(R.string.command_file_missing))
+        }
+        panel.answer?.let { answer ->
+            SelectionContainer {
+                Text(
+                    text = answer.ifBlank { stringResource(R.string.command_answer_empty) },
+                    style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
+                )
+            }
         }
         CommandOutcome(panel.area, panel.outcomes)
         Text(text = stringResource(R.string.command_note), style = MaterialTheme.typography.bodySmall)
@@ -216,9 +231,17 @@ private fun baseStepText(step: TerminalPlanStep): String = when (step) {
     is TerminalPlanStep.FastbootFetch ->
         stringResource(R.string.command_step_fastboot_fetch, step.partition, step.destinationName)
     is TerminalPlanStep.AdbShellCommand -> stringResource(R.string.command_step_adb_shell, step.command)
-    is TerminalPlanStep.AdbInteractiveShell -> step.firstLine
-        ?.let { stringResource(R.string.command_step_adb_interactive_line, it) }
-        ?: stringResource(R.string.command_step_adb_interactive)
+    is TerminalPlanStep.AdbInteractiveShell -> when (step.mode) {
+        ShellMode.RAW -> stringResource(R.string.command_step_adb_shell_raw)
+        ShellMode.LEGACY -> stringResource(R.string.command_step_adb_shell_legacy)
+        ShellMode.PTY -> step.firstLine
+            ?.let { stringResource(R.string.command_step_adb_interactive_line, it) }
+            ?: stringResource(R.string.command_step_adb_interactive)
+    }
+    is TerminalPlanStep.LocalReport -> stringResource(
+        R.string.command_step_local_report,
+        "${step.tool.prefix} ${localReportName(step.kind)}",
+    )
     is TerminalPlanStep.AdbService -> stringResource(R.string.command_step_adb_service, step.service)
     is TerminalPlanStep.AdbReboot -> stringResource(R.string.command_step_adb_reboot, step.target)
     is TerminalPlanStep.AdbPull -> stringResource(R.string.command_step_adb_pull, step.remotePath, step.localName)
@@ -235,7 +258,14 @@ private fun baseStepText(step: TerminalPlanStep): String = when (step) {
 @Composable
 private fun CommandOutcome(area: DesktopCommandArea?, outcomes: DesktopCommandOutcomes) {
     when (area) {
-        null, DesktopCommandArea.ADB_TERMINAL -> Unit
+        null -> Unit
+        // Открытая оболочка может быть другого режима, чем просили: вторую
+        // рядом не открыть. Какой она на деле — видно здесь.
+        DesktopCommandArea.ADB_TERMINAL -> if (outcomes.terminal.active) {
+            CommandLine(
+                stringResource(R.string.command_terminal_open, terminalModeText(outcomes.terminal.mode)),
+            )
+        }
         DesktopCommandArea.FASTBOOT -> FastbootOutcomePane(outcomes.fastboot)
         DesktopCommandArea.ADB_SHELL -> ShellOutcome(outcomes.shell)
         DesktopCommandArea.ADB_SERVICE -> CommandLine(rawServiceText(outcomes.service))
@@ -244,6 +274,13 @@ private fun CommandOutcome(area: DesktopCommandArea?, outcomes: DesktopCommandOu
         DesktopCommandArea.ADB_SIDELOAD -> CommandLine(sideloadText(outcomes.sideload))
         DesktopCommandArea.ADB_INSTALL -> CommandLine(installText(outcomes.install))
     }
+}
+
+private fun localReportName(kind: LocalReportKind): String = when (kind) {
+    LocalReportKind.DEVICES -> "devices"
+    LocalReportKind.DEVICES_LONG -> "devices -l"
+    LocalReportKind.GET_STATE -> "get-state"
+    LocalReportKind.STATUS -> "status"
 }
 
 /** Исход установки: ответ `package` как есть, байты — отдельно. */

@@ -51,6 +51,28 @@ class AdbInteractiveShellTest {
     }
 
     @Test
+    fun rawModeAsksForShellV2WithoutATerminal() {
+        val device = Device()
+        device.shell(useShellV2 = true, raw = true).open()
+
+        assertEquals(
+            "${AdbInteractiveShell.SERVICE_RAW}\u0000",
+            device.handle.sentFrames().single().payload.decodeToString(),
+        )
+    }
+
+    @Test
+    fun rawModeWithoutShellV2IsThePlainShell() {
+        val device = Device()
+        device.shell(useShellV2 = false, raw = true).open()
+
+        assertEquals(
+            "${AdbInteractiveShell.SERVICE_LEGACY}\u0000",
+            device.handle.sentFrames().single().payload.decodeToString(),
+        )
+    }
+
+    @Test
     fun okayPublishesOpenedEvent() {
         val device = Device(okay())
         val shell = device.shell(useShellV2 = true)
@@ -457,11 +479,13 @@ class AdbInteractiveShellTest {
         fun shell(
             useShellV2: Boolean,
             diagnostics: InMemoryDiagnosticSink = InMemoryDiagnosticSink(),
+            raw: Boolean = false,
         ) = AdbInteractiveShell(
             writer = harness.writer,
             dispatcher = harness.dispatcher,
             useShellV2 = useShellV2,
             diagnostics = diagnostics,
+            raw = raw,
         )
 
         /**

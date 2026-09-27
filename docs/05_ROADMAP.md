@@ -2,7 +2,7 @@
 
 **Единственный источник статуса проекта.** Другие документы описывают цель и правила; что сделано — только здесь. Статус меняется тем же коммитом, что и код.
 
-Версия APK: `0.32.0-dev`
+Версия APK: `0.33.0-dev`
 
 Текущий этап: **Этап 3 — Команды настольных `adb`/`fastboot` поверх нового ядра**
 
@@ -85,10 +85,10 @@
 | `--disable-verity`, `--disable-verification` при `flash vbmeta*` | `в репо` | `VbmetaFlagsSource`: биты `flags` заголовка AVB правятся потоком, не-AVB образ — отказ до отправки |
 | Команды ADB: `shell`, `shell -t`, `logcat`, `exec`, `push`/`pull` одного файла, `sideload`, `reboot`, `root`/`unroot`, `remount`, `usb`, `tcpip`, `uninstall`, `raw` | `в репо` | те же сервисы, что у настольного клиента; `logcat` и `shell -t` — в живой оболочке терминала |
 | Команды ADB: `shell -T КОМАНДА` (разовая без PTY), `shell -x КОМАНДА` (старый `shell:` без кода выхода) | `в репо` | |
-| Команды ADB: `devices`, `get-state`, `status`, `shell -x`/`-T` без команды | `нет` | ответ из состояния приложения, без устройства; до реализации — «не реализовано» |
+| Команды `adb devices [-l]`, `get-state`, `status`, `fastboot devices [-l]`, `status`; `adb shell -x`/`-T` без команды | `в репо` | `LocalReports`: строки Platform-Tools из состояния связи приложения, устройству ничего не уходит; `-T` — живая оболочка `shell,v2,raw:`, `-x` — `shell:`, режим виден в терминале (D054) |
 | Команды ADB: `install`, `install-multiple` с флагами `package` | `в репо` | `AdbInstallController`: `exec:cmd package install -S`, сессия `install-create`/`install-write`/`install-commit`, при сбое — `install-abandon` |
 | Общая проверка на телефоне | `проверено` | шаги A–I на 0.30.0, [журнал 07](07_BUILD_AND_TESTING.md#журнал-проверок-этого-apk) |
-| Проверка на телефоне: установка APK, слоты, флаги vbmeta | `нет` | [07](07_BUILD_AND_TESTING.md#ручная-проверка-на-телефоне), план этапа 3, часть 2 |
+| Проверка на телефоне: установка APK, `devices`/`get-state`, режимы оболочки, слоты, флаги vbmeta | `нет` | [07](07_BUILD_AND_TESTING.md#ручная-проверка-на-телефоне), план этапа 3, часть 2 |
 
 ## Этап 4 — Fastboot до конца
 

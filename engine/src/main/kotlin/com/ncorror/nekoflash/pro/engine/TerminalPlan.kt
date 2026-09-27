@@ -38,8 +38,18 @@ sealed interface TerminalPlanStep {
     /**
      * Интерактивная оболочка терминала; [firstLine] уходит в неё сразу после
      * открытия — так исполняются `adb logcat` и `adb shell -t КОМАНДА`.
+     * [mode] — какой сервис открыть: `adb shell -T` и `adb shell -x` без
+     * команды просят не тот терминал, что просто `adb shell`.
      */
-    data class AdbInteractiveShell(val firstLine: String? = null) : TerminalPlanStep
+    data class AdbInteractiveShell(val firstLine: String? = null, val mode: ShellMode = ShellMode.PTY) :
+        TerminalPlanStep
+
+    /**
+     * Ответ из состояния самого приложения, без обмена с устройством:
+     * `devices`, `get-state`, `status`. Настольный клиент берёт его у своего
+     * сервера, здесь сервер — это приложение.
+     */
+    data class LocalReport(val tool: TerminalParser.Tool, val kind: LocalReportKind) : TerminalPlanStep
 
     /** Произвольный сервис ADB без подмены: `exec:`, `root:`, `remount:` и прочие. */
     data class AdbService(val service: String) : TerminalPlanStep
@@ -69,6 +79,21 @@ sealed interface TerminalPlanStep {
  * уточняет исполнитель на устройстве до отправки.
  */
 const val SET_ACTIVE_OTHER: String = "set_active:other"
+
+/** Режим живой оболочки — как у настольного `adb shell`. */
+enum class ShellMode {
+    /** `shell,v2,pty:` — терминал; без `shell,v2` устройство даёт только `shell:`. */
+    PTY,
+
+    /** `-T`: `shell,v2,raw:` — без терминала; без `shell,v2` остаётся `shell:`. */
+    RAW,
+
+    /** `-x`: старый `shell:` даже там, где есть `shell,v2`. */
+    LEGACY,
+}
+
+/** Что спрашивают у приложения о связи. */
+enum class LocalReportKind { DEVICES, DEVICES_LONG, GET_STATE, STATUS }
 
 /** Какой файл нужен шагу и в какую сторону он идёт. */
 enum class TerminalFileNeed { NONE, OPEN, OPEN_MANY, CREATE }

@@ -38,6 +38,7 @@ import io.github.ncorror.nekoflash.adb.AdbLinkState
 import io.github.ncorror.nekoflash.adb.AdbRawServiceState
 import io.github.ncorror.nekoflash.adb.AdbRebootState
 import io.github.ncorror.nekoflash.adb.AdbTerminalState
+import io.github.ncorror.nekoflash.protocol.adb.AdbShellMode
 import io.github.ncorror.nekoflash.core.model.SessionGeneration
 import io.github.ncorror.nekoflash.protocol.adb.AdbPeerMode
 import io.github.ncorror.nekoflash.protocol.adb.AdbSyncDestination
@@ -374,6 +375,16 @@ data class TerminalActions(
  * догадкам. Интерактивные записи при этом идут отдельным writer executor и не
  * блокируют UI.
  */
+/** Режим живой оболочки — как его назвал бы настольный `adb shell`. */
+@Composable
+internal fun terminalModeText(mode: AdbShellMode): String = stringResource(
+    when (mode) {
+        AdbShellMode.PTY -> R.string.command_terminal_mode_pty
+        AdbShellMode.RAW -> R.string.terminal_mode_raw
+        AdbShellMode.LEGACY -> R.string.terminal_mode_legacy
+    },
+)
+
 @Composable
 internal fun TerminalSection(terminal: AdbTerminalState, actions: TerminalActions) {
     val input = remember { mutableStateOf("") }
@@ -388,6 +399,9 @@ internal fun TerminalSection(terminal: AdbTerminalState, actions: TerminalAction
             else -> stringResource(R.string.terminal_waiting)
         },
     )
+    if (terminal.mode != AdbShellMode.PTY) {
+        Text(text = terminalModeText(terminal.mode), style = MaterialTheme.typography.bodySmall)
+    }
     if (terminal.active) {
         Row(
             horizontalArrangement = Arrangement.spacedBy(8.dp),

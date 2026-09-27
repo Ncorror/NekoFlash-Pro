@@ -118,8 +118,13 @@ internal object FastbootPlans {
         is FastbootCommand.DeviceQuery -> command.takeIf { it.query == IS_LOGICAL }
             ?.let { listOf(TerminalPlanStep.FastbootGetvar("$IS_LOGICAL:${it.argument}")) }
         is FastbootCommand.Wire -> listOf(TerminalPlanStep.FastbootWire(command.payload))
+        FastbootCommand.LocalStatus -> listOf(report(LocalReportKind.STATUS))
+        is FastbootCommand.Devices ->
+            listOf(report(if (command.longFormat) LocalReportKind.DEVICES_LONG else LocalReportKind.DEVICES))
         else -> null
     }
+
+    private fun report(kind: LocalReportKind) = TerminalPlanStep.LocalReport(TerminalParser.Tool.FASTBOOT, kind)
 
     private fun hostScenario(command: FastbootCommand): String = "fastboot " + when (command) {
         is FastbootCommand.FlashVendorBootRamdisk -> "flash vendor_boot:${command.ramdisk}"
@@ -133,8 +138,6 @@ internal object FastbootPlans {
         is FastbootCommand.UpdateSuper -> "update-super"
         is FastbootCommand.SetActive -> "--set-active"
         is FastbootCommand.DeviceQuery -> command.query
-        FastbootCommand.LocalStatus -> "status"
-        is FastbootCommand.Devices -> "devices"
         else -> command.toString()
     }
 

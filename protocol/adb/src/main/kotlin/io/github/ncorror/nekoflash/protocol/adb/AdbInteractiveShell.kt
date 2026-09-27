@@ -23,6 +23,9 @@ public sealed interface AdbShellEvent {
     public data class Broken(val reason: String) : AdbShellEvent
 }
 
+/** Какой терминал просят у `adb shell`: обычный, `-T` или `-x`. */
+public enum class AdbShellMode { PTY, RAW, LEGACY }
+
 /**
  * Живая оболочка на устройстве.
  *
@@ -50,13 +53,15 @@ public sealed interface AdbShellEvent {
  *
  * Устройство с `shell,v2` получает `shell,v2,pty:` — настоящий терминал с
  * разделением потоков. Без него остаётся `shell:`, где нет ни разделения, ни
- * кода возврата; так же выбирает Legacy.
+ * кода возврата; так же выбирает Legacy. [raw] — `adb shell -T`:
+ * `shell,v2,raw:`, те же рамки без терминала.
  */
 public class AdbInteractiveShell(
     private val writer: AdbPacketWriter,
     private val dispatcher: AdbStreamDispatcher,
     private val useShellV2: Boolean,
     private val diagnostics: DiagnosticSink = DiagnosticSink { },
+    private val raw: Boolean = false,
     private val clock: () -> Instant = { Clock.systemUTC().instant() },
 ) {
     private val frames = AdbShellFrameBuffer()
@@ -96,7 +101,11 @@ public class AdbInteractiveShell(
      * сочтёт нужным.
      */
     public fun open(): Boolean = synchronized(lock) {
-        val service = if (useShellV2) SERVICE_PTY else SERVICE_LEGACY
+        val service = when {
+            !useShellV2 -> SERVICE_LEGACY
+            raw -> SERVICE_RAW
+            else -> SERVICE_PTY
+        }
         val (box, packet) = dispatcher.open(service)
         mailbox = box
         val id = box.localId
@@ -381,6 +390,9 @@ public class AdbInteractiveShell(
     public companion object {
         /** Настоящий терминал: разделение потоков и код возврата. */
         public const val SERVICE_PTY: String = "shell,v2,pty:"
+
+        /** `shell,v2` без терминала: `adb shell -T`. */
+        public const val SERVICE_RAW: String = "shell,v2,raw:"
 
         /** Без `shell,v2`: ни разделения, ни кода возврата. */
         public const val SERVICE_LEGACY: String = "shell:"

@@ -352,6 +352,14 @@
     <string name="command_step_adb_pull">adb: %1$s into a place you choose (%2$s)</string>
     <string name="command_step_adb_push">adb: the picked file (%1$s) to %2$s</string>
     <string name="command_step_adb_sideload">adb: sideload of the picked archive (%1$s)</string>
+    <string name="command_step_adb_shell_raw">adb: the interactive shell below, without a terminal (shell,v2,raw:)</string>
+    <string name="command_step_adb_shell_legacy">adb: the interactive shell below over the plain shell: service, without an exit code</string>
+    <string name="command_step_local_report">%1$s: the app answers from its own connection state; nothing is sent to the device</string>
+    <string name="command_answer_empty">No devices.</string>
+    <string name="terminal_mode_raw">Mode: without a terminal (adb shell -T).</string>
+    <string name="terminal_mode_legacy">Mode: plain shell: service, no exit code (adb shell -x).</string>
+    <string name="command_terminal_open">The shell is open in the Terminal section. %1$s</string>
+    <string name="command_terminal_mode_pty">Mode: terminal.</string>
     <string name="command_note">The same engines run this as the buttons and the raw console. A path in the command is never opened directly: the file is picked through Android and bound to the plan shown above. A command or option without an executor answers \"not implemented\" before anything is sent, instead of turning into a different command.</string>
     <string name="command_file_count">The command names %1$d files, and %2$d were picked. Nothing was sent.</string>
     <string name="command_run_open_many">Pick the files and run</string>

@@ -32,25 +32,29 @@ internal object AdbPlans {
         is AdbCommand.Sync -> notImplemented("adb sync")
         is AdbCommand.Install -> install(listOf(command.packagePath), command.options, several = false)
         is AdbCommand.InstallMultiple -> install(command.packages, command.options, several = true)
-        AdbCommand.LocalStatus -> notImplemented("adb status")
-        is AdbCommand.Devices -> notImplemented("adb devices")
-        AdbCommand.GetState -> notImplemented("adb get-state")
+        AdbCommand.LocalStatus -> report(LocalReportKind.STATUS)
+        is AdbCommand.Devices ->
+            report(if (command.longFormat) LocalReportKind.DEVICES_LONG else LocalReportKind.DEVICES)
+        AdbCommand.GetState -> report(LocalReportKind.GET_STATE)
     }
 
     private fun shell(command: AdbCommand.Shell): TerminalPlanResult = when {
         // `-x` — без протокола shell v2 и кода выхода: это старый `shell:`.
         command.noExitCode && command.command.isNotEmpty() ->
             single(TerminalPlanStep.AdbService("shell:${command.command}"))
-        command.noExitCode -> notImplemented("adb shell -x")
+        command.noExitCode -> single(TerminalPlanStep.AdbInteractiveShell(mode = ShellMode.LEGACY))
         // `-T` — без PTY: так и так идёт разовая команда.
         command.tty == NO_TTY && command.command.isNotEmpty() ->
             single(TerminalPlanStep.AdbShellCommand(command.command))
-        command.tty == NO_TTY -> notImplemented("adb shell $NO_TTY")
+        command.tty == NO_TTY -> single(TerminalPlanStep.AdbInteractiveShell(mode = ShellMode.RAW))
         // Терминал и есть PTY: `-t` значит «в живой оболочке».
         command.tty != null || command.command.isEmpty() ->
             single(TerminalPlanStep.AdbInteractiveShell(command.command.ifEmpty { null }))
         else -> single(TerminalPlanStep.AdbShellCommand(command.command))
     }
+
+    private fun report(kind: LocalReportKind): TerminalPlanResult =
+        single(TerminalPlanStep.LocalReport(TerminalParser.Tool.ADB, kind))
 
     /** Аргумент для строки оболочки: простой — как есть, прочий — в одинарных кавычках. */
     private fun shellWord(word: String): String =

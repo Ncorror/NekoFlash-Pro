@@ -4,6 +4,7 @@ import io.github.ncorror.nekoflash.core.diagnostics.DiagnosticSink
 import io.github.ncorror.nekoflash.protocol.adb.AdbConnection
 import io.github.ncorror.nekoflash.protocol.adb.AdbInteractiveShell
 import io.github.ncorror.nekoflash.protocol.adb.AdbShellEvent
+import io.github.ncorror.nekoflash.protocol.adb.AdbShellMode
 import java.util.concurrent.Executor
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -21,6 +22,8 @@ public data class AdbTerminalState(
     val output: String = "",
     /** Чем закончилась последняя сессия, если она закончилась. */
     val ended: String? = null,
+    /** Какой терминал открыт: обычный, `adb shell -T` или `adb shell -x`. */
+    val mode: AdbShellMode = AdbShellMode.PTY,
 )
 
 /**
@@ -77,16 +80,16 @@ public class AdbTerminalController(
      * Compose. До события [AdbShellEvent.Opened] состояние остаётся
      * `ready=false`, поэтому ранний ввод не может молча потеряться.
      */
-    public fun start(connection: AdbConnection, firstLine: String? = null) {
+    public fun start(connection: AdbConnection, firstLine: String? = null, mode: AdbShellMode = AdbShellMode.PTY) {
         val requestId = synchronized(lifecycleLock) {
             if (activeRequestId != null) return
             nextRequestId += 1
             activeRequestId = nextRequestId
             pendingLine = firstLine
-            mutableState.value = AdbTerminalState(active = true)
+            mutableState.value = AdbTerminalState(active = true, mode = mode)
             nextRequestId
         }
-        readerExecutor.execute { openAndPump(connection, requestId) }
+        readerExecutor.execute { openAndPump(connection, requestId, mode) }
     }
 
     /** Передаёт строку вместе с Enter, только когда peer подтвердил `OPEN`. */
@@ -147,9 +150,9 @@ public class AdbTerminalController(
         return shell.takeIf { wasReady && shellRequestId == requestId }?.let { it to requestId }
     }
 
-    private fun openAndPump(connection: AdbConnection, requestId: Long) {
+    private fun openAndPump(connection: AdbConnection, requestId: Long, mode: AdbShellMode) {
         if (markReaderStarted(requestId)) {
-            val session = connection.interactiveShell(diagnostics)
+            val session = connection.interactiveShell(diagnostics, mode)
             when {
                 !session.open() -> finishSession(session, requestId, OPEN_FAILED)
                 bindShell(session, requestId) -> pumpUntilClosed(session, requestId)
@@ -272,6 +275,7 @@ public class AdbTerminalController(
                     ready = ready && !closing,
                     closing = closing,
                     output = text.toString(),
+                    mode = mutableState.value.mode,
                 )
             }
         }
@@ -342,6 +346,7 @@ public class AdbTerminalController(
                 ready = false,
                 output = output,
                 ended = ended,
+                mode = mutableState.value.mode,
             )
         }
     }

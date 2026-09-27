@@ -1,5 +1,8 @@
 package io.github.ncorror.nekoflash.command
 
+import com.ncorror.nekoflash.pro.engine.LocalReportKind
+import com.ncorror.nekoflash.pro.engine.ShellMode
+import com.ncorror.nekoflash.pro.engine.TerminalParser
 import com.ncorror.nekoflash.pro.engine.TerminalPlan
 import com.ncorror.nekoflash.pro.engine.TerminalPlanCompiler
 import com.ncorror.nekoflash.pro.engine.TerminalPlanResult
@@ -98,6 +101,24 @@ class DesktopCommandExecutorTest {
     }
 
     @Test
+    fun shellModesReachTheTerminal() {
+        executor.execute(plan("adb shell -T"), null)
+        executor.execute(plan("adb shell -x"), null)
+
+        assertEquals(listOf("interactive RAW", "interactive LEGACY"), calls)
+    }
+
+    @Test
+    fun localReportsAreAnsweredWithoutTouchingTheEngines() {
+        assertEquals(
+            DesktopCommandStart.Answered("ADB DEVICES_LONG"),
+            executor.execute(plan("adb devices -l"), null),
+        )
+        assertEquals(DesktopCommandStart.Answered("FASTBOOT STATUS"), executor.execute(plan("fastboot status"), null))
+        assertEquals(emptyList<String>(), calls)
+    }
+
+    @Test
     fun slotTravelsWithTheCommandsItNames() {
         executor.execute(plan("fastboot --slot other flash boot boot.img"), picked)
         executor.execute(plan("fastboot --slot all erase cache"), null)
@@ -117,7 +138,9 @@ class DesktopCommandExecutorTest {
         }
         override fun fastbootFetch(partition: String, destination: () -> ArtifactSink) { calls += "fetch $partition" }
         override fun adbShell(command: String) { calls += "shell $command" }
-        override fun adbInteractiveShell(firstLine: String?) { calls += "interactive" + (firstLine?.let { " $it" } ?: "") }
+        override fun adbInteractiveShell(firstLine: String?, mode: ShellMode) {
+            calls += "interactive" + (firstLine?.let { " $it" } ?: "") + (if (mode == ShellMode.PTY) "" else " $mode")
+        }
         override fun adbService(service: String) { calls += "service $service" }
         override fun adbReboot(target: String) { calls += "reboot $target" }
         override fun adbPull(remotePath: String, destination: () -> ArtifactSink) { calls += "pull $remotePath" }
@@ -126,5 +149,6 @@ class DesktopCommandExecutorTest {
         override fun adbInstall(origins: List<() -> ArtifactSource>, options: List<String>, several: Boolean) {
             calls += "install ${origins.size} ${options.joinToString(",")} $several"
         }
+        override fun localReport(tool: TerminalParser.Tool, kind: LocalReportKind): String = "$tool $kind"
     }
 }

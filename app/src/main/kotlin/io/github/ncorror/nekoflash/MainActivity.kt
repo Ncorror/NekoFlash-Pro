@@ -169,7 +169,7 @@ class MainActivity : ComponentActivity() {
             recentEvents = RecentEvents { application.recentDiagnostics() },
             fastboot = fastbootPanel(fastbootLink, fastbootState, sessions),
             fastbootConsole = fastbootConsolePanel(fastbootLink, fastbootConsole, fastbootState, sessions),
-            desktopCommand = desktopCommandPanel(adbLink, fastbootLink),
+            desktopCommand = desktopCommandPanel(adbLink, fastbootLink, coordinator),
             onExportDiagnostics = { saveLauncher.launch(application.suggestedDiagnosticsFileName()) },
         )
     }

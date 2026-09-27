@@ -28,6 +28,7 @@ import io.github.ncorror.nekoflash.fastboot.FastbootLinkController
 import io.github.ncorror.nekoflash.fastboot.FastbootLinkState
 import io.github.ncorror.nekoflash.ui.DesktopCommandOutcomes
 import io.github.ncorror.nekoflash.ui.DesktopCommandPanel
+import io.github.ncorror.nekoflash.usb.api.UsbSessionCoordinator
 
 /**
  * Проводка команд настольных клиентов: выбор файла, исполнение, исход.
@@ -40,22 +41,23 @@ import io.github.ncorror.nekoflash.ui.DesktopCommandPanel
 internal fun desktopCommandPanel(
     adbLink: AdbLinkController,
     fastbootLink: FastbootLinkController,
+    coordinator: UsbSessionCoordinator,
 ): DesktopCommandPanel {
     val context = LocalContext.current
-    val executor = remember(adbLink, fastbootLink) {
-        DesktopCommandExecutor(ControllerCommandTargets(adbLink, fastbootLink, context.cacheDir))
+    val executor = remember(adbLink, fastbootLink, coordinator) {
+        DesktopCommandExecutor(
+            ControllerCommandTargets(adbLink, fastbootLink, context.cacheDir) { coordinator.sessions.value },
+        )
     }
     var area by remember { mutableStateOf<DesktopCommandArea?>(null) }
     var fileProblem by remember { mutableStateOf<DesktopCommandStart?>(null) }
+    var answer by remember { mutableStateOf<String?>(null) }
 
     fun run(plan: TerminalPlan, file: PickedFile?) {
         val started = executor.execute(plan, file)
-        if (started is DesktopCommandStart.Started) {
-            area = started.area
-            fileProblem = null
-        } else {
-            fileProblem = started
-        }
+        area = (started as? DesktopCommandStart.Started)?.area
+        answer = (started as? DesktopCommandStart.Answered)?.text
+        fileProblem = started.takeIf { it is DesktopCommandStart.FileMissing || it is DesktopCommandStart.FileCount }
     }
 
     val onRun = rememberFilePickers(::run)
@@ -71,8 +73,10 @@ internal fun desktopCommandPanel(
         onEdit = {
             area = null
             fileProblem = null
+            answer = null
         },
         area = area,
+        answer = answer,
         fileProblem = fileProblem,
         outcomes = DesktopCommandOutcomes(
             fastboot = fastbootLink.console.collectAsState().value,
@@ -82,6 +86,7 @@ internal fun desktopCommandPanel(
             files = adbLink.files.collectAsState().value,
             sideload = adbLink.sideload.collectAsState().value,
             install = adbLink.install.collectAsState().value,
+            terminal = adbLink.terminal.collectAsState().value,
         ),
     )
 }
