@@ -31,6 +31,8 @@ import io.github.ncorror.nekoflash.protocol.fastboot.FastbootPlan
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootPlanOutcome
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootVariable
 import io.github.ncorror.nekoflash.usb.api.UsbClaimResult
+import io.github.ncorror.nekoflash.usb.api.UsbSession
+import io.github.ncorror.nekoflash.usb.api.UsbSessionState
 import io.github.ncorror.nekoflash.usb.api.UsbTransportHandle
 import java.time.Instant
 import java.util.concurrent.Executor
@@ -69,6 +71,16 @@ public sealed interface FastbootLinkState {
 
     /** До обмена дело не дошло. */
     public data class Failed(val generation: SessionGeneration, val detail: String) : FastbootLinkState
+}
+
+/** Класс мутации исхода: у каждого варианта он свой, у отправленного заранее — по команде. */
+private fun mutationClassOf(outcome: FastbootMutationOutcome): FastbootMutationClass = when (outcome) {
+    is FastbootMutationOutcome.Applied -> outcome.mutation
+    is FastbootMutationOutcome.Refused -> outcome.mutation
+    is FastbootMutationOutcome.Unconfirmed -> outcome.mutation
+    is FastbootMutationOutcome.Unknown -> outcome.mutation
+    is FastbootMutationOutcome.Departed -> FastbootMutationClass.REBOOT
+    is FastbootMutationOutcome.NotStarted -> FastbootMutation.classify(outcome.command)
 }
 
 /**
@@ -138,6 +150,37 @@ public class FastbootLinkController(
         handle = null
         mutableConsole.value = FastbootConsoleState.Idle
         mutableState.value = FastbootLinkState.Idle
+    }
+
+    /**
+     * Сверяет связь с действительным состоянием сессий USB.
+     *
+     * Связь существует ровно столько, сколько жива сессия, в которой она
+     * заведена. Прогон этапа 2 показал цену обратного: кабель переподключили,
+     * сессия 1 закрылась, пришла сессия 2 — а экран продолжал показывать
+     * «Загрузчик» и кнопки сессии 1. Каждая команда честно отвечала «запись не
+     * состоялась: NOT_HELD», но экран утверждал связь, которой не было.
+     *
+     * Сбрасывается только связь закрытой или отпущенной сессии: живую новую
+     * никто не захватывает сам — опрос остаётся за оператором.
+     */
+    public fun onUsbSessionsChanged(sessions: List<UsbSession>) {
+        val stale = when (val state = mutableState.value) {
+            is FastbootLinkState.Connected -> state.generation.takeIf { generation ->
+                sessions.none { it.generation == generation && !it.closed && it.state == UsbSessionState.CLAIMED }
+            }
+            // Отказ остаётся на экране, пока его сессия существует: он
+            // единственное, что есть у оператора для разбора.
+            is FastbootLinkState.Failed -> state.generation.takeIf { generation ->
+                sessions.none { it.generation == generation && !it.closed }
+            }
+            // Опрос завершится сам и приведёт к одному из двух состояний выше.
+            FastbootLinkState.Idle, is FastbootLinkState.Probing -> null
+        }
+        if (stale != null) {
+            emit("fastboot_link_dropped", mapOf("generation" to stale.value.toString()))
+            disconnect()
+        }
     }
 
     /**
@@ -541,15 +584,6 @@ public class FastbootLinkController(
         } else {
             payload
         }
-
-    private fun mutationClassOf(outcome: FastbootMutationOutcome): FastbootMutationClass = when (outcome) {
-        is FastbootMutationOutcome.Applied -> outcome.mutation
-        is FastbootMutationOutcome.Refused -> outcome.mutation
-        is FastbootMutationOutcome.Unconfirmed -> outcome.mutation
-        is FastbootMutationOutcome.Unknown -> outcome.mutation
-        is FastbootMutationOutcome.Departed -> FastbootMutationClass.REBOOT
-        is FastbootMutationOutcome.NotStarted -> FastbootMutation.classify(outcome.command)
-    }
 
     private fun probe(generation: SessionGeneration, claimed: UsbTransportHandle) {
         handle = claimed
