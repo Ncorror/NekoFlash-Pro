@@ -9,6 +9,7 @@ import io.github.ncorror.nekoflash.core.diagnostics.DiagnosticSink
 import io.github.ncorror.nekoflash.core.model.SessionGeneration
 import io.github.ncorror.nekoflash.protocol.adb.AdbConnection
 import io.github.ncorror.nekoflash.protocol.adb.AdbHandshakeFailure
+import io.github.ncorror.nekoflash.protocol.adb.AdbMailboxEnd
 import io.github.ncorror.nekoflash.protocol.adb.AdbHandshakeOutcome
 import io.github.ncorror.nekoflash.protocol.adb.AdbKeyStore
 import io.github.ncorror.nekoflash.protocol.adb.AdbShellOutcome
@@ -569,6 +570,27 @@ public class AdbLinkController(
                 val current = mutableState.value
                 if (current is AdbLinkState.Connecting && current.generation == generation) {
                     mutableState.value = AdbLinkState.WaitingForAuthorization(generation)
+                }
+            },
+            // Соединение, потерявшее кадр, больше не соединение: прогон этапа 2
+            // показывал «Подключено», а каждая операция кончалась
+            // `FRAMING_LOST`. Причина остаётся на экране, интерфейс отпускается,
+            // и подключиться заново можно той же кнопкой.
+            onTransportEnd = { reason, detail ->
+                val current = mutableState.value
+                if (current is AdbLinkState.Connected && current.generation == generation) {
+                    forgetConnection()
+                    releaseAfterFailure(generation)
+                    mutableState.value = AdbLinkState.Failed(
+                        generation = generation,
+                        reason = if (reason == AdbMailboxEnd.FRAMING_LOST) {
+                            AdbHandshakeFailure.FRAMING_LOST
+                        } else {
+                            AdbHandshakeFailure.TRANSPORT_CLOSED
+                        },
+                        detail = detail,
+                        afterConnect = true,
+                    )
                 }
             },
         )

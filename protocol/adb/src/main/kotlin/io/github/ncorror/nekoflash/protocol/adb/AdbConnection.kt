@@ -1,5 +1,7 @@
 package io.github.ncorror.nekoflash.protocol.adb
 
+import io.github.ncorror.nekoflash.core.diagnostics.DiagnosticEvent
+import java.time.Instant
 import io.github.ncorror.nekoflash.core.diagnostics.DiagnosticSink
 import io.github.ncorror.nekoflash.usb.api.UsbTransportHandle
 import kotlinx.coroutines.CoroutineName
@@ -32,6 +34,8 @@ public class AdbConnection(
     apiLevel: Int,
     diagnostics: DiagnosticSink = DiagnosticSink { },
     onPublicKeySent: () -> Unit = { },
+    /** Транспорт кончился сам, не по [close]: причина и подробность из цикла раскладки. */
+    onTransportEnd: (AdbMailboxEnd, String) -> Unit = { _, _ -> },
 ) {
     /** Что объявляется peer'у и чем проверяется входящий кадр. */
     public val advertisedMaxPayload: Int = AdbInboundFraming.advertisedMaxPayload(apiLevel)
@@ -50,7 +54,19 @@ public class AdbConnection(
      */
     private val dispatcher = AdbStreamDispatcher(diagnostics = diagnostics)
 
-    private val dispatchLoop = AdbDispatchLoop(reader, writer, dispatcher)
+    private val dispatchLoop = AdbDispatchLoop(reader, writer, dispatcher) { reason, detail ->
+        // Конец транспорта пишется всегда, а не только через закрытый поток:
+        // потеря кадра без открытого потока иначе не оставляла следа в журнале.
+        diagnostics.emit(
+            DiagnosticEvent(
+                timestamp = Instant.now(),
+                category = AdbHandshake.DIAGNOSTIC_CATEGORY,
+                message = "transport_ended",
+                fields = mapOf("reason" to reason.name, "detail" to detail),
+            ),
+        )
+        onTransportEnd(reason, detail)
+    }
 
     /**
      * Scope цикла принадлежит соединению.

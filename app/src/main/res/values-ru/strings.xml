@@ -53,6 +53,7 @@
     <string name="adb_state_connecting">Идёт рукопожатие</string>
     <string name="adb_state_waiting">Публичный ключ отправлен; ждём авторизацию устройства. Android может показать системный RSA-диалог.</string>
     <string name="adb_state_connected">Подключено: %1$s</string>
+    <string name="adb_state_lost">Соединение потеряно: %1$s (%2$s). Подключитесь заново.</string>
     <string name="adb_state_failed">Рукопожатие не состоялось: %1$s (%2$s)</string>
     <string name="adb_features_label">Возможности peer\'а</string>
     <string name="adb_features_none">Peer не сообщил ни одной возможности</string>

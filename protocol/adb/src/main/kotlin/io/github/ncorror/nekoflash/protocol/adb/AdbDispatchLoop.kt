@@ -26,6 +26,15 @@ internal class AdbDispatchLoop(
     private val writer: AdbPacketWriter,
     private val dispatcher: AdbStreamDispatcher,
     private val readSliceMillis: Int = READ_SLICE_MS,
+    /**
+     * Сообщает владельцу, что транспорт кончился сам — обрывом или потерей
+     * кадра, а не по [stop].
+     *
+     * Без этого соединение, потерявшее кадр, продолжало называться живым:
+     * прогон этапа 2 показывал «Подключено», а каждая операция кончалась
+     * `FRAMING_LOST`.
+     */
+    private val onTransportEnd: (AdbMailboxEnd, String) -> Unit = { _, _ -> },
 ) {
     @Volatile
     private var running = true
@@ -81,28 +90,24 @@ internal class AdbDispatchLoop(
             // Тишина — обычное состояние: устройству нечего сказать.
             AdbReadOutcome.Idle -> Unit
 
-            AdbReadOutcome.Closed -> {
-                transportEnd = AdbMailboxEnd.TRANSPORT_CLOSED
-                dispatcher.abandonAll(AdbMailboxEnd.TRANSPORT_CLOSED, "transport closed")
-                running = false
-            }
+            AdbReadOutcome.Closed -> end(AdbMailboxEnd.TRANSPORT_CLOSED, "transport closed")
 
             // Потеря кадра делает недостоверным весь поток протокола, а не один
             // логический поток: после неё неизвестно, где начинается следующий
             // пакет. Уцелевших потоков не бывает (`03` §3).
-            is AdbReadOutcome.Failed -> {
-                transportEnd = AdbMailboxEnd.FRAMING_LOST
-                dispatcher.abandonAll(
-                    AdbMailboxEnd.FRAMING_LOST,
-                    "${outcome.reason.name} ${outcome.detail}",
-                )
-                running = false
-            }
+            is AdbReadOutcome.Failed -> end(AdbMailboxEnd.FRAMING_LOST, "${outcome.reason.name} ${outcome.detail}")
 
             is AdbReadOutcome.Received -> dispatcher.dispatch(outcome.packet).forEach { packet ->
                 writer.write(packet.command, packet.arg0, packet.arg1, packet.payload)
             }
         }
+    }
+
+    private fun end(reason: AdbMailboxEnd, detail: String) {
+        transportEnd = reason
+        dispatcher.abandonAll(reason, detail)
+        running = false
+        onTransportEnd(reason, detail)
     }
 
     companion object {

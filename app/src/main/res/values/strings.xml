@@ -58,6 +58,7 @@
     <string name="adb_state_connecting">Handshake in progress</string>
     <string name="adb_state_waiting">Public key sent; waiting for device authorization. Android may show an RSA confirmation dialog.</string>
     <string name="adb_state_connected">Connected: %1$s</string>
+    <string name="adb_state_lost">The connection was lost: %1$s (%2$s). Connect again.</string>
     <string name="adb_state_failed">Handshake failed: %1$s (%2$s)</string>
     <string name="adb_features_label">Peer features</string>
     <string name="adb_features_none">The peer reported no features</string>

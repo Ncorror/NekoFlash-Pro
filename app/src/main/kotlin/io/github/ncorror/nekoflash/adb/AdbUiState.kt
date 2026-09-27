@@ -31,11 +31,17 @@ public sealed interface AdbLinkState {
         val features: Set<String>,
     ) : AdbLinkState
 
-    /** Соединение не состоялось. */
+    /** Соединение не состоялось — или было и потеряно. */
     public data class Failed(
         val generation: SessionGeneration,
         val reason: AdbHandshakeFailure,
         val detail: String,
+        /**
+         * Соединение было установлено и потеряно, а не сорвалось рукопожатие.
+         * Для оператора это разные вещи: во втором случае устройство могло не
+         * ответить, в первом — оно отвечало, и пропал сам транспорт.
+         */
+        val afterConnect: Boolean = false,
     ) : AdbLinkState
 }
 

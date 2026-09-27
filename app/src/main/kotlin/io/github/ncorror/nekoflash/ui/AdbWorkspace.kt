@@ -840,8 +840,11 @@ private fun adbLinkText(state: AdbLinkState?): String = when (state) {
     is AdbLinkState.Connected ->
         stringResource(R.string.adb_state_connected, localizedPeerMode(state.peerMode))
 
-    is AdbLinkState.Failed ->
-        stringResource(R.string.adb_state_failed, state.reason.name, state.detail)
+    is AdbLinkState.Failed -> stringResource(
+        if (state.afterConnect) R.string.adb_state_lost else R.string.adb_state_failed,
+        state.reason.name,
+        state.detail,
+    )
 }
 
 @Composable
