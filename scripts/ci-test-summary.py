@@ -55,7 +55,7 @@ def main() -> int:
         f"Debug APK: {'present' if apk.is_file() else '**MISSING**'} "
         "(`app/build/outputs/apk/debug/app-debug.apk`).",
         "",
-        "See `docs/02_Manual_Test_Plan.md` for USB checks on a real phone. "
+        "See `docs/07_BUILD_AND_TESTING.md` for USB checks on a real phone. "
         "CI cannot perform those hardware checks.",
         "",
     ]

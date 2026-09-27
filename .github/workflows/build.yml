@@ -23,6 +23,8 @@ jobs:
       - uses: android-actions/setup-android@v4
         with:
           packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
+      - name: Check documentation and reference archives
+        run: python3 scripts/ci/check_docs.py
       - uses: gradle/actions/setup-gradle@v6
         with:
           cache-provider: basic
@@ -39,7 +41,7 @@ jobs:
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 14
-      - name: Upload test results and manual checklist
+      - name: Upload test results and build/testing guide
         if: always()
         uses: actions/upload-artifact@v6
         with:
@@ -58,6 +60,6 @@ jobs:
             core/diagnostics/build/reports/tests/test/
             app/build/reports/lint-results-debug.html
             app/build/reports/lint-results-debug.xml
-            docs/02_Manual_Test_Plan.md
+            docs/07_BUILD_AND_TESTING.md
           if-no-files-found: error
           retention-days: 14
