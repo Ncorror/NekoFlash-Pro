@@ -66,6 +66,15 @@ public class AdbStreamDispatcher(
 
     private var inbound: AdbInboundStreams? = null
 
+    /**
+     * Чем кончился транспорт, если кончился. Первая причина побеждает.
+     *
+     * Без неё поток, открытый **после** конца, получал ящик, в который уже
+     * никто ничего не положит: прогон этапа 2 открыл оболочку на соединении,
+     * потерявшем рамку, и экран вечно ждал `OKAY`, а «Закрыть» ждало его же.
+     */
+    private var abandoned: AdbMailboxItem.Ended? = null
+
     /** Ящики живых потоков в порядке открытия. */
     public val activeMailboxes: List<AdbStreamMailbox>
         get() = synchronized(lock) { mailboxes.values.toList() }
@@ -105,7 +114,14 @@ public class AdbStreamDispatcher(
     ): Pair<AdbStreamMailbox, AdbOutboundPacket> = synchronized(lock) {
         val (localId, packet) = router.openRequest(service)
         val mailbox = AdbStreamMailbox(localId, mailboxCapacity, acknowledgements)
-        mailboxes[localId] = mailbox
+        val end = abandoned
+        if (end == null) {
+            mailboxes[localId] = mailbox
+        } else {
+            // Читать ответ больше некому: ящик кончается сразу и той же
+            // причиной, что и транспорт.
+            mailbox.end(end.reason, end.detail)
+        }
         mailbox to packet
     }
 
@@ -148,6 +164,7 @@ public class AdbStreamDispatcher(
      * (`03_PROTOCOL_AND_SAFETY_INVARIANTS_RU.md` §3).
      */
     public fun abandonAll(reason: AdbMailboxEnd, detail: String): Unit = synchronized(lock) {
+        if (abandoned == null) abandoned = AdbMailboxItem.Ended(reason, detail)
         router.abandonAll()
         mailboxes.values.forEach { mailbox -> mailbox.end(reason, detail) }
         mailboxes.clear()

@@ -217,6 +217,26 @@ class AdbStreamDispatcherTest {
     }
 
     /** Первая причина конца побеждает: она точнее описывает случившееся. */
+    /**
+     * Поток, открытый после конца транспорта, кончается сразу той же причиной.
+     *
+     * Прогон этапа 2: оболочка, открытая на соединении с потерянной рамкой,
+     * вечно ждала `OKAY`, а закрыть её было нельзя — закрытие ждало его же.
+     */
+    @Test
+    fun aStreamOpenedAfterTheEndEndsAtOnce() {
+        val dispatcher = AdbStreamDispatcher()
+        dispatcher.abandonAll(AdbMailboxEnd.FRAMING_LOST, "PAYLOAD_TRANSFER_FAILED expected=42422")
+        dispatcher.abandonAll(AdbMailboxEnd.TRANSPORT_CLOSED, "dispatch loop stopped")
+
+        val (mailbox, _) = dispatcher.open("shell,v2,pty:")
+
+        val ended = mailbox.poll(0) as AdbMailboxItem.Ended
+        assertEquals(AdbMailboxEnd.FRAMING_LOST, ended.reason)
+        assertTrue(ended.detail.contains("expected=42422"))
+        assertTrue(dispatcher.activeMailboxes.isEmpty())
+    }
+
     @Test
     fun theFirstEndWins() {
         val dispatcher = AdbStreamDispatcher()
