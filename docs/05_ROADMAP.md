@@ -2,7 +2,7 @@
 
 **Единственный источник статуса проекта.** Другие документы описывают цель и правила; что сделано — только здесь. Статус меняется тем же коммитом, что и код.
 
-Версия APK: `0.28.0-dev`
+Версия APK: `0.29.0-dev`
 
 Текущий этап: **Этап 3 — Команды настольных `adb`/`fastboot` поверх нового ядра**
 
@@ -34,7 +34,7 @@
 | Version catalog | `в репо` | `gradle/libs.versions.toml` |
 | Одна линия инструментов — архива: AGP 9.3.2, Kotlin 2.4.10, Compose BOM 2026.08.00, `compileSdk` 37 | `в репо` | D048 |
 | Gradle Wrapper 9.5.0, совпадающий с генерацией самого Gradle 9.5.0 | `в репо` | `gradle/wrapper/` |
-| detekt и машинная проверка границ модулей; `:engine` — с baseline | `в репо` | `config/detekt/`, `scripts/ci/check_kotlin_style.sh` |
+| detekt и машинная проверка границ модулей | `в репо` | `config/detekt/`, `scripts/ci/check_kotlin_style.sh` |
 | Проверки гигиены дерева, локализации, Compose wiring | `в репо` | `scripts/ci/` |
 | Постоянная debug-подпись из секрета CI | `в репо` | секрет `NEKOFLASH_DEBUG_KEYSTORE_BASE64` задаёт владелец репозитория ([07](07_BUILD_AND_TESTING.md#сборка)) |
 | Локальная сборка: JDK 17, Android SDK, зеркало Maven Central, SessionStart hook | `в репо` | `scripts/dev/provision_android_toolchain.sh`, `.claude/` |
@@ -76,12 +76,14 @@
 | --- | --- | --- |
 | ADB: оболочка с `logcat` изредка обрывается `PAYLOAD_TRANSFER_FAILED` при живом кабеле | `нет` | 3 раза на 0.23.0–0.25.0, причина не установлена; в 0.27.0 отказ пишет `waitedMs`, 40 с `logcat` без обрыва (D051) |
 | ADB: после потери рамки строка соединения показывает «Подключено» | `в репо` | `AdbDispatchLoop` сообщает конец транспорта, связь → «Соединение потеряно», интерфейс отпускается; событие `transport_ended` (D051) |
-| Разбор команд в типизированные намерения | `нет` | код и 25 тестов в `:engine`; приложение архива его ещё не вызывает |
-| План, Preview и исполнение через движки архива | `нет` | |
-| `fastboot flash РАЗДЕЛ` с файлом, выбранным через Android: `download` + `flash:` одной операцией | `нет` | в приложении архива это два действия: загрузка файла и команда `flash:` |
-| `:engine` без baseline detekt | `нет` | `config/detekt/engine-baseline.xml` |
-| Сценарии хоста Fastboot: `format`, `-w`, `wipe-super`, `update`/`flashall`, `vendor_boot:RAMDISK`, слоты и `--set-active` | `нет` | [04](04_CAPABILITIES.md#3-команды-настольных-adb-и-fastboot) |
-| Команды ADB: `shell`/`exec`/`logcat`, `push`/`pull`/`sync`, `install*`, `sideload`, `reboot`/`root`/`remount`/`tcpip`/`uninstall` | `нет` | 04 |
+| Разбор команд в типизированные намерения | `в репо` | `:engine` (`TerminalParser`, `FastbootLineParser`, `AdbLineParser`), 23 теста; неизвестный глагол `adb` не становится `shell` |
+| План, Preview и исполнение через движки архива | `в репо` | `TerminalPlanCompiler` без списков разрешённого, `DesktopCommandExecutor` → те же входы, что у кнопок; секция «Команда adb или fastboot» во вкладке «Терминал»; D052 |
+| `fastboot flash РАЗДЕЛ` с файлом, выбранным через Android: `download` + `flash:` одной операцией | `в репо` | `FastbootLinkController.downloadFrom(then)`: команды идут, только если устройство приняло весь объём с `OKAY` |
+| `:engine` без baseline detekt | `в репо` | baseline удалён, парсер разделён на части |
+| `--set-active=СЛОТ` вместе с `flash`, `boot` и wire-командами | `в репо` | `set_active` следом в той же операции |
+| Сценарии хоста Fastboot: `format`, `-w`, `wipe-super`, `update`/`flashall`, `vendor_boot:RAMDISK`, `--slot`, `--set-active` без слота, `-S`, `--force`, `--skip-*`, флаги vbmeta | `нет` | до реализации — «не реализовано» до отправки; [04](04_CAPABILITIES.md#3-команды-настольных-adb-и-fastboot) |
+| Команды ADB: `shell`, `exec`, `push`/`pull` одного файла, `sideload`, `reboot`, `root`/`unroot`, `remount`, `usb`, `tcpip`, `uninstall`, `raw` | `в репо` | те же сервисы, что у настольного клиента |
+| Команды ADB: `logcat`, `sync`, `install*`, `shell -t`/`-x`, `push`/`pull` нескольких файлов и с опциями, `devices`/`get-state`/`status` | `нет` | до реализации — «не реализовано» до отправки; 04 |
 
 ## Этап 4 — Fastboot до конца
 

@@ -85,7 +85,7 @@ ArtifactSink:   временное место, точный счёт, commit т�
 
 <!-- modules:begin -->
 - `:app` — приложение архива: рабочее место устройства, ADB, Fastboot, Recovery/Sideload, операции, диагностика. Пакеты `io.github.ncorror.nekoflash`, `applicationId` `com.ncorror.nekoflash.pro`.
-- `:engine` — разбор команд настольных клиентов и план с Preview; приложение архива его пока не вызывает ([05](05_ROADMAP.md)).
+- `:engine` — разбор команд настольных клиентов и план с Preview; пакет `com.ncorror.nekoflash.pro.engine`. Исполняет план приложение (`app/.../command/`) теми же входами движков, что у кнопок.
 - `:core:model` — из архива.
 - `:core:diagnostics` — из архива, плюс обезличивание экспорта `DiagnosticRedaction`.
 - `:core:operation` — из архива.

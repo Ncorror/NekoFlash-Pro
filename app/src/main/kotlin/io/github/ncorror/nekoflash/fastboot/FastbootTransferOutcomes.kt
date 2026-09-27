@@ -7,6 +7,12 @@ import io.github.ncorror.nekoflash.protocol.fastboot.FastbootDownloadOutcome
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootFetchOutcome
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootLaneState
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootReply
+import io.github.ncorror.nekoflash.protocol.fastboot.FastbootGetVar
+import io.github.ncorror.nekoflash.protocol.fastboot.FastbootLane
+import io.github.ncorror.nekoflash.protocol.fastboot.FastbootMutation
+import io.github.ncorror.nekoflash.protocol.fastboot.FastbootMutationOutcome
+import io.github.ncorror.nekoflash.protocol.fastboot.FastbootPlan
+import io.github.ncorror.nekoflash.protocol.fastboot.FastbootPlanOutcome
 
 /*
  * Перевод исходов передач Fastboot в то, что увидит оператор.
@@ -140,4 +146,60 @@ internal fun downloaded(
         untouched = true,
         lane = lane,
     )
+}
+
+internal fun planned(
+    commands: List<String>,
+    outcome: FastbootPlanOutcome,
+    lane: FastbootLaneState,
+): FastbootConsoleState = when (outcome) {
+    is FastbootPlanOutcome.Completed -> FastbootConsoleState.Planned(
+        commands = commands,
+        applied = outcome.applied.size,
+        stoppedAt = null,
+        detail = "",
+        lane = lane,
+    )
+
+    is FastbootPlanOutcome.Stopped -> FastbootConsoleState.Planned(
+        commands = commands,
+        applied = outcome.applied.size,
+        stoppedAt = outcome.index,
+        detail = "${outcome.command}: ${describe(outcome.outcome)}",
+        lane = lane,
+    )
+}
+
+/** Короткое слово об исходе шага — то же, что пишется в `claim`. */
+internal fun describe(outcome: FastbootMutationOutcome): String = when (outcome) {
+    is FastbootMutationOutcome.Applied -> "выполнено"
+    is FastbootMutationOutcome.Refused -> "устройство отказало: ${outcome.detail}"
+    is FastbootMutationOutcome.Unconfirmed -> "OKAY без подтверждения: ${outcome.detail}"
+    is FastbootMutationOutcome.Departed -> "устройство ушло, не ответив"
+    is FastbootMutationOutcome.Unknown -> "неизвестно: ${outcome.detail}"
+    is FastbootMutationOutcome.NotStarted -> "не отправлено: ${outcome.detail}"
+}
+
+/** Команды после принятой загрузки — тем же планом, что и у кнопок. */
+internal fun downloadedThen(size: Long, then: List<String>, lane: FastbootLane): FastbootConsoleState {
+    val rest = planned(then, FastbootPlan(then).run(FastbootMutation(lane, FastbootGetVar(lane))), lane.state)
+            as FastbootConsoleState.Planned
+    return rest.copy(
+        commands = listOf(downloadStep(size)) + then,
+        applied = rest.applied + 1,
+        stoppedAt = rest.stoppedAt?.plus(1),
+    )
+}
+
+/** Как шаг загрузки выглядит в плане: так, как его увидит устройство. */
+internal fun downloadStep(size: Long): String = "download:%08x".format(size)
+
+/** Почему после загрузки команды не пошли: слово об исходе самой загрузки. */
+internal fun describeDownload(outcome: FastbootDownloadOutcome): String = when (outcome) {
+    is FastbootDownloadOutcome.Answered ->
+        "download: ${outcome.reply.name} ${outcome.payload}, передано ${outcome.bytesSent} байт".trim()
+    is FastbootDownloadOutcome.Refused -> "download: устройство отказало до передачи: ${outcome.detail}"
+    is FastbootDownloadOutcome.Unknown ->
+        "download: передача оборвана на ${outcome.bytesSent} из ${outcome.expectedBytes} байт, буфер неизвестен"
+    is FastbootDownloadOutcome.NotStarted -> "download: не начат: ${outcome.detail}"
 }

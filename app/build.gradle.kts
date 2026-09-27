@@ -50,8 +50,8 @@ android {
         applicationId = "com.ncorror.nekoflash.pro"
         minSdk = 26
         targetSdk = 36
-        versionCode = 28
-        versionName = "0.28.0-dev"
+        versionCode = 29
+        versionName = "0.29.0-dev"
     }
 
     androidResources {
@@ -91,6 +91,7 @@ dependencies {
     implementation(project(":usb:android"))
     implementation(project(":protocol:adb"))
     implementation(project(":protocol:fastboot"))
+    implementation(project(":engine"))
     implementation(libs.kotlinx.coroutines.core)
 
     implementation(libs.androidx.core.ktx)

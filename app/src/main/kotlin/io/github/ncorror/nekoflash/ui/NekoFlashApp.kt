@@ -82,6 +82,7 @@ fun NekoFlashApp(
     fastbootConsole: FastbootConsolePanel = FastbootConsolePanel(),
     terminalActions: TerminalActions = TerminalActions(),
     fileActions: FileActions = FileActions(),
+    desktopCommand: DesktopCommandPanel = DesktopCommandPanel(),
     onExportDiagnostics: () -> Unit = {},
 ) {
     // Рабочая область одинакова в обеих раскладках и отличается только тем,
@@ -115,6 +116,7 @@ fun NekoFlashApp(
             recentEvents = recentEvents,
             fastboot = fastboot,
             fastbootConsole = fastbootConsole,
+            desktopCommand = desktopCommand,
             onExportDiagnostics = onExportDiagnostics,
             destination = shown,
             modifier = modifier,
@@ -205,6 +207,7 @@ private fun Workspace(
     recentEvents: RecentEvents,
     fastboot: FastbootPanel,
     fastbootConsole: FastbootConsolePanel,
+    desktopCommand: DesktopCommandPanel,
     onExportDiagnostics: () -> Unit,
     destination: WorkspaceDestination,
     modifier: Modifier = Modifier,
@@ -226,7 +229,7 @@ private fun Workspace(
                 CommandPalette(actions = paletteActions)
             }
 
-            WorkspaceDestination.TERMINAL -> TerminalWorkspace(adbLink, terminal, terminalActions)
+            WorkspaceDestination.TERMINAL -> TerminalWorkspace(adbLink, terminal, terminalActions, desktopCommand)
             WorkspaceDestination.OPERATIONS -> OperationsSection(panel = operations)
             WorkspaceDestination.DIAGNOSTICS -> DiagnosticsWorkspace(
                 exportStatus = exportStatus,
@@ -273,11 +276,15 @@ private fun TerminalWorkspace(
     adbLink: AdbLinkState,
     terminal: AdbTerminalState,
     actions: TerminalActions,
+    desktopCommand: DesktopCommandPanel,
 ) {
     SectionHeading(
         text = stringResource(R.string.nav_terminal),
         style = MaterialTheme.typography.headlineMedium,
     )
+    // Команды настольных клиентов стоят над оболочкой и не требуют ADB:
+    // половина из них — Fastboot, а у загрузчика ADB нет вовсе.
+    DesktopCommandSection(panel = desktopCommand)
     if (adbLink is AdbLinkState.Connected) {
         TerminalSection(terminal = terminal, actions = actions)
     } else {

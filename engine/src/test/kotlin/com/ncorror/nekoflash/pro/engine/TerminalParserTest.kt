@@ -181,4 +181,92 @@ class TerminalParserTest {
         assertEquals(AdbCommand.Devices(true), adb("adb devices -l").command)
         assertEquals(FastbootCommand.Devices(true), fastboot("fastboot devices -l").command)
     }
+
+    @Test
+    fun fastbootWireFormsKeepTheirArguments() {
+        assertEquals(FastbootCommand.Wire("reboot"), fastboot("fastboot reboot").command)
+        assertEquals(FastbootCommand.Wire("reboot-recovery"), fastboot("fastboot reboot recovery").command)
+        assertEquals(FastbootCommand.Wire("reboot-fastboot"), fastboot("fastboot reboot fastboot").command)
+        assertIs<TerminalParseResult.Unsupported>(parser.parse("fastboot reboot edl"))
+        assertEquals(FastbootCommand.Wire("oem device-info"), fastboot("fastboot oem device-info").command)
+        assertEquals(FastbootCommand.Wire("flashing unlock_critical"),
+            fastboot("fastboot flashing unlock_critical").command)
+        assertEquals(FastbootCommand.Wire("gsi:wipe"), fastboot("fastboot gsi wipe").command)
+        assertEquals(FastbootCommand.Wire("snapshot-update"), fastboot("fastboot snapshot-update").command)
+        assertEquals(FastbootCommand.Wire("snapshot-update:cancel"), fastboot("fastboot snapshot-update cancel").command)
+        assertEquals(FastbootCommand.Wire("create-logical-partition:foo:4096"),
+            fastboot("fastboot create-logical-partition foo 4096").command)
+        assertEquals(FastbootCommand.Wire("delete-logical-partition:foo"),
+            fastboot("fastboot delete-logical-partition foo").command)
+        assertEquals(FastbootCommand.DeviceQuery("is-logical", "system"), fastboot("fastboot is-logical system").command)
+    }
+
+    @Test
+    fun fastbootPartitionCommands() {
+        assertEquals(FastbootCommand.Erase("cache"), fastboot("fastboot erase cache").command)
+        assertEquals(FastbootCommand.Fetch("vendor_boot", "out.img"), fastboot("fastboot fetch vendor_boot out.img").command)
+        assertEquals(FastbootCommand.SetActive("b"), fastboot("fastboot set_active b").command)
+        assertEquals(FastbootCommand.SetActive("a"), fastboot("fastboot set-active a").command)
+        assertEquals(FastbootCommand.Flash("boot", null), fastboot("fastboot flash boot").command)
+        assertEquals(FastbootCommand.Boot("boot.img", null, null), fastboot("fastboot boot boot.img").command)
+        assertEquals(FastbootCommand.LocalStatus, fastboot("fastboot status").command)
+        assertEquals(FastbootCommand.Devices(false), fastboot("fastboot devices").command)
+        assertIs<TerminalParseResult.Unsupported>(parser.parse("fastboot erase"))
+        assertIs<TerminalParseResult.Unsupported>(parser.parse("fastboot flash"))
+    }
+
+    @Test
+    fun fastbootOptionsInEveryForm() {
+        val parsed = fastboot("fastboot -s SERIAL -v --slot b --skip-reboot --skip-secondary flash boot b.img")
+        assertEquals("SERIAL", parsed.options.serial)
+        assertTrue(parsed.options.verbose)
+        assertEquals("b", parsed.options.slot)
+        assertTrue(parsed.options.skipReboot)
+        assertTrue(parsed.options.skipSecondary)
+        assertEquals("a", fastboot("fastboot -a a flash boot b.img").options.setActiveSlot)
+        assertEquals(FastbootCommand.SetActive("b"), fastboot("fastboot --set-active=b").command)
+        assertEquals("1G", fastboot("fastboot -S1G flash system s.img").options.sparseLimit)
+        assertIs<TerminalParseResult.Invalid>(parser.parse("fastboot --slot"))
+        assertIs<TerminalParseResult.Invalid>(parser.parse("fastboot --slot= flash boot b.img"))
+        assertIs<TerminalParseResult.Invalid>(parser.parse("fastboot"))
+        assertIs<TerminalParseResult.Invalid>(parser.parse("fastboot --verbose"))
+        assertEquals(FastbootCommand.Flash("-odd", "b.img"), fastboot("fastboot flash -- -odd b.img").command)
+    }
+
+    @Test
+    fun adbServicesAndShellForms() {
+        assertEquals(AdbCommand.Shell("", null, false), adb("adb shell").command)
+        assertEquals(AdbCommand.Shell("ls -l /", null, false), adb("adb shell ls -l /").command)
+        assertEquals(AdbCommand.Shell("id", "-t", false), adb("adb shell -t id").command)
+        assertEquals(AdbCommand.Shell("id", null, true), adb("adb shell -x id").command)
+        assertEquals(AdbCommand.Shell("-n", null, false), adb("adb shell -- -n").command)
+        assertEquals(AdbCommand.Exec("cat /x"), adb("adb exec cat /x").command)
+        assertIs<TerminalParseResult.Invalid>(parser.parse("adb exec"))
+        assertEquals(AdbCommand.Logcat(listOf("-d", "-s", "Tag")), adb("adb logcat -d -s Tag").command)
+        assertEquals(AdbCommand.Service("reboot:"), adb("adb reboot").command)
+        assertEquals(AdbCommand.Service("reboot:bootloader"), adb("adb reboot bootloader").command)
+        assertIs<TerminalParseResult.Invalid>(parser.parse("adb reboot a b"))
+        assertEquals(AdbCommand.Service("root:"), adb("adb root").command)
+        assertEquals(AdbCommand.Service("usb:"), adb("adb usb").command)
+        assertIs<TerminalParseResult.Unsupported>(parser.parse("adb root now"))
+        assertEquals(AdbCommand.Remount(false), adb("adb remount").command)
+        assertIs<TerminalParseResult.Unsupported>(parser.parse("adb remount -x"))
+        assertEquals(AdbCommand.Install("app.apk", listOf("-r", "-g")), adb("adb install -r -g app.apk").command)
+        assertIs<TerminalParseResult.Invalid>(parser.parse("adb install a.apk b.apk"))
+        assertEquals(AdbCommand.Uninstall("com.x", false), adb("adb uninstall com.x").command)
+        assertIs<TerminalParseResult.Invalid>(parser.parse("adb uninstall"))
+        assertIs<TerminalParseResult.Invalid>(parser.parse("adb"))
+        assertIs<TerminalParseResult.Invalid>(parser.parse("adb status now"))
+        assertEquals(AdbCommand.LocalStatus, adb("adb status").command)
+        assertIs<TerminalParseResult.Invalid>(parser.parse("git status"))
+    }
+
+    @Test
+    fun tokensHonourQuotesAndEscapes() {
+        assertEquals(FastbootCommand.Flash("boot", "a b.img"), fastboot("fastboot flash boot a\\ b.img").command)
+        assertEquals(FastbootCommand.Flash("boot", "it's.img"), fastboot("fastboot flash boot \"it's.img\"").command)
+        assertEquals(AdbCommand.Pull(listOf("/sdcard/x y"), ".", FileTransferOptions()),
+            adb("adb pull \"/sdcard/x y\"").command)
+    }
 }
+

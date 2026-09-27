@@ -22,6 +22,13 @@ style:
     excludeGuardClauses: true
 
 complexity:
+  # Исчерпывающий `when` по запечатанному типу, где каждая ветка — одно
+  # выражение, это таблица соответствия, а не ветвление логики: шаг плана →
+  # вход движка, шаг → строка Preview. Считать каждую ветку за развилку значит
+  # заставлять дробить таблицу на части, которые читаются хуже целой.
+  CyclomaticComplexMethod:
+    threshold: 15
+    ignoreSimpleWhenEntries: true
   LargeClass:
     threshold: 600
   LongMethod:

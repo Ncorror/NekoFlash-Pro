@@ -91,7 +91,7 @@ private fun SideloadCancel(state: AdbSideloadState.Running, onCancel: () -> Unit
 }
 
 @Composable
-private fun sideloadText(state: AdbSideloadState): String = when (state) {
+internal fun sideloadText(state: AdbSideloadState): String = when (state) {
     AdbSideloadState.None -> stringResource(R.string.sideload_idle)
 
     is AdbSideloadState.Running -> stringResource(

@@ -135,7 +135,7 @@ fun FastbootConsoleSection(
  * приходилось искать глазами среди текста того же размера.
  */
 @Composable
-private fun FastbootOutcomePane(state: FastbootConsoleState) {
+internal fun FastbootOutcomePane(state: FastbootConsoleState) {
     if (state is FastbootConsoleState.Idle) return
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant,

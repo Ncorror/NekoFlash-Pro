@@ -7,87 +7,96 @@ import kotlin.test.assertIs
 class TerminalPlanCompilerTest {
     private val compiler = TerminalPlanCompiler()
 
+    private fun steps(line: String): List<TerminalPlanStep> =
+        assertIs<TerminalPlanResult.Ready>(compiler.compile(line), line).plan.steps
+
     @Test
-    fun previewUsesTheCompiledStepsForTheTwoImplementedQueries() {
-        for (variable in PlannedFastbootVariable.entries) {
-            val ready = assertIs<TerminalPlanResult.Ready>(compiler.compile("fastboot getvar ${variable.wireName}"))
-            assertEquals(listOf(TerminalPlanStep.FastbootGetvar(variable)), ready.plan.steps)
-            assertEquals(listOf("Fastboot: read getvar:${variable.wireName}"), ready.plan.preview())
-        }
+    fun anyVariableIsReadWithoutAnAllowList() {
+        assertEquals(listOf(TerminalPlanStep.FastbootGetvar("serialno")), steps("fastboot getvar serialno"))
+        assertEquals(listOf(TerminalPlanStep.FastbootGetvar("partition-size:userdata")),
+            steps("fastboot getvar partition-size:userdata"))
+        assertEquals(listOf(TerminalPlanStep.FastbootGetvarAll), steps("fastboot getvar all"))
+        assertEquals(listOf(TerminalPlanStep.FastbootGetvarAll), steps("fastboot getvar"))
     }
 
     @Test
-    fun explicitRawAndUnknownVariablesDoNotInheritSafeGetvarPlan() {
-        assertIs<TerminalPlanResult.Unavailable>(compiler.compile("fastboot raw getvar:product"))
-        assertIs<TerminalPlanResult.Unavailable>(compiler.compile("fastboot getvar all"))
-        assertIs<TerminalPlanResult.Unavailable>(compiler.compile("fastboot getvar serialno"))
-        assertIs<TerminalPlanResult.Unavailable>(compiler.compile("fastboot oem unlock"))
+    fun wireCommandsGoAsTheDeviceKnowsThem() {
+        assertEquals(listOf(TerminalPlanStep.FastbootWire("oem unlock")), steps("fastboot oem unlock"))
+        assertEquals(listOf(TerminalPlanStep.FastbootWire("reboot-bootloader")), steps("fastboot reboot bootloader"))
+        assertEquals(listOf(TerminalPlanStep.FastbootWire("getvar:product")), steps("fastboot raw getvar:product"))
+        assertEquals(listOf(TerminalPlanStep.FastbootWire("erase:cache")), steps("fastboot erase cache"))
+        assertEquals(listOf(TerminalPlanStep.FastbootWire("set_active:b")), steps("fastboot set_active b"))
+        assertEquals(listOf(TerminalPlanStep.FastbootWire("flashing unlock")), steps("fastboot flashing unlock"))
+        // Неизвестный глагол — vendor-команда устройства (`04` §3, правило 3).
+        assertEquals(listOf(TerminalPlanStep.FastbootWire("vendor-thing x")), steps("fastboot vendor-thing x"))
     }
 
     @Test
-    fun adbProductUsesOneFixedReadOnlyService() {
-        val ready = assertIs<TerminalPlanResult.Ready>(
-            compiler.compile(TerminalParser.Tool.ADB, "shell getprop ro.product.device")
+    fun flashBindsOnePickedFileAndSetActiveFollowsIt() {
+        val flash = steps("fastboot flash boot_a boot.img")
+        assertEquals(listOf(TerminalPlanStep.FastbootFlashImage("boot_a", "boot.img")), flash)
+        assertEquals(TerminalFileNeed.OPEN, flash.single().fileNeed)
+        assertEquals(true, flash.single().writesPartition)
+
+        assertEquals(
+            listOf(
+                TerminalPlanStep.FastbootFlashImage("boot", "boot.img"),
+                TerminalPlanStep.FastbootWire("set_active:a"),
+            ),
+            steps("fastboot --set-active=a flash boot boot.img"),
         )
-        assertEquals(listOf(TerminalPlanStep.AdbProduct), ready.plan.steps)
-        assertEquals(listOf("ADB: read ro.product.device"), ready.plan.preview())
-        for (line in listOf(
-            "shell getprop ro.product.device; reboot",
-            "shell getprop ro.product.serialno",
-            "shell -t getprop ro.product.device",
-            "raw shell:getprop ro.product.device",
-        )) {
-            assertIs<TerminalPlanResult.Unavailable>(compiler.compile(TerminalParser.Tool.ADB, line), line)
-        }
     }
 
     @Test
-    fun hostCommandsAndAnyUnimplementedOptionsAreUnavailable() {
+    fun hostScenariosAndUnusableOptionsAreNotImplementedBeforeSending() {
         for (command in listOf(
             "fastboot --force getvar product",
             "fastboot -w getvar version",
-            "fastboot --set-active=a flash boot boot.img",
+            "fastboot --slot a flash boot boot.img",
+            "fastboot --set-active flash boot boot.img",
+            "fastboot --set-active=a getvar product",
             "fastboot -S 512M flash system system.img",
             "fastboot format userdata",
             "fastboot wipe-super super_empty.img",
             "fastboot flashall",
-            "adb shell id",
-            "adb sideload update.zip",
+            "fastboot update image.zip",
+            "fastboot flash vendor_boot:default ramdisk.img",
+            "fastboot boot kernel ramdisk",
+            "adb install app.apk",
+            "adb logcat",
+            "adb shell -t ls",
         )) {
-            assertIs<TerminalPlanResult.Unavailable>(compiler.compile(command), command)
+            assertIs<TerminalPlanResult.NotImplemented>(compiler.compile(command), command)
         }
         assertIs<TerminalPlanResult.Invalid>(compiler.compile("fastboot -S --force flash boot boot.img"))
     }
 
     @Test
-    fun rawFlashNeedsOneExactPickerSelectionBeforeItCanHaveAPreview() {
-        val pending = assertIs<TerminalPlanResult.RequiresImage>(compiler.compile("fastboot flash boot_a boot.img"))
-        assertEquals("boot_a", pending.partition)
-        assertIs<TerminalPlanResult.Unavailable>(compiler.attachImage(pending, "other.img", 3, 7))
-        assertIs<TerminalPlanResult.Unavailable>(compiler.attachImage(pending, "boot.img", 0x1_0000_0000, 7))
-        val ready = assertIs<TerminalPlanResult.Ready>(compiler.attachImage(pending, "boot.img", 3, 7))
-        assertEquals(listOf(TerminalPlanStep.FastbootFlashRaw("boot_a", 3, 7)), ready.plan.steps)
-        assertEquals(listOf("Fastboot: flash boot_a (raw image, 3 bytes)"), ready.plan.preview())
-        assertIs<TerminalPlanResult.Unavailable>(compiler.compile("fastboot raw flash:boot_a"))
-        assertIs<TerminalPlanResult.Invalid>(compiler.compile("fastboot flash boot:ramdisk new.img"))
+    fun adbCommandsUseTheServicesOfTheDesktopClient() {
+        assertEquals(listOf(TerminalPlanStep.AdbShellCommand("id")), steps("adb shell id"))
+        assertEquals(listOf(TerminalPlanStep.AdbInteractiveShell), steps("adb shell"))
+        assertEquals(listOf(TerminalPlanStep.AdbService("exec:ls /")), steps("adb exec ls /"))
+        assertEquals(listOf(TerminalPlanStep.AdbService("root:")), steps("adb root"))
+        assertEquals(listOf(TerminalPlanStep.AdbService("remount:-R")), steps("adb remount -R"))
+        assertEquals(listOf(TerminalPlanStep.AdbService("tcpip:5555")), steps("adb tcpip 5555"))
+        assertEquals(listOf(TerminalPlanStep.AdbReboot("recovery")), steps("adb reboot recovery"))
+        assertEquals(listOf(TerminalPlanStep.AdbReboot("")), steps("adb reboot"))
+        assertEquals(listOf(TerminalPlanStep.AdbService("exec:cmd package uninstall -k com.example")),
+            steps("adb uninstall -k com.example"))
+        assertEquals(listOf(TerminalPlanStep.AdbSideload("update.zip")), steps("adb sideload update.zip"))
     }
 
     @Test
-    fun downloadLimitQueryHasAReadOnlyPlan() {
-        val ready = assertIs<TerminalPlanResult.Ready>(compiler.compile("fastboot getvar max-download-size"))
-        assertEquals(listOf(TerminalPlanStep.FastbootGetvar(PlannedFastbootVariable.DOWNLOAD_SIZE)),
-            ready.plan.steps)
-        assertEquals(listOf("Fastboot: read getvar:max-download-size"), ready.plan.preview())
+    fun transfersNameTheirFiles() {
+        assertEquals(listOf(TerminalPlanStep.AdbPull("/sdcard/a.txt", "a.txt")), steps("adb pull /sdcard/a.txt"))
+        assertEquals(listOf(TerminalPlanStep.AdbPush("a.txt", "/sdcard/a.txt")), steps("adb push a.txt /sdcard/"))
+        assertEquals(listOf(TerminalPlanStep.AdbPush("a.txt", "/sdcard/b.txt")), steps("adb push a.txt /sdcard/b.txt"))
+        assertIs<TerminalPlanResult.NotImplemented>(compiler.compile("adb push a b /sdcard/"))
+        assertIs<TerminalPlanResult.NotImplemented>(compiler.compile("adb pull -a /sdcard/a.txt"))
     }
 
     @Test
-    fun recoveryPartitionSizeHasAReadOnlyPlan() {
-        val ready = assertIs<TerminalPlanResult.Ready>(compiler.compile(
-            "fastboot getvar partition-size:recovery"))
-        assertEquals(listOf(TerminalPlanStep.FastbootGetvar(PlannedFastbootVariable.RECOVERY_SIZE)),
-            ready.plan.steps)
-        assertEquals(listOf("Fastboot: read getvar:partition-size:recovery"), ready.plan.preview())
-        assertIs<TerminalPlanResult.Unavailable>(compiler.compile(
-            "fastboot getvar partition-size:userdata"))
+    fun anUnknownAdbVerbIsNotTurnedIntoShell() {
+        assertIs<TerminalPlanResult.NotImplemented>(compiler.compile("adb getprop ro.product.device"))
     }
 }

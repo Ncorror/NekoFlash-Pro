@@ -225,38 +225,6 @@ public class FastbootLinkController(
         }
     }
 
-    private fun planned(
-        commands: List<String>,
-        outcome: FastbootPlanOutcome,
-        lane: FastbootLaneState,
-    ): FastbootConsoleState = when (outcome) {
-        is FastbootPlanOutcome.Completed -> FastbootConsoleState.Planned(
-            commands = commands,
-            applied = outcome.applied.size,
-            stoppedAt = null,
-            detail = "",
-            lane = lane,
-        )
-
-        is FastbootPlanOutcome.Stopped -> FastbootConsoleState.Planned(
-            commands = commands,
-            applied = outcome.applied.size,
-            stoppedAt = outcome.index,
-            detail = "${outcome.command}: ${describe(outcome.outcome)}",
-            lane = lane,
-        )
-    }
-
-    /** Короткое слово об исходе шага — то же, что пишется в `claim`. */
-    private fun describe(outcome: FastbootMutationOutcome): String = when (outcome) {
-        is FastbootMutationOutcome.Applied -> "выполнено"
-        is FastbootMutationOutcome.Refused -> "устройство отказало: ${outcome.detail}"
-        is FastbootMutationOutcome.Unconfirmed -> "OKAY без подтверждения: ${outcome.detail}"
-        is FastbootMutationOutcome.Departed -> "устройство ушло, не ответив"
-        is FastbootMutationOutcome.Unknown -> "неизвестно: ${outcome.detail}"
-        is FastbootMutationOutcome.NotStarted -> "не отправлено: ${outcome.detail}"
-    }
-
     /** Спрашивает одну переменную по имени. */
     public fun readVariable(name: String) {
         busy("fastboot_getvar", name) { lane, trimmed ->
@@ -312,7 +280,8 @@ public class FastbootLinkController(
     }
 
     /**
-     * Загружает в буфер устройства **выбранный пользователем** файл.
+     * Загружает в буфер устройства **выбранный пользователем** файл — и, если
+     * даны [then], выполняет их следом одной операцией.
      *
      * Произвольный доступ здесь не нужен: фаза данных Fastboot читает источник
      * подряд, и стажировать поэтому нечего — этим `download:` и отличается от
@@ -322,10 +291,15 @@ public class FastbootLinkController(
      * восемью шестнадцатеричными цифрами. Источник, длины которого провайдер не
      * сообщает, поэтому отвергается **до** первого байта, а не на середине.
      *
-     * **Ничего не прошивает**, как и [downloadGenerated].
+     * Без [then] ничего не прошивает. С ними это `fastboot flash РАЗДЕЛ ФАЙЛ`
+     * настольного клиента: `download` и `flash:РАЗДЕЛ` (или `boot`) одним
+     * действием, а не двумя кнопками, между которыми буфер мог смениться.
+     * Команды идут, только если устройство приняло **весь** объём ответом
+     * `OKAY`: из недогруженного буфера не прошивают.
      */
-    public fun downloadFrom(origin: () -> ArtifactSource) {
-        busy("fastboot_download_file", "выбранный файл") { lane, _ ->
+    public fun downloadFrom(then: List<String> = emptyList(), origin: () -> ArtifactSource) {
+        val label = (listOf("выбранный файл") + then).joinToString(" ; ")
+        busy("fastboot_download_file", label) { lane, _ ->
             val source = origin()
             val size = source.identity.sizeBytes
             if (size == null) {
@@ -336,8 +310,19 @@ public class FastbootLinkController(
                     lane = lane.state,
                 )
             } else {
-                source.open().use { stream ->
-                    downloaded(size, FastbootDownload(lane).send(stream, size), lane.state)
+                val outcome = source.open().use { stream -> FastbootDownload(lane).send(stream, size) }
+                val complete = outcome is FastbootDownloadOutcome.Answered &&
+                    outcome.reply == FastbootReply.OKAY && outcome.bytesSent == size
+                when {
+                    then.isEmpty() -> downloaded(size, outcome, lane.state)
+                    complete -> downloadedThen(size, then, lane)
+                    else -> FastbootConsoleState.Planned(
+                        commands = listOf(downloadStep(size)) + then,
+                        applied = 0,
+                        stoppedAt = 0,
+                        detail = describeDownload(outcome),
+                        lane = lane.state,
+                    )
                 }
             }
         }

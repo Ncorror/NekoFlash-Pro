@@ -52,15 +52,13 @@ else
     failures=$((failures + 1))
 fi
 
-# :engine — разбор команд этого репозитория. Замечания, накопленные до переноса,
-# записаны в baseline и снимаются на этапе 7; новые замечания роняют гейт.
+# :engine — разбор команд этого репозитория: тот же конфиг, без baseline.
 echo
 echo "== engine =="
 if java -jar "$DETEKT_JAR" \
     --input engine/src/main \
     --config config/detekt/detekt.yml \
-    --build-upon-default-config \
-    --baseline config/detekt/engine-baseline.xml; then
+    --build-upon-default-config; then
     echo "engine: PASS"
 else
     failures=$((failures + 1))

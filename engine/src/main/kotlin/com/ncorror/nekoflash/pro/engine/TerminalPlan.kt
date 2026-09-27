@@ -1,47 +1,131 @@
 package com.ncorror.nekoflash.pro.engine
 
-/** Only reviewed, read-only variables can be executed directly from a terminal plan. */
-enum class PlannedFastbootVariable(val wireName: String) {
-    VERSION("version"), PRODUCT("product"), DOWNLOAD_SIZE("max-download-size"),
-    RECOVERY_SIZE("partition-size:recovery"),
-}
-
+/**
+ * Один шаг плана — одна операция движка, который уже есть в приложении.
+ *
+ * Шаг не знает, «опасен» ли он: это решает устройство (`01` §3). Он знает
+ * только, чем исполняется и нужен ли ему файл, выбранный через Android: путь из
+ * команды никогда не открывается напрямую (`04` §3, правило 7).
+ */
 sealed interface TerminalPlanStep {
-    data class FastbootGetvar(val variable: PlannedFastbootVariable) : TerminalPlanStep
-    data class FastbootFlashRaw(
-        val partition: String,
-        val imageSize: Long,
-        val selectionId: Long,
-    ) : TerminalPlanStep
-    data object AdbProduct : TerminalPlanStep
+    /** Fastboot-команда как есть — тем же входом, что и поле произвольной команды. */
+    data class FastbootWire(val command: String) : TerminalPlanStep
+
+    /** Одна переменная по имени, любая: списка разрешённых имён нет. */
+    data class FastbootGetvar(val variable: String) : TerminalPlanStep
+
+    /** `getvar all` — весь список, который готово назвать устройство. */
+    data object FastbootGetvarAll : TerminalPlanStep
+
+    /** `download` выбранного файла и `flash:PARTITION` одной операцией. */
+    data class FastbootFlashImage(val partition: String, val imageName: String?) : TerminalPlanStep
+
+    /** `download` выбранного файла и `boot`. */
+    data class FastbootBootImage(val imageName: String) : TerminalPlanStep
+
+    /** `fetch:PARTITION` в место, выбранное через Android. */
+    data class FastbootFetch(val partition: String, val destinationName: String) : TerminalPlanStep
+
+    /** Одиночная команда оболочки: вывод и код выхода. */
+    data class AdbShellCommand(val command: String) : TerminalPlanStep
+
+    /** `adb shell` без команды — интерактивная оболочка терминала. */
+    data object AdbInteractiveShell : TerminalPlanStep
+
+    /** Произвольный сервис ADB без подмены: `exec:`, `root:`, `remount:` и прочие. */
+    data class AdbService(val service: String) : TerminalPlanStep
+
+    /** `reboot:TARGET`, с разбором ухода устройства. */
+    data class AdbReboot(val target: String) : TerminalPlanStep
+
+    /** Файл устройства в место, выбранное через Android. */
+    data class AdbPull(val remotePath: String, val localName: String) : TerminalPlanStep
+
+    /** Файл, выбранный через Android, на устройство. */
+    data class AdbPush(val localName: String, val remotePath: String) : TerminalPlanStep
+
+    /** Sideload выбранного архива. */
+    data class AdbSideload(val archiveName: String) : TerminalPlanStep
 }
 
-/** Preview is derived from these exact steps; executors receive the same plan. */
+/** Какой файл нужен шагу и в какую сторону он идёт. */
+enum class TerminalFileNeed { NONE, OPEN, CREATE }
+
+/** Нужен ли шагу файл, выбранный через Android. */
+val TerminalPlanStep.fileNeed: TerminalFileNeed
+    get() = when (this) {
+        is TerminalPlanStep.FastbootFlashImage,
+        is TerminalPlanStep.FastbootBootImage,
+        is TerminalPlanStep.AdbPush,
+        is TerminalPlanStep.AdbSideload,
+        -> TerminalFileNeed.OPEN
+
+        is TerminalPlanStep.FastbootFetch,
+        is TerminalPlanStep.AdbPull,
+        -> TerminalFileNeed.CREATE
+
+        else -> TerminalFileNeed.NONE
+    }
+
+/**
+ * Меняет ли шаг содержимое раздела.
+ *
+ * Не разрешение и не запрет: по этому признаку интерфейс решает только, какую
+ * форму подтверждения показать (ADR-0002). Команда уходит устройству без
+ * изменений в любом случае.
+ */
+val TerminalPlanStep.writesPartition: Boolean
+    get() = when (this) {
+        is TerminalPlanStep.FastbootFlashImage -> true
+        is TerminalPlanStep.FastbootWire -> PARTITION_WRITES.any { command.startsWith(it) }
+        else -> false
+    }
+
+private val PARTITION_WRITES = listOf("flash:", "erase:", "format:")
+
+/**
+ * План — ровно то, что будет исполнено.
+ *
+ * Preview строится из этих же шагов (`04` §3, правило 6): показать одно, а
+ * исполнить другое здесь негде.
+ */
 class TerminalPlan(steps: List<TerminalPlanStep>) {
     val steps: List<TerminalPlanStep> = steps.toList()
 
     init {
         require(this.steps.isNotEmpty()) { "A terminal plan must have at least one step" }
-    }
-
-    fun preview(): List<String> = steps.map { step ->
-        when (step) {
-            is TerminalPlanStep.FastbootGetvar -> "Fastboot: read getvar:${step.variable.wireName}"
-            is TerminalPlanStep.FastbootFlashRaw ->
-                "Fastboot: flash ${step.partition} (raw image, ${step.imageSize} bytes)"
-            TerminalPlanStep.AdbProduct -> "ADB: read ro.product.device"
+        require(this.steps.count { it.fileNeed != TerminalFileNeed.NONE } <= 1) {
+            "A terminal plan binds at most one picked file"
         }
     }
+
+    /** Шаг, которому нужен выбранный файл, если такой есть. */
+    val fileStep: TerminalPlanStep?
+        get() = steps.firstOrNull { it.fileNeed != TerminalFileNeed.NONE }
 }
 
 sealed interface TerminalPlanResult {
     data class Ready(val plan: TerminalPlan) : TerminalPlanResult
-    data class RequiresImage(val partition: String, val expectedName: String?) : TerminalPlanResult
+
+    /** Строка не разобрана: ошибка ввода, до устройства дело не дошло. */
     data class Invalid(val reason: String) : TerminalPlanResult
-    data class Unavailable(val reason: String) : TerminalPlanResult
+
+    /**
+     * Команда или опция известна, а исполнителя у неё пока нет.
+     *
+     * Честное «не реализовано» до отправки (`04` §3, правила 2–3), а не тихая
+     * подмена другой командой.
+     */
+    data class NotImplemented(val what: String) : TerminalPlanResult
 }
 
-/** Parsing a host command is not evidence that a safe executor exists for it. */
+/**
+ * Превращает разобранную команду настольного клиента в план.
+ *
+ * Разбор — не доказательство, что исполнитель есть: известная команда без
+ * исполнителя получает [TerminalPlanResult.NotImplemented], а не ближайшую
+ * похожую операцию.
+ */
 class TerminalPlanCompiler(private val parser: TerminalParser = TerminalParser()) {
     fun compile(line: String): TerminalPlanResult = compile(parser.parse(line))
 
@@ -50,49 +134,16 @@ class TerminalPlanCompiler(private val parser: TerminalParser = TerminalParser()
     fun compile(parsed: TerminalParseResult): TerminalPlanResult = when (parsed) {
         is TerminalParseResult.Parsed -> compile(parsed.invocation)
         is TerminalParseResult.Invalid -> TerminalPlanResult.Invalid(parsed.reason)
-        is TerminalParseResult.Unsupported -> TerminalPlanResult.Unavailable("Command has no execution plan")
-    }
-
-    /** A SAF selection id is bound to the reviewed plan to prevent a stale picker result. */
-    fun attachImage(request: TerminalPlanResult.RequiresImage,
-                    selectedName: String, size: Long, selectionId: Long): TerminalPlanResult {
-        if (request.expectedName != null && request.expectedName != selectedName) {
-            return TerminalPlanResult.Unavailable("Selected image does not match command")
-        }
-        if (size !in 1..0xffff_ffffL || selectionId <= 0L) {
-            return TerminalPlanResult.Unavailable("Selected image requires sparse or has no known size")
-        }
-        return TerminalPlanResult.Ready(TerminalPlan(listOf(
-            TerminalPlanStep.FastbootFlashRaw(request.partition, size, selectionId))))
+        is TerminalParseResult.Unsupported -> TerminalPlanResult.NotImplemented("${parsed.tool} ${parsed.command}")
     }
 
     fun compile(invocation: TerminalInvocation): TerminalPlanResult = when (invocation) {
-        is TerminalInvocation.Adb -> when (val command = invocation.command) {
-            is AdbCommand.Shell -> if (command.command == "getprop ro.product.device" &&
-                command.tty == null && !command.noExitCode) {
-                TerminalPlanResult.Ready(TerminalPlan(listOf(TerminalPlanStep.AdbProduct)))
-            } else TerminalPlanResult.Unavailable("ADB command has no execution plan")
-            else -> TerminalPlanResult.Unavailable("ADB command has no execution plan")
-        }
-        is TerminalInvocation.Fastboot -> {
-            if (invocation.options != FastbootOptions()) {
-                TerminalPlanResult.Unavailable("Fastboot options have no execution plan")
-            } else when (val command = invocation.command) {
-                is FastbootCommand.Getvar -> {
-                    val variable = PlannedFastbootVariable.entries.firstOrNull { it.wireName == command.variable }
-                    if (variable == null) TerminalPlanResult.Unavailable("Fastboot variable has no execution plan")
-                    else TerminalPlanResult.Ready(TerminalPlan(listOf(TerminalPlanStep.FastbootGetvar(variable))))
-                }
-                is FastbootCommand.Flash -> if (command.partition.matches(PARTITION) &&
-                    command.image?.isNotEmpty() != false) {
-                    TerminalPlanResult.RequiresImage(command.partition, command.image)
-                } else TerminalPlanResult.Invalid("Invalid partition or image name")
-                else -> TerminalPlanResult.Unavailable("Fastboot command has no execution plan")
-            }
-        }
-    }
-
-    private companion object {
-        val PARTITION = Regex("[A-Za-z0-9._-]{1,64}")
+        is TerminalInvocation.Adb -> AdbPlans.compile(invocation.command)
+        is TerminalInvocation.Fastboot -> FastbootPlans.compile(invocation.options, invocation.command)
     }
 }
+
+/** План из одного шага — самый частый случай. */
+internal fun single(step: TerminalPlanStep): TerminalPlanResult = TerminalPlanResult.Ready(TerminalPlan(listOf(step)))
+
+internal fun notImplemented(what: String): TerminalPlanResult = TerminalPlanResult.NotImplemented(what)

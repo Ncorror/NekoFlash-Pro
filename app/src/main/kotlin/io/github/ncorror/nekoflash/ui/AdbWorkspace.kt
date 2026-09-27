@@ -252,7 +252,7 @@ private fun FilesSection(files: AdbFileState, actions: FileActions) {
 }
 
 @Composable
-private fun fileStateText(files: AdbFileState): String = when (files) {
+internal fun fileStateText(files: AdbFileState): String = when (files) {
     AdbFileState.None -> ""
     is AdbFileState.Busy -> stringResource(R.string.files_busy, files.path)
     is AdbFileState.Read ->
@@ -682,7 +682,7 @@ private fun ReverseFooter(panel: ReversePanel) {
 
 /** Размер ответа называется всегда: он известен даже тогда, когда текст бессмыслен. */
 @Composable
-private fun rawServiceText(state: AdbRawServiceState): String = when (state) {
+internal fun rawServiceText(state: AdbRawServiceState): String = when (state) {
     AdbRawServiceState.None -> stringResource(R.string.raw_service_none)
     is AdbRawServiceState.Running -> stringResource(R.string.raw_service_running, state.service)
     is AdbRawServiceState.Finished ->
@@ -735,7 +735,7 @@ private fun RebootSection(panel: RebootPanel) {
  * тронуто ли устройство, и только потом — почему не получилось.
  */
 @Composable
-private fun rebootText(reboot: AdbRebootState): String = when (reboot) {
+internal fun rebootText(reboot: AdbRebootState): String = when (reboot) {
     AdbRebootState.None -> stringResource(R.string.reboot_none)
     is AdbRebootState.Running -> stringResource(R.string.reboot_running, reboot.service())
     is AdbRebootState.Accepted -> stringResource(R.string.reboot_accepted, reboot.service)
@@ -859,7 +859,7 @@ private fun localizedPeerMode(mode: AdbPeerMode): String = stringResource(
 
 /** Исход разовой команды: идёт, кончилась, не вышла. */
 @Composable
-private fun ShellOutcome(command: AdbCommandState) {
+internal fun ShellOutcome(command: AdbCommandState) {
     when (command) {
         AdbCommandState.None -> Unit
         is AdbCommandState.Running -> LabelledValue(

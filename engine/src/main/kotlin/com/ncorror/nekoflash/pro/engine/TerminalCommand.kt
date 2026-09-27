@@ -37,7 +37,12 @@ sealed interface FastbootCommand {
     data object Wipe : FastbootCommand
     data class WipeSuper(val emptySuperImage: String?) : FastbootCommand
     data class Boot(val kernel: String, val ramdisk: String?, val second: String?) : FastbootCommand
-    data class FlashRaw(val partition: String, val kernel: String, val ramdisk: String?, val second: String?) : FastbootCommand
+    data class FlashRaw(
+        val partition: String,
+        val kernel: String,
+        val ramdisk: String?,
+        val second: String?,
+    ) : FastbootCommand
     data class Update(val archive: String) : FastbootCommand
     data object FlashAll : FastbootCommand
     data class UpdateSuper(val image: String, val wipe: Boolean) : FastbootCommand
