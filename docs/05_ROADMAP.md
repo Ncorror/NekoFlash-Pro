@@ -84,6 +84,7 @@
 | Сценарии хоста Fastboot: `format`, `-w`, `wipe-super`, `update`/`flashall`, `vendor_boot:RAMDISK`, `--slot`, `--set-active` без слота, `-S`, `--force`, `--skip-*`, флаги vbmeta | `нет` | до реализации — «не реализовано» до отправки; [04](04_CAPABILITIES.md#3-команды-настольных-adb-и-fastboot) |
 | Команды ADB: `shell`, `shell -t`, `logcat`, `exec`, `push`/`pull` одного файла, `sideload`, `reboot`, `root`/`unroot`, `remount`, `usb`, `tcpip`, `uninstall`, `raw` | `в репо` | те же сервисы, что у настольного клиента; `logcat` и `shell -t` — в живой оболочке терминала |
 | Команды ADB: `sync`, `install*`, `shell -x`/`-T`, `push`/`pull` нескольких файлов и с опциями, `devices`/`get-state`/`status` | `нет` | до реализации — «не реализовано» до отправки; 04 |
+| Общая проверка на телефоне | `нет` | [07](07_BUILD_AND_TESTING.md#ручная-проверка-на-телефоне), план этапа 3 |
 
 ## Этап 4 — Fastboot до конца
 
