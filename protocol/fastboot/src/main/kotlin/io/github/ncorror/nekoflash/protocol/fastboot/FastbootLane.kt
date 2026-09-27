@@ -534,7 +534,8 @@ public class FastbootLane(
                 FastbootExchange.NotSent("команда не передаётся в ASCII, а провод Fastboot другого не несёт")
 
             // Ограничение провода, а не наше: команда Fastboot передаётся одним
-            // кадром, и длиннее шестидесяти четырёх байт он не бывает.
+            // кадром не длиннее `FB_COMMAND_SZ` настольного клиента. Короче ли
+            // буфер у загрузчика, решает он сам, своим ответом.
             bytes.size > MAX_COMMAND_BYTES ->
                 FastbootExchange.NotSent("команда в ${bytes.size} байт не помещается в кадр $MAX_COMMAND_BYTES")
 
@@ -621,8 +622,12 @@ public class FastbootLane(
     }
 
     public companion object {
-        /** Команда Fastboot передаётся одним кадром, и он не длиннее этого. */
-        public const val MAX_COMMAND_BYTES: Int = 64
+        /**
+         * Команда Fastboot передаётся одним кадром, и он не длиннее этого:
+         * AOSP `FB_COMMAND_SZ` и `fastboot/README.md` («no greater than 4096
+         * bytes»). Legacy держал 64 — по старой редакции протокола (D057).
+         */
+        public const val MAX_COMMAND_BYTES: Int = 4096
 
         /** Наибольший код символа, который несёт провод Fastboot. */
         internal const val MAX_ASCII: Int = 0x7F

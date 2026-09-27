@@ -197,7 +197,7 @@
     <string name="fastboot_variables_partial">The list is incomplete: %1$d variables read before the exchange broke off</string>
     <string name="fastboot_variables_conflict">%1$s was named more than once with different values: %2$s</string>
     <string name="fastboot_variables_ignored">Lines that could not be parsed: %1$d — kept in the diagnostics</string>
-    <string name="fastboot_console_note">There is no command list here on purpose: what Fastboot offers is known to the device, and a refusal is its answer, not our error. Two things the wire itself cannot carry are named rather than sent silently altered: a command outside ASCII, and one longer than 64 bytes. The lane is shown because Fastboot has exactly one and losing its framing is sticky — a second command would then go nowhere.</string>
+    <string name="fastboot_console_note">There is no command list here on purpose: what Fastboot offers is known to the device, and a refusal is its answer, not our error. Two things the wire itself cannot carry are named rather than sent silently altered: a command outside ASCII, and one longer than 4096 bytes. The lane is shown because Fastboot has exactly one and losing its framing is sticky — a second command would then go nowhere.</string>
     <string name="fastboot_variable_entry">%1$s = %2$s</string>
     <string name="fastboot_download_small">4 KiB</string>
     <string name="fastboot_download_large">2 MiB</string>

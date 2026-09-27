@@ -202,8 +202,8 @@ class FastbootLaneTest {
     /**
      * Слишком длинная команда не отправляется и не обрезается.
      *
-     * Это ограничение провода, а не наше: кадр Fastboot не бывает длиннее
-     * шестидесяти четырёх байт. Набрать её оператору никто не мешает — мы лишь
+     * Это ограничение провода, а не наше: кадр команды Fastboot не бывает
+     * длиннее 4096 байт (AOSP `FB_COMMAND_SZ`). Набрать её оператору никто не мешает — мы лишь
      * честно говорим, что отправить нечем, вместо того чтобы обрезать и сделать
      * вид, что послали (`01` §3).
      */
@@ -216,6 +216,20 @@ class FastbootLaneTest {
 
         assertTrue(exchange is FastbootExchange.NotSent)
         assertTrue("ничего не должно уйти на устройство", transport.sent.isEmpty())
+        assertEquals(FastbootLaneState.IDLE, lane.state)
+    }
+
+    /** Команда длиннее 64 байт уходит: короче ли буфер загрузчика, скажет он сам (D057). */
+    @Test
+    fun aCommandLongerThanSixtyFourBytesReachesTheDevice() {
+        val transport = FakeFastbootTransport().willReply("FAILunknown command")
+        val lane = FastbootLane(transport)
+        val command = "oem " + "a".repeat(100)
+
+        val exchange = lane.run(command)
+
+        assertEquals(listOf(command), transport.sent)
+        assertTrue(exchange is FastbootExchange.Completed)
         assertEquals(FastbootLaneState.IDLE, lane.state)
     }
 
