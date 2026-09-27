@@ -62,7 +62,7 @@ fun NekoFlashApp(
     exportStatus: String? = null,
     adbLink: AdbLinkState = AdbLinkState.Idle,
     adbCommand: AdbCommandState = AdbCommandState.None,
-    terminal: AdbTerminalState = AdbTerminalState(),
+    terminal: TerminalPanel = TerminalPanel(),
     files: AdbFileState = AdbFileState.None,
     onRescanUsb: () -> Unit = {},
     onClaim: (UsbSession) -> Unit = {},
@@ -187,7 +187,7 @@ private fun Workspace(
     exportStatus: String?,
     adbLink: AdbLinkState,
     adbCommand: AdbCommandState,
-    terminal: AdbTerminalState,
+    terminal: TerminalPanel,
     terminalActions: TerminalActions,
     files: AdbFileState,
     fileActions: FileActions,
@@ -274,7 +274,7 @@ private fun Workspace(
 @Composable
 private fun TerminalWorkspace(
     adbLink: AdbLinkState,
-    terminal: AdbTerminalState,
+    terminal: TerminalPanel,
     actions: TerminalActions,
     desktopCommand: DesktopCommandPanel,
 ) {
@@ -286,7 +286,8 @@ private fun TerminalWorkspace(
     // половина из них — Fastboot, а у загрузчика ADB нет вовсе.
     DesktopCommandSection(panel = desktopCommand)
     if (adbLink is AdbLinkState.Connected) {
-        TerminalSection(terminal = terminal, actions = actions)
+        TerminalTabsRow(panel = terminal, actions = actions)
+        TerminalSection(terminal = terminal.current, actions = actions)
     } else {
         // Не «кнопка погасла», а сказано, чего не хватает: пустой экран без
         // объяснения читается как поломка.

@@ -26,6 +26,8 @@ public data class AdbTerminalState(
     val ended: String? = null,
     /** Какой терминал открыт: обычный, `adb shell -T` или `adb shell -x`. */
     val mode: AdbShellMode = AdbShellMode.PTY,
+    /** Чем вкладку назвать: первое слово команды, с которой она открыта. */
+    val title: String? = null,
 ) {
     /** Вывод без оформления. */
     val output: String get() = screen.text
@@ -102,7 +104,7 @@ public class AdbTerminalController(
             nextRequestId += 1
             activeRequestId = nextRequestId
             pendingLine = firstLine
-            mutableState.value = AdbTerminalState(active = true, mode = mode)
+            mutableState.value = AdbTerminalState(active = true, mode = mode, title = firstLine?.substringBefore(' '))
             nextRequestId
         }
         readerExecutor.execute { openAndPump(connection, requestId, mode) }
@@ -335,6 +337,7 @@ public class AdbTerminalController(
                     closing = closing,
                     screen = snapshot,
                     mode = mutableState.value.mode,
+                    title = mutableState.value.title,
                 )
             }
         }
@@ -386,6 +389,7 @@ public class AdbTerminalController(
                 screen = last,
                 ended = ended,
                 mode = mutableState.value.mode,
+                title = mutableState.value.title,
             )
         }
     }

@@ -41,13 +41,14 @@ internal class ControllerCommandTargets(
     override fun fastbootFetch(partition: String, slot: String?, destination: () -> ArtifactSink) =
         fastboot.fetchPartitionTo(partition, slot, destination)
     override fun adbShell(command: String) = adb.runCommand(command)
-    override fun adbInteractiveShell(firstLine: String?, mode: ShellMode) = adb.startShell(
+    override fun adbInteractiveShell(firstLine: String?, mode: ShellMode) = adb.shells.start(
         firstLine,
         when (mode) {
             ShellMode.PTY -> AdbShellMode.PTY
             ShellMode.RAW -> AdbShellMode.RAW
             ShellMode.LEGACY -> AdbShellMode.LEGACY
         },
+        fromCommand = true,
     )
     override fun adbService(service: String) = adb.callRawService(service)
     override fun adbReboot(target: String) = adb.requestReboot(target)

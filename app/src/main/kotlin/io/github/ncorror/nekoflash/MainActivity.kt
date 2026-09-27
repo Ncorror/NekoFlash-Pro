@@ -12,6 +12,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -45,6 +46,7 @@ import io.github.ncorror.nekoflash.ui.RebootPanel
 import io.github.ncorror.nekoflash.ui.ReversePanel
 import io.github.ncorror.nekoflash.ui.SideloadPanel
 import io.github.ncorror.nekoflash.ui.TerminalActions
+import io.github.ncorror.nekoflash.ui.TerminalPanel
 import io.github.ncorror.nekoflash.ui.WelcomeScreen
 import io.github.ncorror.nekoflash.ui.theme.NekoFlashTheme
 import io.github.ncorror.nekoflash.usb.api.UsbClaimResult
@@ -104,7 +106,9 @@ class MainActivity : ComponentActivity() {
         val linkState by adbLink.state.collectAsState()
         val scan by coordinator.lastScan.collectAsState()
         val commandState by adbLink.command.collectAsState()
-        val terminalState by adbLink.terminal.collectAsState()
+        val terminalTabs by adbLink.terminals.collectAsState()
+        // Каждая вкладка меняется своим потоком: заголовки и выбранная читаются все.
+        val terminalStates = terminalTabs.tabs.map { flow -> key(flow) { flow.collectAsState().value } }
         val fileState by adbLink.files.collectAsState()
         val fastbootState by fastbootLink.state.collectAsState()
         val fastbootConsole by fastbootLink.console.collectAsState()
@@ -143,7 +147,7 @@ class MainActivity : ComponentActivity() {
             exportStatus = exportStatus,
             adbLink = linkState,
             adbCommand = commandState,
-            terminal = terminalState,
+            terminal = TerminalPanel(terminalStates, terminalTabs.selected),
             terminalActions = terminalActions(adbLink),
             files = fileState,
             fileActions = fileActions(adbLink),
@@ -485,13 +489,16 @@ private fun fileActions(link: AdbLinkController): FileActions {
 }
 
 private fun terminalActions(link: AdbLinkController) = TerminalActions(
-    onStart = link::startShell,
-    onSend = { text -> link.sendShellInput(text) },
-    onInterrupt = link::interruptShell,
-    onStop = link::stopShell,
-    onResize = link::resizeShell,
-    onKey = link::sendShellKey,
-    onType = { text -> link.sendShellInput(text, enter = false) },
+    onStart = { link.shells.start() },
+    onSend = { text -> link.shells.send(text) },
+    onInterrupt = link.shells::interrupt,
+    onStop = link.shells::stop,
+    onResize = link.shells::resize,
+    onKey = link.shells::key,
+    onType = { text -> link.shells.send(text, enter = false) },
+    onAddTab = link.shells::addTab,
+    onSelectTab = link.shells::selectTab,
+    onCloseTab = link.shells::closeTab,
 )
 
 /** Преобразует технический результат claim в короткое UI-сообщение. */

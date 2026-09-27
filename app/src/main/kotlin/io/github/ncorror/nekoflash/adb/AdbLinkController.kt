@@ -105,7 +105,7 @@ public class AdbLinkController(
      * Отдельный класс: этот следит за жизнью транспорта, тот — за жизнью одной
      * сессии оболочки, и заканчиваются они по разным причинам.
      */
-    private val shellSessions = AdbTerminalController(executor, terminalWriterExecutor, diagnostics)
+    private val shellTabs = AdbTerminalTabs(executor, terminalWriterExecutor, diagnostics)
 
     /**
      * Владелец файловых операций — и читающих, и записи.
@@ -185,7 +185,7 @@ public class AdbLinkController(
     public val command: StateFlow<AdbCommandState> = mutableCommand.asStateFlow()
 
     /** Состояние интерактивной оболочки. */
-    public val terminal: StateFlow<AdbTerminalState> = shellSessions.state
+    public val terminals: StateFlow<TerminalTabs> = shellTabs.state
 
     /** Состояние последней файловой операции. */
     public val files: StateFlow<AdbFileState> = fileOperations.state
@@ -447,48 +447,64 @@ public class AdbLinkController(
         }
     }
 
-    /**
-     * Открывает интерактивную оболочку по этому соединению.
-     *
-     * Одноразовые команды и файловые операции при этом остаются доступны:
-     * каждая работает на своём логическом потоке и ждёт на своём ящике.
-     */
-    public fun startShell(firstLine: String? = null, mode: AdbShellMode = AdbShellMode.PTY) {
-        val live = connection ?: return
-        // Живая оболочка уже есть — строка уходит в неё, как если бы её набрали.
-        // Её режим виден в состоянии терминала: вторую, другого режима, рядом
-        // не открыть, а подменять открытую без спроса нельзя.
-        if (shellSessions.active) {
-            firstLine?.let(shellSessions::sendInput)
-        } else {
-            shellSessions.start(live, firstLine, mode)
+    /** Оболочки во вкладках: одна грань, чтобы не раздувать сам контроллер. */
+    public val shells: ShellActions = ShellActions()
+
+    /** Интерактивные оболочки и их вкладки. */
+    public inner class ShellActions internal constructor() {
+        /**
+         * Открывает интерактивную оболочку в выбранной вкладке.
+         *
+         * [fromCommand] — оболочку просит команда настольного клиента: если во
+         * вкладке уже идёт своя, открывается новая вкладка, а не ввод в чужую.
+         * Одноразовые команды и файловые операции при этом остаются доступны:
+         * каждая работает на своём логическом потоке и ждёт на своём ящике.
+         */
+        public fun start(
+            firstLine: String? = null,
+            mode: AdbShellMode = AdbShellMode.PTY,
+            fromCommand: Boolean = false,
+        ) {
+            val live = connection ?: return
+            shellTabs.start(live, firstLine, mode, newIfBusy = fromCommand)
         }
-    }
 
-    /** Передаёт строку в оболочку. */
-    public fun sendShellInput(text: String, enter: Boolean = true) {
-        shellSessions.sendInput(text, enter)
-    }
+        /** Передаёт строку в оболочку выбранной вкладки; без [enter] — без перевода строки. */
+        public fun send(text: String, enter: Boolean = true) {
+            shellTabs.current.sendInput(text, enter)
+        }
 
-    /** Прерывает текущую команду в оболочке, не закрывая её. */
-    public fun interruptShell() {
-        shellSessions.interrupt()
-    }
+        /** Прерывает текущую команду в оболочке, не закрывая её. */
+        public fun interrupt() {
+            shellTabs.current.interrupt()
+        }
 
-    /** Размер окна терминала, как его измерил экран. */
-    public fun resizeShell(columns: Int, rows: Int) {
-        shellSessions.resize(columns, rows)
-    }
+        /** Размер окна терминала, как его измерил экран. */
+        public fun resize(columns: Int, rows: Int) {
+            shellTabs.current.resize(columns, rows)
+        }
 
-    /** Клавиша, которой нет в строке ввода. */
-    public fun sendShellKey(key: TerminalKey) {
-        shellSessions.sendKey(key)
-    }
+        /** Клавиша, которой нет в строке ввода. */
+        public fun key(key: TerminalKey) {
+            shellTabs.current.sendKey(key)
+        }
 
+        /** Закрывает оболочку выбранной вкладки. */
+        public fun stop() {
+            shellTabs.current.stop()
+        }
 
-    /** Закрывает оболочку. */
-    public fun stopShell() {
-        shellSessions.stop()
+        public fun addTab() {
+            shellTabs.add()
+        }
+
+        public fun selectTab(index: Int) {
+            shellTabs.select(index)
+        }
+
+        public fun closeTab(index: Int) {
+            shellTabs.close(index)
+        }
     }
 
     /**
@@ -601,7 +617,7 @@ public class AdbLinkController(
         coordinator.sessions.value.firstOrNull { session -> session.generation == generation }?.targetId
 
     private fun forgetConnection() {
-        shellSessions.stop()
+        shellTabs.stopAll()
         // Слушатели переживают отдельную команду, но не транспорт: проброс
         // поверх мёртвого соединения принимал бы клиентов в никуда.
         // Слушатели переживают отдельную команду, но не транспорт: проброс

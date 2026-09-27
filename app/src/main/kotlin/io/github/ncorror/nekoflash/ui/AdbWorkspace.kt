@@ -372,7 +372,18 @@ data class TerminalActions(
     val onKey: (TerminalKey) -> Unit = {},
     /** Текст без Enter. */
     val onType: (String) -> Unit = {},
+    val onAddTab: () -> Unit = {},
+    val onSelectTab: (Int) -> Unit = {},
+    val onCloseTab: (Int) -> Unit = {},
 )
+
+/** Вкладки терминала: у каждой своя оболочка. */
+data class TerminalPanel(
+    val tabs: List<AdbTerminalState> = listOf(AdbTerminalState()),
+    val selected: Int = 0,
+) {
+    val current: AdbTerminalState get() = tabs.getOrElse(selected) { AdbTerminalState() }
+}
 
 /**
  * Интерактивная оболочка.

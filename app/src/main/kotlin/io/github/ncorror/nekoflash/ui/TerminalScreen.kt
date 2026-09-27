@@ -1,6 +1,7 @@
 package io.github.ncorror.nekoflash.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -12,6 +13,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -33,6 +35,7 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import io.github.ncorror.nekoflash.R
+import io.github.ncorror.nekoflash.adb.AdbTerminalState
 import io.github.ncorror.nekoflash.adb.TerminalKey
 import io.github.ncorror.nekoflash.terminal.VtRow
 import io.github.ncorror.nekoflash.terminal.VtSnapshot
@@ -96,6 +99,44 @@ internal fun TerminalScreen(
             )
         }
     }
+}
+
+/** Вкладки: номер и то, с чего вкладка открыта; «+» — новая, «×» — закрыть. */
+@Composable
+internal fun TerminalTabsRow(panel: TerminalPanel, actions: TerminalActions) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        modifier = Modifier.horizontalScroll(rememberScrollState()),
+    ) {
+        panel.tabs.forEachIndexed { index, tab ->
+            FilterChip(
+                selected = index == panel.selected,
+                onClick = { actions.onSelectTab(index) },
+                label = { Text(tabTitle(index, tab)) },
+                trailingIcon = if (panel.tabs.size > 1) {
+                    {
+                        Text(
+                            stringResource(R.string.terminal_close_tab),
+                            modifier = Modifier.clickable { actions.onCloseTab(index) },
+                        )
+                    }
+                } else {
+                    null
+                },
+            )
+        }
+        OutlinedButton(onClick = actions.onAddTab) { Text(stringResource(R.string.terminal_new_tab)) }
+    }
+}
+
+private fun tabTitle(index: Int, tab: AdbTerminalState): String {
+    val name = tab.title ?: "sh"
+    val mark = when {
+        tab.active -> ""
+        tab.ended != null -> " ·"
+        else -> ""
+    }
+    return "${index + 1} $name$mark"
 }
 
 /** Клавиши, которых нет в строке ввода, и ввод без Enter — для `top`, `less`, `vi`. */

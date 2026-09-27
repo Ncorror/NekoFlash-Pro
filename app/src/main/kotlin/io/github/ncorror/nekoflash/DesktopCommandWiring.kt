@@ -87,7 +87,9 @@ internal fun desktopCommandPanel(
             sideload = adbLink.sideload.collectAsState().value,
             install = adbLink.install.collectAsState().value,
             transfer = adbLink.transfer.collectAsState().value,
-            terminal = adbLink.terminal.collectAsState().value,
+            terminal = adbLink.terminals.collectAsState().value.let { tabs ->
+                tabs.tabs[tabs.selected].collectAsState().value
+            },
         ),
     )
 }
