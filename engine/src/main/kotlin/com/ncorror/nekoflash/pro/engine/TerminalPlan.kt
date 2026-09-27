@@ -86,6 +86,12 @@ sealed interface TerminalPlanStep {
     data class AdbPush(val localNames: List<String>, val remotePath: String, val sync: Boolean = false) :
         TerminalPlanStep
 
+    /**
+     * `adb sync [-l] [РАЗДЕЛ]`: выбранная папка вместо `$ANDROID_PRODUCT_OUT`;
+     * [partition] `all` — все разделы, для которых там есть папка.
+     */
+    data class AdbSync(val partition: String, val listOnly: Boolean) : TerminalPlanStep
+
     /** Sideload выбранного архива. */
     data class AdbSideload(val archiveName: String) : TerminalPlanStep
 
@@ -141,7 +147,7 @@ val TerminalPlanStep.fileNeed: TerminalFileNeed
         -> TerminalFileNeed.OPEN
 
         is TerminalPlanStep.FastbootFetch -> TerminalFileNeed.CREATE
-        is TerminalPlanStep.AdbPull -> TerminalFileNeed.FOLDER
+        is TerminalPlanStep.AdbPull, is TerminalPlanStep.AdbSync -> TerminalFileNeed.FOLDER
         is TerminalPlanStep.AdbPush ->
             if (localNames.size == 1) TerminalFileNeed.OPEN_OR_FOLDER else TerminalFileNeed.OPEN_MANY
 

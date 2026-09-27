@@ -288,6 +288,10 @@ private fun baseStepText(step: TerminalPlanStep): String = when (step) {
     is TerminalPlanStep.AdbPull -> step.localName
         ?.let { stringResource(R.string.command_step_adb_pull_named, step.remotePaths.joinToString(" "), it) }
         ?: stringResource(R.string.command_step_adb_pull, step.remotePaths.joinToString(" "))
+    is TerminalPlanStep.AdbSync -> stringResource(
+        if (step.listOnly) R.string.command_step_adb_sync_list else R.string.command_step_adb_sync,
+        step.partition,
+    )
     is TerminalPlanStep.AdbPush -> stringResource(
         if (step.sync) R.string.command_step_adb_push_sync else R.string.command_step_adb_push,
         step.localNames.joinToString(" "),

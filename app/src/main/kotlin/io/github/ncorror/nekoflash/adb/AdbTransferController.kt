@@ -1,5 +1,6 @@
 package io.github.ncorror.nekoflash.adb
 
+import io.github.ncorror.nekoflash.artifact.LocalFolder
 import io.github.ncorror.nekoflash.artifact.SafArtifactSink
 import io.github.ncorror.nekoflash.core.artifact.ArtifactSink
 import io.github.ncorror.nekoflash.core.artifact.ArtifactSource
@@ -48,6 +49,17 @@ public class AdbTransferController(
 
     internal fun push(connection: AdbConnection, sources: () -> List<PushSource>, destination: String, sync: Boolean) {
         run(connection, "push → $destination") { port -> AdbTreePush(port, sync).push(sources(), destination) }
+    }
+
+    internal fun syncBuild(
+        connection: AdbConnection,
+        productOut: () -> LocalFolder,
+        partition: String,
+        listOnly: Boolean,
+    ) {
+        run(connection, "sync $partition") { port ->
+            AdbTreePush(port, sync = true, listOnly = listOnly).syncBuild(productOut(), partition)
+        }
     }
 
     internal fun pull(connection: AdbConnection, sources: List<String>, target: () -> PullTarget) {

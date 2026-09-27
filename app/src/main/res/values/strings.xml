@@ -370,6 +370,8 @@
     <string name="transfer_failed">%1$s did not run: %2$s</string>
     <string name="transfer_done">Done: %1$d files, %2$d bytes, skipped %3$d.</string>
     <string name="transfer_done_with_errors">Finished with errors: %1$d files, %2$d bytes, skipped %3$d.</string>
+    <string name="command_step_adb_sync">adb: sync %1$s from the folder you pick as the build output: files newer or of another size go to the device</string>
+    <string name="command_step_adb_sync_list">adb: list what sync %1$s would push from the folder you pick, without pushing</string>
     <string name="command_note">The same engines run this as the buttons and the raw console. A path in the command is never opened directly: the file is picked through Android and bound to the plan shown above. A command or option without an executor answers \"not implemented\" before anything is sent, instead of turning into a different command. `flash` of an image larger than the device\'s max-download-size goes in sparse pieces, as with desktop fastboot.</string>
     <string name="command_file_count">The command names %1$d files, and %2$d were picked. Nothing was sent.</string>
     <string name="command_run_open_many">Pick the files and run</string>

@@ -1,6 +1,7 @@
 package io.github.ncorror.nekoflash.adb
 
 import java.io.File
+import io.github.ncorror.nekoflash.artifact.LocalFolder
 import io.github.ncorror.nekoflash.core.artifact.ArtifactSink
 import io.github.ncorror.nekoflash.core.model.TargetId
 import io.github.ncorror.nekoflash.operation.OperationEngine
@@ -320,6 +321,12 @@ public class AdbLinkController(
         internal fun push(sources: () -> List<PushSource>, destination: String, sync: Boolean) {
             val live = connection ?: return
             transfers.push(live, sources, destination, sync)
+        }
+
+        /** `adb sync`: выбранная папка — каталог сборки. */
+        internal fun syncBuild(productOut: () -> LocalFolder, partition: String, listOnly: Boolean) {
+            val live = connection ?: return
+            transfers.syncBuild(live, productOut, partition, listOnly)
         }
 
         /** `adb pull`: пути устройства в папку, выбранную через Android. */

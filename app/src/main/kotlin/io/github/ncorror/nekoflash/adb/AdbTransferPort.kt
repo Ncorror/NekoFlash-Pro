@@ -72,6 +72,11 @@ internal class TransferLedger {
         messages += "warning: $message"
     }
 
+    /** Строка вывода без оценки: `would push: …`. */
+    fun note(message: String) {
+        messages += message
+    }
+
     fun report(): AdbTransferReport = AdbTransferReport(files, bytes, skipped, messages.toList(), success)
 }
 

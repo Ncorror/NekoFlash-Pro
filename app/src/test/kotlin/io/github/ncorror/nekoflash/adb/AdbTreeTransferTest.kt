@@ -83,6 +83,32 @@ class AdbTreeTransferTest {
     }
 
     @Test
+    fun syncPushesEveryPartitionFolderOfTheBuildOutput() {
+        device.files["/system/bin/same"] = "111"
+        device.times["/system/bin/same"] = 5
+        val out = Folder("out", "system/bin/same" to "111", "system/bin/new" to "2", "vendor/lib/x" to "3", "other/y" to "4")
+
+        val report = AdbTreePush(device, sync = true).syncBuild(out, "all")
+
+        assertEquals(1, report.skipped)
+        assertEquals(setOf("/system/bin/same", "/system/bin/new", "/vendor/lib/x"), device.files.keys)
+        assertEquals(
+            listOf("error: don't know how to sync odm partition"),
+            AdbTreePush(device, sync = true).syncBuild(out, "odm").messages,
+        )
+    }
+
+    @Test
+    fun syncListOnlyNamesWhatWouldGo() {
+        val out = Folder("out", "vendor/lib/x" to "3")
+
+        val report = AdbTreePush(device, sync = true, listOnly = true).syncBuild(out, "vendor")
+
+        assertEquals(listOf("would push: vendor/lib/x -> /vendor/lib/x"), report.messages)
+        assertEquals(emptyMap<String, String>(), device.files)
+    }
+
+    @Test
     fun aRemoteDirectoryIsPulledRecursivelyUnderItsName() {
         device.dirs += listOf("/sdcard/DCIM", "/sdcard/DCIM/Camera", "/sdcard/DCIM/empty")
         device.files["/sdcard/DCIM/a.jpg"] = "A"

@@ -29,7 +29,8 @@ internal object AdbPlans {
                 (listOf("logcat") + command.arguments.map(::shellWord)).joinToString(" "),
             ),
         )
-        is AdbCommand.Sync -> notImplemented("adb sync")
+        is AdbCommand.Sync -> transferBlocker("sync", command.options)?.let(::notImplemented)
+            ?: single(TerminalPlanStep.AdbSync(command.partition ?: "all", command.listOnly))
         is AdbCommand.Install -> install(listOf(command.packagePath), command.options, several = false)
         is AdbCommand.InstallMultiple -> install(command.packages, command.options, several = true)
         AdbCommand.LocalStatus -> report(LocalReportKind.STATUS)

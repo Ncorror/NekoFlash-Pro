@@ -54,6 +54,9 @@ internal class ControllerCommandTargets(
     override fun adbPull(remotePaths: List<String>, localName: String?, folder: () -> LocalFolder) =
         adb.storage.pull(remotePaths) { PullTarget(folder(), localName) }
 
+    override fun adbSync(partition: String, listOnly: Boolean, productOut: () -> LocalFolder) =
+        adb.storage.syncBuild(productOut, partition, listOnly)
+
     override fun adbPush(localNames: List<String>, picked: PickedFile, remotePath: String, sync: Boolean) =
         adb.storage.push({ pushSources(localNames, picked) }, remotePath, sync)
     override fun adbSideload(origin: () -> ArtifactSource) = adb.recovery.sideloadFrom(stagingDirectory, origin)

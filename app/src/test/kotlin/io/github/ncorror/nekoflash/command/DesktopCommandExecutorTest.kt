@@ -110,9 +110,15 @@ class DesktopCommandExecutorTest {
         executor.execute(plan("adb push --sync a b /sdcard/"), two)
         executor.execute(plan("adb push photos /sdcard/"), folder)
         executor.execute(plan("adb pull /sdcard/DCIM photos"), folder)
+        executor.execute(plan("adb sync -l system"), folder)
 
         assertEquals(
-            listOf("push a,b -> /sdcard/ sync", "push photos -> /sdcard/", "pull /sdcard/DCIM into=photos"),
+            listOf(
+                "push a,b -> /sdcard/ sync",
+                "push photos -> /sdcard/",
+                "pull /sdcard/DCIM into=photos",
+                "sync system -l",
+            ),
             calls,
         )
     }
@@ -187,6 +193,9 @@ class DesktopCommandExecutorTest {
         override fun adbReboot(target: String) { calls += "reboot $target" }
         override fun adbPull(remotePaths: List<String>, localName: String?, folder: () -> LocalFolder) {
             calls += "pull ${remotePaths.joinToString(" ")} into=${localName ?: "."}"
+        }
+        override fun adbSync(partition: String, listOnly: Boolean, productOut: () -> LocalFolder) {
+            calls += "sync $partition" + if (listOnly) " -l" else ""
         }
         override fun adbPush(localNames: List<String>, picked: PickedFile, remotePath: String, sync: Boolean) {
             calls += "push ${localNames.joinToString(",")} -> $remotePath" + if (sync) " sync" else ""

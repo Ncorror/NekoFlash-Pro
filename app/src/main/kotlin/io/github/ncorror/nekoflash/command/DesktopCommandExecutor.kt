@@ -32,6 +32,7 @@ interface DesktopCommandTargets {
     fun adbReboot(target: String)
     fun adbPull(remotePaths: List<String>, localName: String?, folder: () -> LocalFolder)
     fun adbPush(localNames: List<String>, picked: PickedFile, remotePath: String, sync: Boolean)
+    fun adbSync(partition: String, listOnly: Boolean, productOut: () -> LocalFolder)
     fun adbSideload(origin: () -> ArtifactSource)
     fun adbInstall(origins: List<() -> ArtifactSource>, options: List<String>, several: Boolean)
 
@@ -144,6 +145,9 @@ class DesktopCommandExecutor(private val targets: DesktopCommandTargets) {
         is TerminalPlanStep.AdbReboot -> DesktopCommandArea.ADB_REBOOT.also { targets.adbReboot(step.target) }
         is TerminalPlanStep.AdbPull -> DesktopCommandArea.ADB_TRANSFER.also {
             targets.adbPull(step.remotePaths, step.localName, (file as PickedFile.Folder).folder)
+        }
+        is TerminalPlanStep.AdbSync -> DesktopCommandArea.ADB_TRANSFER.also {
+            targets.adbSync(step.partition, step.listOnly, (file as PickedFile.Folder).folder)
         }
         is TerminalPlanStep.AdbPush -> DesktopCommandArea.ADB_TRANSFER.also {
             targets.adbPush(step.localNames, checkNotNull(file), step.remotePath, step.sync)

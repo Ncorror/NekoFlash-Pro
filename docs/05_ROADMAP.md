@@ -2,7 +2,7 @@
 
 **Единственный источник статуса проекта.** Другие документы описывают цель и правила; что сделано — только здесь. Статус меняется тем же коммитом, что и код.
 
-Версия APK: `0.37.0-dev`
+Версия APK: `0.38.0-dev`
 
 Текущий этап: **Этап 3 — Команды настольных `adb`/`fastboot` поверх нового ядра**
 
@@ -121,8 +121,8 @@
 | История операций и восстановление после смерти процесса | `в репо` | `OperationEngine`: `OperationRecovery.restore` при старте |
 | Центр операций, исход `Неизвестно` с подсказкой проверки | `в репо` | раздел «Операции» (`OperationsPanel`) |
 | push/pull в выбранное место | `в репо` | кнопки — `AdbSyncController.readTo`/`writeFrom`; `adb push`/`pull` — строкой ниже |
-| `adb push`/`pull` нескольких файлов и каталогов, `--sync`, `-q`, `-Z` | `в репо` | `AdbTreePush`/`AdbTreePull` по `do_sync_push`/`do_sync_pull` (AOSP android11), `LIST` в `AdbSyncList`, папка — через `OpenDocumentTree`; D059 |
-| `adb sync`; `pull -a`, `-z`, `push -n` | `нет` | `sync` — каталог сборки как выбранная папка; `-a` — время и режим, которых SAF не выставляет; `-z`/`-n` — `sync` второй версии; D059 |
+| `adb push`/`pull` нескольких файлов и каталогов, `--sync`, `-q`, `-Z`; `adb sync [-l]` | `в репо` | `AdbTreePush`/`AdbTreePull` по `do_sync_push`/`do_sync_pull`/`do_sync_sync` (AOSP android11), `LIST` в `AdbSyncList`, папка — через `OpenDocumentTree`, для `sync` она — каталог сборки; D059 |
+| `pull -a`, `-z`, `push -n`, `sync -n` | `нет` | `-a` — время и режим, которых SAF не выставляет; `-z`/`-n` — `sync` второй версии; D059 |
 | `install`/`install-multiple` | `в репо` | из поля команды (этап 3); отдельной кнопки нет |
 
 ## Этап 7 — Интерфейс целиком

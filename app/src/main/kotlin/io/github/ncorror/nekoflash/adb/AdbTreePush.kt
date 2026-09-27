@@ -32,12 +32,33 @@ internal sealed interface PushSource {
 internal class AdbTreePush(
     private val port: AdbTransferPort,
     private val sync: Boolean,
+    private val listOnly: Boolean = false,
     private val nowSeconds: () -> Int = { (System.currentTimeMillis() / MILLIS).toInt() },
 ) {
     private val ledger = TransferLedger()
 
     fun push(sources: List<PushSource>, destination: String): AdbTransferReport {
         run(sources, destination)
+        return ledger.report()
+    }
+
+    /**
+     * `adb sync [-l] [РАЗДЕЛ]`: [productOut] — выбранная папка вместо
+     * `$ANDROID_PRODUCT_OUT`. Каждый раздел списка, у которого там есть
+     * папка, уходит в `/РАЗДЕЛ` с проверкой времени и размера; `-l` только
+     * называет, что ушло бы.
+     */
+    fun syncBuild(productOut: LocalFolder, partition: String): AdbTransferReport {
+        val folders = productOut.entries().filterIsInstance<LocalEntry.Folder>().associateBy { it.name }
+        var found = false
+        for (name in SYNC_PARTITIONS) {
+            val local = folders[name]
+            if ((partition == ALL || partition == name) && local != null) {
+                found = true
+                if (!copyFolder(local.folder, "/$name", "$name/")) break
+            }
+        }
+        if (!found) ledger.error("don't know how to sync $partition partition")
         return ledger.report()
     }
 
@@ -81,12 +102,12 @@ internal class AdbTreePush(
             return true
         }
         val target = if (exists) withSlash(destination) + basename(source.name) else destination
-        copyFolder(source.folder, target)
+        copyFolder(source.folder, target, withSlash(source.name))
         return false
     }
 
-    /** `copy_local_dir_remote`. */
-    private fun copyFolder(folder: LocalFolder, destination: String) {
+    /** `copy_local_dir_remote`; `false` — перенос сорвался. [shown] — как назвать папку в выводе `-l`. */
+    private fun copyFolder(folder: LocalFolder, destination: String, shown: String): Boolean {
         val root = withSlash(destination)
         val directories = generateSequence(root) { path -> dirname(path).takeIf { it != path } }
             .takeWhile { path -> path.any { it != '/' } && path != "." }
@@ -102,12 +123,13 @@ internal class AdbTreePush(
             emptySet()
         }
         for ((path, file) in files) {
-            if (path in skip) {
-                ledger.skipped++
-            } else if (!send(path, file.modifiedAtMillis, file.open)) {
-                return
+            when {
+                path in skip -> ledger.skipped++
+                listOnly -> ledger.note("would push: ${shown + path.removePrefix(root)} -> $path")
+                !send(path, file.modifiedAtMillis, file.open) -> return false
             }
         }
+        return true
     }
 
     /** `local_build_list`: файлы каталога, потом его подкаталоги. */
@@ -156,5 +178,9 @@ internal class AdbTreePush(
 
     private companion object {
         const val MILLIS = 1000L
+        const val ALL = "all"
+
+        /** Разделы `adb sync` в порядке настольного клиента. */
+        val SYNC_PARTITIONS = listOf("data", "odm", "oem", "product", "system", "system_ext", "vendor")
     }
 }
