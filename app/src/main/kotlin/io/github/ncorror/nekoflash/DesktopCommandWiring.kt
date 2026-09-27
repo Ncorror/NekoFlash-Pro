@@ -94,6 +94,10 @@ internal fun desktopCommandPanel(
                 }
             }
         },
+        onEdit = {
+            area = null
+            fileMissing = false
+        },
         area = area,
         fileMissing = fileMissing,
         outcomes = DesktopCommandOutcomes(

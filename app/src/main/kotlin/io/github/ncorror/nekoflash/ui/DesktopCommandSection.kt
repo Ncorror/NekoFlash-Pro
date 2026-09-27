@@ -53,6 +53,13 @@ data class DesktopCommandPanel(
     val lock: FastbootLockStatus? = null,
     /** Исполнить план; выбор файла, если он нужен, берёт на себя проводка. */
     val onRun: (TerminalPlan) -> Unit = {},
+    /**
+     * Строку поменяли: исход прошлой команды больше не относится к ней.
+     *
+     * Прогон этапа 3: под «не реализовано» для `adb getprop` висел ответ
+     * предыдущей `adb shell getprop`, и было неясно, чей он.
+     */
+    val onEdit: () -> Unit = {},
     /** Где искать исход последней команды. */
     val area: DesktopCommandArea? = null,
     /** Плану был нужен файл, а его не выбрали: ничего не отправлено. */
@@ -82,7 +89,10 @@ internal fun DesktopCommandSection(panel: DesktopCommandPanel) {
         SectionHeading(text = stringResource(R.string.command_title))
         OutlinedTextField(
             value = line,
-            onValueChange = { line = it },
+            onValueChange = { edited ->
+                if (edited != line) panel.onEdit()
+                line = edited
+            },
             label = { Text(stringResource(R.string.command_label)) },
             singleLine = true,
             textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
