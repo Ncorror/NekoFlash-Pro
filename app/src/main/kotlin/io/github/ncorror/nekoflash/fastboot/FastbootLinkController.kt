@@ -315,7 +315,8 @@ public class FastbootLinkController(
         unlockReporter.stage(MiUnlockStatus.Stage.AUTHORIZE)
         // This request changes server-side unlock state: it is deliberately never retried.
         val encryptedHex = client.requestUnlock(product, token, nonce)
-        val bytes = MiUnlockData.decode(encryptedHex) ?: return unlockReporter.fail(active, MiUnlockStatus.Reason.SERVER)
+        val bytes = MiUnlockData.decode(encryptedHex)
+            ?: return unlockReporter.fail(active, MiUnlockStatus.Reason.SERVER)
         if (mutableState.value != connected || lane !== active || active.state != FastbootLaneState.IDLE) {
             return unlockReporter.fail(active, MiUnlockStatus.Reason.DEVICE)
         }
