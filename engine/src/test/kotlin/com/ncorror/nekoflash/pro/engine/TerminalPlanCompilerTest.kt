@@ -58,8 +58,7 @@ class TerminalPlanCompilerTest {
             "fastboot -S 512M erase system",
             "fastboot format userdata",
             "fastboot wipe-super super_empty.img",
-            "fastboot flashall",
-            "fastboot update image.zip",
+            "fastboot -w flashall",
             "fastboot flash vendor_boot:default ramdisk.img",
             "fastboot boot kernel ramdisk",
             "adb install --no-streaming app.apk",
@@ -69,6 +68,27 @@ class TerminalPlanCompilerTest {
             assertIs<TerminalPlanResult.NotImplemented>(compiler.compile(command), command)
         }
         assertIs<TerminalPlanResult.Invalid>(compiler.compile("fastboot -S --force flash boot boot.img"))
+    }
+
+    @Test
+    fun flashallAndUpdateTakeTheirOptions() {
+        assertEquals(listOf(TerminalPlanStep.FastbootFlashAll(archiveName = null)), steps("fastboot flashall"))
+        assertEquals(
+            listOf(
+                TerminalPlanStep.FastbootFlashAll(
+                    archiveName = "image.zip",
+                    slot = "b",
+                    force = true,
+                    skipSecondary = true,
+                    skipReboot = true,
+                    vbmetaFlags = 3,
+                    sparseLimit = 1024L * 1024L,
+                ),
+            ),
+            steps("fastboot --slot b --force --skip-secondary --skip-reboot --disable-verity --disable-verification -S 1M update image.zip"),
+        )
+        assertEquals(TerminalFileNeed.FOLDER, steps("fastboot flashall").single().fileNeed)
+        assertEquals(TerminalFileNeed.OPEN, steps("fastboot update image.zip").single().fileNeed)
     }
 
     @Test

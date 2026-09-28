@@ -20,7 +20,7 @@ internal object FastbootPlans {
         } else {
             null
         }
-        val blocker = unsupportedOption(options) ?: slotBlocker(command, options.slot)
+        val blocker = unsupportedOption(options, command) ?: slotBlocker(command, options.slot)
             ?: sparseBlocker(command, options)
             ?: vbmetaBlocker(command, options)
             ?: hostScenario(command).takeIf { main == null }
@@ -44,8 +44,9 @@ internal object FastbootPlans {
      * как у настольного клиента. `--set-active` без слота значит «другой слот»
      * и требует знать текущий, а `--slot` — знать, у каких разделов слоты есть.
      */
-    private fun unsupportedOption(options: FastbootOptions): String? = when {
+    private fun unsupportedOption(options: FastbootOptions, command: FastbootCommand): String? = when {
         options.wipe -> "fastboot -w"
+        command.flashesAll() -> null
         options.force -> "fastboot --force"
         options.skipReboot -> "fastboot --skip-reboot"
         options.skipSecondary -> "fastboot --skip-secondary"
@@ -69,7 +70,13 @@ internal object FastbootPlans {
         else -> "fastboot --slot"
     }
 
+    /** `flashall` и `update` — `--force`, `--skip-*`, `-S`, флаги vbmeta у них свои. */
+    private fun FastbootCommand.flashesAll(): Boolean =
+        this == FastbootCommand.FlashAll || this is FastbootCommand.Update
+
     private fun FastbootCommand.takesSlot(): Boolean = when (this) {
+        FastbootCommand.FlashAll,
+        is FastbootCommand.Update,
         is FastbootCommand.Flash,
         is FastbootCommand.Erase,
         is FastbootCommand.Fetch,
@@ -80,7 +87,9 @@ internal object FastbootPlans {
 
     /** `-S` режет образ для `flash`; у прочих команд ему не к чему применяться. */
     private fun sparseBlocker(command: FastbootCommand, options: FastbootOptions): String? =
-        "fastboot -S".takeIf { options.sparseLimit != null && command !is FastbootCommand.Flash }
+        "fastboot -S".takeIf {
+            options.sparseLimit != null && command !is FastbootCommand.Flash && !command.flashesAll()
+        }
 
     /**
      * Слот — у команд, которые настольный клиент пропускает через
@@ -98,6 +107,7 @@ internal object FastbootPlans {
                     is TerminalPlanStep.FastbootFlashImage -> step.copy(slot = slot)
                     is TerminalPlanStep.FastbootWire -> step.copy(slot = slot)
                     is TerminalPlanStep.FastbootFetch -> step.copy(slot = slot)
+                    is TerminalPlanStep.FastbootFlashAll -> step.copy(slot = slot)
                     else -> step
                 }
             }
@@ -112,6 +122,7 @@ internal object FastbootPlans {
     private fun vbmetaBlocker(command: FastbootCommand, options: FastbootOptions): String? = when {
         !options.disableVerity && !options.disableVerification -> null
         command is FastbootCommand.Flash && command.partition.startsWith(VBMETA) -> null
+        command.flashesAll() -> null
         options.disableVerity -> "fastboot --disable-verity"
         else -> "fastboot --disable-verification"
     }
@@ -121,10 +132,16 @@ internal object FastbootPlans {
             (if (options.disableVerification) DISABLE_VERIFICATION else 0)
         val sparse = options.sparseLimit?.takeIf { it != 0L }
         return steps.map { step ->
-            if (step is TerminalPlanStep.FastbootFlashImage) {
-                step.copy(vbmetaFlags = flags, sparseLimit = sparse)
-            } else {
-                step
+            when (step) {
+                is TerminalPlanStep.FastbootFlashImage -> step.copy(vbmetaFlags = flags, sparseLimit = sparse)
+                is TerminalPlanStep.FastbootFlashAll -> step.copy(
+                    vbmetaFlags = flags,
+                    sparseLimit = sparse,
+                    force = options.force,
+                    skipSecondary = options.skipSecondary,
+                    skipReboot = options.skipReboot,
+                )
+                else -> step
             }
         }
     }
@@ -146,6 +163,8 @@ internal object FastbootPlans {
         is FastbootCommand.DeviceQuery -> command.takeIf { it.query == IS_LOGICAL }
             ?.let { listOf(TerminalPlanStep.FastbootGetvar("$IS_LOGICAL:${it.argument}")) }
         is FastbootCommand.Wire -> listOf(TerminalPlanStep.FastbootWire(command.payload))
+        FastbootCommand.FlashAll -> listOf(TerminalPlanStep.FastbootFlashAll(archiveName = null))
+        is FastbootCommand.Update -> listOf(TerminalPlanStep.FastbootFlashAll(archiveName = command.archive))
         FastbootCommand.LocalStatus -> listOf(report(LocalReportKind.STATUS))
         is FastbootCommand.Devices ->
             listOf(report(if (command.longFormat) LocalReportKind.DEVICES_LONG else LocalReportKind.DEVICES))

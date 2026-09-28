@@ -127,9 +127,10 @@ cd NekoFlash-Pro
 | F2 | `fastboot oem aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`, затем «Спросить устройство, кто оно» | команда ушла (не «не помещается в кадр»), устройство ответило — `FAIL` или `OKAY`; опрос после неё — «Загрузчик» | «не помещается в кадр 64»; после команды полоса потеряла рамку |
 | G (по желанию) | `fastboot --disable-verity --disable-verification flash vbmeta vbmeta.img` с `vbmeta.img` **текущей прошивки**, который владелец проверил сам | Preview называет флаги; план: ✓ `download:…`, ✓ `flash:vbmeta`; телефон загружается | `download` ушёл, хотя файл не AVB |
 | G2 (по желанию) | `fastboot -S 16M flash boot boot.img` с `boot.img` **текущей прошивки**, который владелец проверил сам | план: `getvar` не спрашивается; файл больше 16 МиБ — несколько пар ✓ `download:…` + ✓ `flash:boot`, каждый `download` не больше `01000000`, меньше — одна пара; телефон загружается | пара не принята без ответа устройства; телефон не загружается |
+| G3 | На хосте папка `fa` с тремя файлами: `android-info.txt` со строкой `require board=nosuchboard`, `boot.img` и `system.img` (любые байты). `fastboot flashall` → «Выбрать папку» → `fa` | план остановлен до первой команды: в отчёте `Checking 'product' FAILED`, `Device product is 'vayu'. Update requires 'nosuchboard'.`, `requirements not met!`; ни одного `download` | ушёл `download`, `flash` или `set_active` |
 | H | `fastboot reboot`; «Диагностика» → «Выгрузить диагностику» | `vayu` в Android; ZIP без серийного номера | — |
 
-Шаги G и G2 меняют разделы `vbmeta` и `boot`: только с образами от установленной прошивки. Прислать: ZIP из шага H, скриншоты шагов A, C, D, D2, D3, D4n, F, F2 и G, G2, если были.
+Шаги G и G2 меняют разделы `vbmeta` и `boot`: только с образами от установленной прошивки. Прислать: ZIP из шага H, скриншоты шагов A, C, D, D2, D3, D4n, F, F2, G3 и G, G2, если были.
 
 ## Тестовые устройства
 

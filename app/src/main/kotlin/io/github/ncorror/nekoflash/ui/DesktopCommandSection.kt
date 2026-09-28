@@ -318,6 +318,9 @@ private fun baseStepText(step: TerminalPlanStep): String = when (step) {
         step.remotePath,
     ) + dryRunNote(step.dryRun)
     is TerminalPlanStep.AdbSideload -> stringResource(R.string.command_step_adb_sideload, step.archiveName)
+    is TerminalPlanStep.FastbootFlashAll -> step.archiveName
+        ?.let { stringResource(R.string.command_step_fastboot_update, it, flashAllOptions(step)) }
+        ?: stringResource(R.string.command_step_fastboot_flashall, flashAllOptions(step))
     is TerminalPlanStep.AdbInstall -> stringResource(
         if (step.several) R.string.command_step_adb_install_multiple else R.string.command_step_adb_install,
         step.names.joinToString(", "),
@@ -410,3 +413,14 @@ private const val CONFIRM_WORD = "yes"
 @Composable
 private fun dryRunNote(dryRun: Boolean): String =
     if (dryRun) stringResource(R.string.command_step_adb_dry_run) else ""
+
+/** Опции `flashall`/`update` словами команды: они не переводятся. */
+private fun flashAllOptions(step: TerminalPlanStep.FastbootFlashAll): String = listOfNotNull(
+    step.slot.takeIf { it.isNotEmpty() }?.let { "--slot $it" },
+    "--force".takeIf { step.force },
+    "--skip-secondary".takeIf { step.skipSecondary },
+    "--skip-reboot".takeIf { step.skipReboot },
+    "--disable-verity".takeIf { step.vbmetaFlags and 1 != 0 },
+    "--disable-verification".takeIf { step.vbmetaFlags and 2 != 0 },
+    step.sparseLimit?.let { "-S $it" },
+).joinToString(" ").ifEmpty { "—" }

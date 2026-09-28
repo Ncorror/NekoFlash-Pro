@@ -3,14 +3,19 @@ package io.github.ncorror.nekoflash.command
 import com.ncorror.nekoflash.pro.engine.LocalReportKind
 import com.ncorror.nekoflash.pro.engine.ShellMode
 import com.ncorror.nekoflash.pro.engine.TerminalParser
+import com.ncorror.nekoflash.pro.engine.TerminalPlanStep
 import io.github.ncorror.nekoflash.adb.AdbLinkController
 import io.github.ncorror.nekoflash.adb.PullTarget
 import io.github.ncorror.nekoflash.adb.PushSource
 import io.github.ncorror.nekoflash.artifact.LocalFolder
+import io.github.ncorror.nekoflash.artifact.ZipArchive
 import io.github.ncorror.nekoflash.core.artifact.ArtifactSink
 import io.github.ncorror.nekoflash.core.artifact.ArtifactSource
 import io.github.ncorror.nekoflash.core.model.SessionGeneration
 import io.github.ncorror.nekoflash.fastboot.FastbootLinkController
+import io.github.ncorror.nekoflash.fastboot.FlashAllRequest
+import io.github.ncorror.nekoflash.fastboot.FolderImageSet
+import io.github.ncorror.nekoflash.fastboot.ZipImageSet
 import io.github.ncorror.nekoflash.protocol.adb.AdbShellMode
 import io.github.ncorror.nekoflash.usb.api.UsbSession
 import java.io.File
@@ -40,6 +45,25 @@ internal class ControllerCommandTargets(
     ) = fastboot.downloadFrom(then, slot, sparseLimit, origin)
     override fun fastbootFetch(partition: String, slot: String?, destination: () -> ArtifactSink) =
         fastboot.fetchPartitionTo(partition, slot, destination)
+
+    override fun fastbootFlashAll(step: TerminalPlanStep.FastbootFlashAll, picked: PickedFile) =
+        fastboot.flashAll(
+            FlashAllRequest(
+                slot = step.slot,
+                force = step.force,
+                skipSecondary = step.skipSecondary,
+                skipReboot = step.skipReboot,
+                vbmetaFlags = step.vbmetaFlags,
+                sparseLimit = step.sparseLimit,
+                flashAll = step.archiveName == null,
+            ),
+        ) {
+            when (picked) {
+                is PickedFile.Folder -> FolderImageSet(picked.folder())
+                is PickedFile.Open -> ZipImageSet(ZipArchive(picked.origin()))
+                else -> error("flashall/update: $picked")
+            }
+        }
     override fun adbShell(command: String) = adb.runCommand(command)
     override fun adbInteractiveShell(firstLine: String?, mode: ShellMode) = adb.shells.start(
         firstLine,

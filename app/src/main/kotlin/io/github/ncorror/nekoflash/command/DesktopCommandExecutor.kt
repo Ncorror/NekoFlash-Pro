@@ -26,6 +26,9 @@ interface DesktopCommandTargets {
     fun fastbootAllVariables()
     fun fastbootDownloadThen(then: List<String>, slot: String?, sparseLimit: Long?, origin: () -> ArtifactSource)
     fun fastbootFetch(partition: String, slot: String?, destination: () -> ArtifactSink)
+
+    /** `flashall` — [picked] папка; `update` — выбранный архив. */
+    fun fastbootFlashAll(step: TerminalPlanStep.FastbootFlashAll, picked: PickedFile)
     fun adbShell(command: String)
     fun adbInteractiveShell(firstLine: String?, mode: ShellMode)
     fun adbService(service: String)
@@ -127,6 +130,7 @@ class DesktopCommandExecutor(private val targets: DesktopCommandTargets) {
             is TerminalPlanStep.FastbootFetch -> targets.fastbootFetch(first.partition, first.slot, file.create())
             is TerminalPlanStep.FastbootGetvar -> targets.fastbootVariable(first.variable)
             TerminalPlanStep.FastbootGetvarAll -> targets.fastbootAllVariables()
+            is TerminalPlanStep.FastbootFlashAll -> targets.fastbootFlashAll(first, checkNotNull(file))
             // Слот уточняется на устройстве — это тоже план.
             else -> if (wires.size == 1 && slot == null) {
                 targets.fastbootCommand(wires.single())
@@ -169,6 +173,7 @@ fun TerminalPlanStep.isFastboot(): Boolean = when (this) {
     is TerminalPlanStep.FastbootFlashImage,
     is TerminalPlanStep.FastbootBootImage,
     is TerminalPlanStep.FastbootFetch,
+    is TerminalPlanStep.FastbootFlashAll,
     -> true
 
     else -> false

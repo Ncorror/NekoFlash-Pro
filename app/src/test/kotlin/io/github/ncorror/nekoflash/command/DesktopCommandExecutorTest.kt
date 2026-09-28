@@ -6,6 +6,7 @@ import com.ncorror.nekoflash.pro.engine.TerminalParser
 import com.ncorror.nekoflash.pro.engine.TerminalPlan
 import com.ncorror.nekoflash.pro.engine.TerminalPlanCompiler
 import com.ncorror.nekoflash.pro.engine.TerminalPlanResult
+import com.ncorror.nekoflash.pro.engine.TerminalPlanStep
 import io.github.ncorror.nekoflash.artifact.LocalFolder
 import io.github.ncorror.nekoflash.core.artifact.ArtifactSink
 import io.github.ncorror.nekoflash.core.artifact.ArtifactSource
@@ -184,6 +185,9 @@ class DesktopCommandExecutorTest {
         }
         override fun fastbootFetch(partition: String, slot: String?, destination: () -> ArtifactSink) {
             calls += "fetch $partition" + (slot?.let { " slot=$it" } ?: "")
+        }
+        override fun fastbootFlashAll(step: TerminalPlanStep.FastbootFlashAll, picked: PickedFile) {
+            calls += (step.archiveName?.let { "update $it" } ?: "flashall") + " ${picked.javaClass.simpleName}"
         }
         override fun adbShell(command: String) { calls += "shell $command" }
         override fun adbInteractiveShell(firstLine: String?, mode: ShellMode) {

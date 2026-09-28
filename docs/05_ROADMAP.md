@@ -2,7 +2,7 @@
 
 **Единственный источник статуса проекта.** Другие документы описывают цель и правила; что сделано — только здесь. Статус меняется тем же коммитом, что и код.
 
-Версия APK: `0.42.0-dev`
+Версия APK: `0.43.0-dev`
 
 Текущий этап: **Этап 3 — Команды настольных `adb`/`fastboot` поверх нового ядра**
 
@@ -88,7 +88,7 @@
 | Команды `adb devices [-l]`, `get-state`, `status`, `fastboot devices [-l]`, `status`; `adb shell -x`/`-T` без команды | `в репо` | `LocalReports`: строки Platform-Tools из состояния связи приложения, устройству ничего не уходит; `-T` — живая оболочка `shell,v2,raw:`, `-x` — `shell:`, при занятой вкладке — в новой (D054, D061) |
 | Команды ADB: `install`, `install-multiple` с флагами `package` | `в репо` | `AdbInstallController`: `exec:cmd package install -S`, сессия `install-create`/`install-write`/`install-commit`, при сбое — `install-abandon` |
 | Общая проверка на телефоне | `проверено` | шаги A–I на 0.30.0, [журнал 07](07_BUILD_AND_TESTING.md#журнал-проверок-этого-apk) |
-| Проверка на телефоне: установка APK, `devices`/`get-state`, режимы оболочки, слоты, флаги vbmeta, `flash -S`, `push`/`pull` каталогов, `push -n`, цвета и `top` в терминале, TalkBack | `нет` | [07](07_BUILD_AND_TESTING.md#ручная-проверка-на-телефоне), план этапа 3, часть 2 |
+| Проверка на телефоне: установка APK, `devices`/`get-state`, режимы оболочки, слоты, флаги vbmeta, `flash -S`, `push`/`pull` каталогов, `push -n`, отказ `flashall` по `android-info.txt`, цвета и `top` в терминале, TalkBack | `нет` | [07](07_BUILD_AND_TESTING.md#ручная-проверка-на-телефоне), план этапа 3, часть 2 |
 
 ## Этап 4 — Fastboot до конца
 
@@ -99,9 +99,10 @@
 | Логические разделы, сценарии fastbootd | `в репо` | `FastbootPartitionIndex` в списке переменных консоли; `create-`/`delete-`/`resize-logical-partition` из поля команды, класс мутации `SUPER` |
 | План из нескольких команд (Quick Flash) | `в репо` | `FastbootPlan` через `FastbootLinkController.runPlan`: группа «Запись» и планы поля команды, остановка на первом непринятом шаге |
 | Sparse и разбиение по `max-download-size`, `-S` | `в репо` | `FastbootSparse` по AOSP `libsparse`; `flashImage`: образ больше предела уходит кусками, каждый — `download` + `flash:РАЗДЕЛ`; D056 |
-| `update`/`flashall`, `--force`, `--skip-*` | `нет` | нужен разбор архива образов и `android-info.txt`; D053 |
-| `format`, `-w`: создание файловой системы на хосте | `нет` | D053 |
-| `wipe-super`, `vendor_boot:RAMDISK`: метаданные логических разделов и перепаковка | `нет` | D053 |
+| `update`/`flashall`, `--force`, `--skip-*` | `в репо` | `FastbootFlashAll` по `FlashAllTool` и `task.cpp`: требования `android-info.txt`, `set_active`, `fastboot-info.txt` или таблица образов, подписи `.sig`, `update-super`, сжатие логических разделов, `reboot`; набор — выбранная папка или архив (`ZipArchive`, с ZIP64); `super_empty.img` читает `FastbootSuperMetadata` по `liblp`; D063 |
+| `flashall`/`update` из загрузчика, когда набору нужен fastbootd (`super_empty.img`, `reboot fastboot`) | `нет` | переход в fastbootd посреди работы и продолжение на новом подключении; до него — отказ до первой команды с советом `fastboot reboot fastboot`; D063 |
+| `format`, `-w`: создание файловой системы на хосте | `нет` | D053; `erase` в `fastboot-info.txt` отвергается до первой команды по той же причине (D063) |
+| `wipe-super`, `vendor_boot:RAMDISK`: метаданные логических разделов и перепаковка | `нет` | D053; чтение метаданных есть (`FastbootSuperMetadata`), нужна запись образа `super` |
 | Длина Fastboot-команды: 64 или 4096 байт | `в репо` | `FastbootLane.MAX_COMMAND_BYTES` = 4096 по AOSP `FB_COMMAND_SZ` (D057); на `vayu` — шаг F2 плана проверки [07](07_BUILD_AND_TESTING.md#ручная-проверка-на-телефоне) |
 
 ## Этап 5 — Recovery и Sideload

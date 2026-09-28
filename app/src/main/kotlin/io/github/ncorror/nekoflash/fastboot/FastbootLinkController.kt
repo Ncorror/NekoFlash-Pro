@@ -329,6 +329,16 @@ public class FastbootLinkController(
         }
     }
 
+    /**
+     * `fastboot flashall` и `fastboot update` — одной операцией полосы, как
+     * `FlashAllTool` настольного клиента ([FastbootFlashAll]).
+     */
+    internal fun flashAll(request: FlashAllRequest, images: () -> FastbootImageSet) {
+        busy("fastboot_flashall", if (request.flashAll) "flashall" else "update") { lane, _ ->
+            FastbootFlashAll(lane, images(), request).run()
+        }
+    }
+
     /** Читает раздел в место, выбранное пользователем. */
     public fun fetchPartitionTo(partition: String, slot: String? = null, destination: () -> ArtifactSink) {
         busy("fastboot_fetch_file", partition) { lane, typed ->

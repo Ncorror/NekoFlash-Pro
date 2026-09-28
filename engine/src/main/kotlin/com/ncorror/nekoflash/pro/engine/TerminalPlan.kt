@@ -100,6 +100,20 @@ sealed interface TerminalPlanStep {
     data class AdbSideload(val archiveName: String) : TerminalPlanStep
 
     /**
+     * `fastboot flashall` (набор — выбранная папка вместо `$ANDROID_PRODUCT_OUT`)
+     * или `fastboot update АРХИВ` ([archiveName] — выбранный архив).
+     */
+    data class FastbootFlashAll(
+        val archiveName: String?,
+        val slot: String = CURRENT_SLOT,
+        val force: Boolean = false,
+        val skipSecondary: Boolean = false,
+        val skipReboot: Boolean = false,
+        val vbmetaFlags: Int = 0,
+        val sparseLimit: Long? = null,
+    ) : TerminalPlanStep
+
+    /**
      * Установка пакетов: одиночная `install` или сессия `install-multiple`.
      * [options] уходят `package` как есть — это его флаги, не наши.
      */
@@ -156,6 +170,8 @@ val TerminalPlanStep.fileNeed: TerminalFileNeed
             if (localNames.size == 1) TerminalFileNeed.OPEN_OR_FOLDER else TerminalFileNeed.OPEN_MANY
 
         is TerminalPlanStep.AdbInstall -> if (several) TerminalFileNeed.OPEN_MANY else TerminalFileNeed.OPEN
+        is TerminalPlanStep.FastbootFlashAll ->
+            if (archiveName == null) TerminalFileNeed.FOLDER else TerminalFileNeed.OPEN
 
         else -> TerminalFileNeed.NONE
     }
@@ -169,7 +185,7 @@ val TerminalPlanStep.fileNeed: TerminalFileNeed
  */
 val TerminalPlanStep.writesPartition: Boolean
     get() = when (this) {
-        is TerminalPlanStep.FastbootFlashImage -> true
+        is TerminalPlanStep.FastbootFlashImage, is TerminalPlanStep.FastbootFlashAll -> true
         is TerminalPlanStep.FastbootWire -> PARTITION_WRITES.any { command.startsWith(it) }
         else -> false
     }
