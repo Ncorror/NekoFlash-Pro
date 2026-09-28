@@ -79,6 +79,7 @@ fun NekoFlashApp(
     paletteActions: List<PaletteAction> = emptyList(),
     recentEvents: RecentEvents = RecentEvents { emptyList() },
     fastboot: FastbootPanel = FastbootPanel(),
+    miUnlock: MiUnlockPanel = MiUnlockPanel(),
     fastbootConsole: FastbootConsolePanel = FastbootConsolePanel(),
     terminalActions: TerminalActions = TerminalActions(),
     fileActions: FileActions = FileActions(),
@@ -115,6 +116,7 @@ fun NekoFlashApp(
             paletteActions = paletteActions,
             recentEvents = recentEvents,
             fastboot = fastboot,
+            miUnlock = miUnlock,
             fastbootConsole = fastbootConsole,
             desktopCommand = desktopCommand,
             onExportDiagnostics = onExportDiagnostics,
@@ -206,6 +208,7 @@ private fun Workspace(
     paletteActions: List<PaletteAction>,
     recentEvents: RecentEvents,
     fastboot: FastbootPanel,
+    miUnlock: MiUnlockPanel,
     fastbootConsole: FastbootConsolePanel,
     desktopCommand: DesktopCommandPanel,
     onExportDiagnostics: () -> Unit,
@@ -261,6 +264,7 @@ private fun Workspace(
             fastboot = fastboot,
             fastbootConsole = fastbootConsole,
         )
+        MiUnlockSection(miUnlock)
     }
 }
 

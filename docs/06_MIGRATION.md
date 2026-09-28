@@ -108,7 +108,7 @@
 | Fastboot-команды, `getvar`, OEM, разделы | legacy `FastbootProtocol.kt`, `FastbootGetVarAllParser.kt`, `FastbootPartitionInventory.kt` |
 | Sideload и Recovery | A2 `adb/sideload/SideloadStreamSession.kt`, `RecoveryInstallVerifier.kt`, `docs/SIDELOAD_*.md` |
 | Синтаксис команд терминала | legacy `MainActivity.kt` → `parseAdbCommand`/`parseFastbootCommand`/`tokenizeCommandLine` (сам разбор; класс вокруг — нет) |
-| Mi Unlock | legacy `MiUnlockClient.kt`, `MiAccountClient.kt`, `MiAccountSecurityPolicy.kt`, `MiLoginActivity.kt` |
+| Mi Unlock | legacy `MiUnlockClient.kt`, `MiAccountClient.kt`, `MiAccountSecurityPolicy.kt`, `MiLoginActivity.kt`; текущие `:vendor:xiaomi`, `protocol/fastboot/.../FastbootXiaomiUnlock.kt`, `app/.../miunlock/` и `app/.../ui/MiUnlockPanel.kt`. Полный WebView и подписанный протокол сохранены; сырые ответы, cookie и ключи исключены из диагностики; `OKAY` требует нового `getvar:unlocked` для статуса «проверено» |
 | Особенности устройств | A2 `docs/KNOWN_USB_DEVICE_QUIRKS.md`, `docs/LEGACY_BEHAVIOR_BASELINE.md`. Особенность описывает устройство в конкретной роли (цель или хост) и на другую роль без своего наблюдения не переносится |
 
 Тесты A2 (36 файлов) описывают проверенные краевые случаи: переносишь механизм — сверяй набор случаев, а не только реализацию. В legacy тестов нет, его доказательства — аппаратные прогоны.

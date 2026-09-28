@@ -12,6 +12,7 @@ TEST_MODULES = (
     "app", "engine",
     "core/model", "core/diagnostics", "core/operation", "core/artifact",
     "usb/api", "usb/android", "protocol/adb", "protocol/fastboot",
+    "vendor/xiaomi",
 )
 
 

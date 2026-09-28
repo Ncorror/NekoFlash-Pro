@@ -77,7 +77,8 @@ ArtifactSink:   временное место, точный счёт, commit т�
 | `:protocol:adb` | всё ADB, включая Sync, Sideload и Recovery-корреляцию |
 | `:protocol:fastboot` | полоса, `getvar`, DATA OUT/IN, мутации, планы, lock state, разделы |
 | `:engine` | разбор команд настольных `adb`/`fastboot` в типизированные намерения и план с Preview (имя модуля может смениться при переносе) |
-| `:feature:*`, `:vendor:xiaomi` | выносятся из `:app`, когда появится второй потребитель или настоящая граница |
+| `:vendor:xiaomi` | официальная авторизация аккаунта, разрешённые HTTPS-хосты Xiaomi, подпись запросов Mi Unlock; USB остаётся в `:protocol:fastboot` |
+| `:feature:*` | выносятся из `:app`, когда появится второй потребитель или настоящая граница |
 
 ### Текущие модули
 
@@ -94,6 +95,7 @@ ArtifactSink:   временное место, точный счёт, commit т�
 - `:usb:android` — из архива.
 - `:protocol:adb` — из архива.
 - `:protocol:fastboot` — из архива.
+- `:vendor:xiaomi` — сетевой клиент и политика доменов Xiaomi из legacy; токен устройства и `download`/`oem unlock` идут через общий `:protocol:fastboot`.
 <!-- modules:end -->
 
 ## 6. Направление зависимостей

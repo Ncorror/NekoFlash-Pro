@@ -12,6 +12,7 @@ import io.github.ncorror.nekoflash.core.diagnostics.InMemoryDiagnosticSink
 import io.github.ncorror.nekoflash.core.model.SessionGeneration
 import io.github.ncorror.nekoflash.adb.AdbLinkController
 import io.github.ncorror.nekoflash.fastboot.FastbootLinkController
+import io.github.ncorror.nekoflash.miunlock.MiAccountSession
 import io.github.ncorror.nekoflash.diagnostics.HostFacts
 import io.github.ncorror.nekoflash.protocol.adb.AdbKeyStore
 import io.github.ncorror.nekoflash.usb.android.AndroidUsbHost
@@ -164,6 +165,9 @@ public class NekoFlashApplication : Application() {
             diagnostics = events,
         )
     }
+
+    /** Xiaomi authorization is in memory; closing the process discards it. */
+    public val miAccount: MiAccountSession by lazy { MiAccountSession(adbOperationThreads) }
 
     /** Имя файла, предлагаемое системному диалогу сохранения. */
     public fun suggestedDiagnosticsFileName(): String =

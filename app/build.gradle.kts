@@ -50,8 +50,8 @@ android {
         applicationId = "com.ncorror.nekoflash.pro"
         minSdk = 26
         targetSdk = 36
-        versionCode = 45
-        versionName = "0.45.0-dev"
+        versionCode = 46
+        versionName = "0.46.0-dev"
     }
 
     androidResources {
@@ -91,6 +91,7 @@ dependencies {
     implementation(project(":usb:android"))
     implementation(project(":protocol:adb"))
     implementation(project(":protocol:fastboot"))
+    implementation(project(":vendor:xiaomi"))
     implementation(project(":engine"))
     implementation(libs.kotlinx.coroutines.core)
 
