@@ -391,7 +391,7 @@
     <string name="command_step_fastboot_flashall">fastboot: flashall из папки, которую вы выберете как каталог сборки: требования android-info.txt, set_active, загрузочные образы, затем системные, в конце перезагрузка. Опции: %1$s</string>
     <string name="command_step_fastboot_update">fastboot: update из %1$s (архив, который вы выберете): требования android-info.txt, set_active, загрузочные образы, затем системные, в конце перезагрузка. Опции: %2$s</string>
     <string name="command_step_fastboot_vendor_ramdisk">fastboot: vendor_boot читается с устройства, рамдиск %1$s в нём заменяется на %2$s (файл, который вы выберете), и образ прошивается обратно; слот: %3$s</string>
-    <string name="command_step_fastboot_format">fastboot: format %1$s — телефон спрашивает у устройства тип и размер раздела (замена: тип %2$s, размер %3$s), собирает пустую файловую систему, как mke2fs, и прошивает её. Опции: %4$s</string>
+    <string name="command_step_fastboot_format">fastboot: format %1$s — телефон спрашивает у устройства тип и размер раздела (замена: тип %2$s, размер %3$s), собирает пустую файловую систему, как mke2fs или make_f2fs, и прошивает её. Опции: %4$s</string>
     <string name="command_step_fastboot_wipe">fastboot: -w — стирание и новая файловая система у userdata, cache и metadata (раздел, которого устройство не знает, пропускается), затем: %1$s. Опции: %2$s</string>
     <string name="command_step_fastboot_wipe_super">fastboot: wipe-super по %1$s (файл, который вы выберете): пустой super по его метаданным прошивается на каждое устройство super; слот: %2$s</string>
     <string name="terminal_type_no_enter">Отправить без Enter</string>

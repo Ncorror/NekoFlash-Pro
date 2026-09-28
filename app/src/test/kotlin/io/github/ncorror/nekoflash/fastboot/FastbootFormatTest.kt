@@ -2,6 +2,7 @@ package io.github.ncorror.nekoflash.fastboot
 
 import com.ncorror.nekoflash.pro.engine.CURRENT_SLOT
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootExt4
+import io.github.ncorror.nekoflash.protocol.fastboot.FastbootF2fs
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootLane
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
@@ -10,7 +11,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class FastbootFormatTest {
-    private val options = FormatOptions(random = { size -> ByteArray(size) { 7 } }, now = { NOW })
+    private val options = FormatOptions(random = { size -> ByteArray(size) { 7 } }, now = { NOW }, kernelRelease = { "test-kernel" })
 
     /** Тот же образ, что соберёт генератор для этого раздела. */
     private fun expected(bytes: Long, erase: Long = 0, logical: Long = 0) = FastbootExt4.image(
@@ -51,12 +52,27 @@ class FastbootFormatTest {
     }
 
     @Test
-    fun formatStopsBeforeSendingWhenTheFileSystemCannotBeBuiltHere() {
-        val f2fs = ScriptedBootloader(mapOf("partition-type:userdata" to "f2fs", "partition-size:userdata" to "0x1000000"))
-        val planned = formatPartition(FastbootLane(f2fs), "userdata", null, null, CURRENT_SLOT, options)
+    fun f2fsIsBuiltLikeMakeF2fs() {
+        val device = ScriptedBootloader(mapOf("partition-type:userdata" to "f2fs", "partition-size:userdata" to "0x4000000"))
+
+        val planned = formatPartition(FastbootLane(device), "userdata", null, null, CURRENT_SLOT, options)
             as FastbootConsoleState.Planned
-        assertEquals("Creating f2fs on the host is not implemented here yet.", planned.detail)
-        assertTrue(f2fs.downloads.isEmpty())
+
+        assertNull(planned.detail, planned.stoppedAt)
+        val rand = 0x07070707L
+        val expected = FastbootF2fs.image(
+            FastbootF2fs.Request(0x4000000, false, false, false, ByteArray(16) { 7 }, NOW, rand, "test-kernel"),
+        ).getOrThrow()
+        assertArrayEquals(expected, device.downloads.single())
+    }
+
+    @Test
+    fun formatStopsBeforeSendingWhenTheFileSystemIsUnknown() {
+        val vfat = ScriptedBootloader(mapOf("partition-type:userdata" to "vfat", "partition-size:userdata" to "0x1000000"))
+        val planned = formatPartition(FastbootLane(vfat), "userdata", null, null, CURRENT_SLOT, options)
+            as FastbootConsoleState.Planned
+        assertEquals("Formatting is not supported for file system with type 'vfat'.", planned.detail)
+        assertTrue(vfat.downloads.isEmpty())
 
         val unknown = ScriptedBootloader(emptyMap())
         val failed = formatPartition(FastbootLane(unknown), "userdata", null, null, CURRENT_SLOT, options)
@@ -86,7 +102,7 @@ class FastbootFormatTest {
     fun wipeGoesOnPastAFileSystemItCannotBuild() {
         val device = ScriptedBootloader(
             mapOf(
-                "partition-type:userdata" to "f2fs",
+                "partition-type:userdata" to "vfat",
                 "partition-size:userdata" to "0x1000000",
                 "partition-type:cache" to "ext4",
                 "partition-size:cache" to "0x1000000",
@@ -103,7 +119,7 @@ class FastbootFormatTest {
             listOf("snapshot-update:cancel", "erase:userdata", "erase:cache", "flash:cache", "erase:metadata"),
             device.sent.filter { !it.startsWith("getvar:") && !it.startsWith("download:") },
         )
-        assertTrue(planned.detail.contains("File system type f2fs not supported."))
+        assertTrue(planned.detail.contains("File system type vfat not supported."))
     }
 
     private companion object {

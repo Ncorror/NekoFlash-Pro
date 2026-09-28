@@ -6,6 +6,7 @@ import io.github.ncorror.nekoflash.core.artifact.ArtifactRandomAccess
 import io.github.ncorror.nekoflash.core.artifact.ArtifactSource
 import io.github.ncorror.nekoflash.core.artifact.ArtifactStamp
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootExt4
+import io.github.ncorror.nekoflash.protocol.fastboot.FastbootF2fs
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootGetVar
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootLane
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootMutation
@@ -20,6 +21,8 @@ internal data class FormatOptions(
     val fsOptions: Set<String> = emptySet(),
     val random: (Int) -> ByteArray = { size -> ByteArray(size).also(SecureRandom()::nextBytes) },
     val now: () -> Long = { System.currentTimeMillis() / MILLIS },
+    /** `uname -r` машины, где собирается f2fs: у телефона — его ядро. */
+    val kernelRelease: () -> String = { System.getProperty("os.version").orEmpty() },
 ) {
     private companion object {
         const val MILLIS = 1000L
@@ -120,7 +123,11 @@ internal class FastbootFormat(private val lane: FastbootLane, private val option
                 value(PARTITION_SIZE + partition, "Unable to get partition size", skipIfNotSupported),
                 sizeOverride,
             )
-            if (type == EXT4) flash(partition, ext4(partition, size)) else unsupported(type, skipIfNotSupported)
+            when (type) {
+                EXT4 -> flash(partition, ext4(partition, size))
+                F2FS -> flash(partition, f2fs(partition, size))
+                else -> unsupported(type, skipIfNotSupported)
+            }
         } catch (_: Skipped) {
             // Раздел пропущен; причина уже в заметках.
         }
@@ -157,6 +164,28 @@ internal class FastbootFormat(private val lane: FastbootLane, private val option
         ).getOrElse { failure -> throw FlashAllStop("Cannot generate image for $partition: ${failure.message}") }
     }
 
+    /**
+     * `generate_f2fs_image` для раздела [partition]: `make_f2fs -S РАЗМЕР -g
+     * android` и ключи из `--fs-options`. Версия чекпоинта — `rand() | 1`:
+     * случайное число до `RAND_MAX` (2³¹ − 1), нечётное.
+     */
+    private fun f2fs(partition: String, size: String): ByteArray {
+        val bytes = deviceNumber(size) ?: throw FlashAllStop("Couldn't parse partition size '${fixNumeric(size)}'.")
+        val rand = java.nio.ByteBuffer.wrap(options.random(Int.SIZE_BYTES)).int and Int.MAX_VALUE or 1
+        return FastbootF2fs.image(
+            FastbootF2fs.Request(
+                sizeBytes = bytes,
+                projectIds = PROJID in options.fsOptions,
+                casefold = CASEFOLD in options.fsOptions,
+                compression = COMPRESS in options.fsOptions,
+                uuid = options.random(UUID_BYTES),
+                now = options.now(),
+                checkpointVersion = rand.toLong(),
+                kernelRelease = options.kernelRelease(),
+            ),
+        ).getOrElse { failure -> throw FlashAllStop("Cannot generate image for $partition: ${failure.message}") }
+    }
+
     /** `flash_buf`: тот же путь, что у `fastboot flash`. */
     private fun flash(partition: String, image: ByteArray) {
         val flashed = flashImage(
@@ -187,18 +216,10 @@ internal class FastbootFormat(private val lane: FastbootLane, private val option
         throw Skipped()
     }
 
-    /**
-     * Генератора нет: у настольного клиента — только для типа, которого он не
-     * знает. f2fs он знает, а здесь её сборки ещё нет — об этом и сказано.
-     */
+    /** Генератора нет — `fs_get_generator` знает только ext4 и f2fs. */
     private fun unsupported(type: String, skip: Boolean) {
-        val message = if (type == F2FS) {
-            "Creating f2fs on the host is not implemented here yet."
-        } else {
-            "Formatting is not supported for file system with type '$type'."
-        }
-        if (!skip) throw FlashAllStop(message)
-        notes += "Erase successful, but not automatically formatting.\nFile system type $type not supported. $message"
+        if (!skip) throw FlashAllStop("Formatting is not supported for file system with type '$type'.")
+        notes += "Erase successful, but not automatically formatting.\nFile system type $type not supported."
     }
 
     /** `fb_get_flash_block_size`: не назван, не число или не степень двойки — 0. */
@@ -226,6 +247,7 @@ internal class FastbootFormat(private val lane: FastbootLane, private val option
         const val F2FS = "f2fs"
         const val PROJID = "projid"
         const val CASEFOLD = "casefold"
+        const val COMPRESS = "compress"
         const val UUID_BYTES = 16
         const val HEX = 16
         const val UINT = 0xFFFF_FFFFL

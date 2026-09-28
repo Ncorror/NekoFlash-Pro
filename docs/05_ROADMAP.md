@@ -2,7 +2,7 @@
 
 **Единственный источник статуса проекта.** Другие документы описывают цель и правила; что сделано — только здесь. Статус меняется тем же коммитом, что и код.
 
-Версия APK: `0.49.0-dev`
+Версия APK: `0.50.0-dev`
 
 Текущий этап: **Этап 3 — Команды настольных `adb`/`fastboot` поверх нового ядра**
 
@@ -102,8 +102,8 @@
 | `update`/`flashall`, `--force`, `--skip-*` | `в репо` | `FastbootFlashAll` по `FlashAllTool` и `task.cpp`: требования `android-info.txt`, `set_active`, `fastboot-info.txt` или таблица образов, подписи `.sig`, `update-super`, сжатие логических разделов, `reboot`; набор — выбранная папка или архив (`ZipArchive`, с ZIP64); `super_empty.img` читает `FastbootSuperMetadata` по `liblp`; D063 |
 | `flashall`/`update` из загрузчика, когда набору нужен fastbootd (`super_empty.img`, `reboot fastboot`) | `в репо` | `reboot-fastboot`, ожидание нового подключения той же цели по серийному номеру (до 3 мин), проверка `is-userspace`, продолжение на новой полосе — `FastbootRejoin`; без серийного номера — отказ до первой команды; D067 |
 | `format`, `-w`: пустая ext4 на хосте, как `mke2fs` у `generate_ext4_image` | `в репо` | `FastbootExt4` (`protocol/fastboot`), сверен с `mke2fs` 1.47.0 байт в байт на 18 размерах и ключах; зовёт `FastbootFormat`; D068 |
-| `format`, `-w`: пустая f2fs на хосте, как `make_f2fs` у `generate_f2fs_image` | `нет` | D053 |
-| `format[:тип[:размер]]`, `-w`, `--fs-options`, `erase` и `if-wipe` из `fastboot-info.txt`: `fb_perform_format` и `WipeTask` в приложении | `в репо` | `FastbootFormat`; `-w` — сам по себе, с `reboot` и с `flashall`/`update`; с командой, которая исполняется при разборе строки (`erase`, `getvar`…), — «не реализовано»; раздел f2fs — честный отказ до сборки (строка выше); D069 |
+| `format`, `-w`: пустая f2fs на хосте, как `make_f2fs` у `generate_f2fs_image` | `в репо` | `FastbootF2fs` (`protocol/fastboot`), сверен с `make_f2fs` 1.16.0 в сборке AOSP байт в байт на 11 размерах и ключах; зовёт `FastbootFormat`; D070 |
+| `format[:тип[:размер]]`, `-w`, `--fs-options`, `erase` и `if-wipe` из `fastboot-info.txt`: `fb_perform_format` и `WipeTask` в приложении | `в репо` | `FastbootFormat`; `-w` — сам по себе, с `reboot` и с `flashall`/`update`; с командой, которая исполняется при разборе строки (`erase`, `getvar`…), — «не реализовано»; D069 |
 | `wipe-super` | `в репо` | `FastbootSuperImage` по `liblp` `ImageBuilder`: пустой `super` из метаданных выбранного `super_empty.img`, sparse; каждое устройство `super` под слот, у retrofit — `oem allow-flash-super`; D064 |
 | `vendor_boot:RAMDISK`: перепаковка | `в репо` | `FastbootVendorBoot` по `vendor_boot_img_utils.cpp`: `default` — весь рамдиск одной записью, иное имя — фрагмент таблицы v4; раздел читается `fetch` во временный файл, новый образ собирается из него потоком и прошивается обратно; D065 |
 | Длина Fastboot-команды: 64 или 4096 байт | `в репо` | `FastbootLane.MAX_COMMAND_BYTES` = 4096 по AOSP `FB_COMMAND_SZ` (D057); на `vayu` — шаг F2 плана проверки [07](07_BUILD_AND_TESTING.md#ручная-проверка-на-телефоне) |
