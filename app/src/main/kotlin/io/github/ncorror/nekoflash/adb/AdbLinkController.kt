@@ -342,27 +342,6 @@ public class AdbLinkController(
             fileOperations.describe(live, path)
         }
 
-        /** Читает файл целиком, считая размер и отпечаток. */
-        public fun read(path: String) {
-            val live = connection ?: return
-            if (fileOperations.active) return
-            fileOperations.read(live, path)
-        }
-
-        /**
-         * Пишет на устройство файл заданного размера из содержимого, порождённого
-         * приложением.
-         *
-         * Размер задаёт вызывающий, а не пользователь: выбор своего файла — работа
-         * artifact source из Phase 8. Два предложенных размера покрывают
-         * аппаратный гейт `07` §6.34, где нужны и малый файл, и файл больше 2 MiB.
-         */
-        public fun write(path: String, sizeBytes: Long) {
-            val live = connection ?: return
-            if (fileOperations.active) return
-            fileOperations.write(live, path, sizeBytes)
-        }
-
         /** Читает файл устройства в место, выбранное пользователем. */
         public fun readTo(path: String, destination: () -> ArtifactSink) {
             val live = connection ?: return
@@ -407,22 +386,6 @@ public class AdbLinkController(
             val live = connection ?: return
             if (fileOperations.active) return
             fileOperations.readRecoveryVerdict(live)
-        }
-
-        /**
-         * Отдаёт пакет Recovery.
-         *
-         * Режим peer'а берётся из состояния связи, а не угадывается: он прочитан
-         * из баннера при рукопожатии. Отказ из-за режима называет драйвер, а не
-         * прячет эта кнопка, — тогда на прогоне видно, **что** ответило
-         * устройство, а не только что мы решили не спрашивать.
-         */
-        public fun sideload(sizeBytes: Long) {
-            val live = connection ?: return
-            val shown = mutableState.value
-            if (shown !is AdbLinkState.Connected || sideloads.active) return
-            val target = targetOf(shown.generation) ?: return
-            sideloads.start(live, shown.peerMode, sizeBytes, target, shown.generation)
         }
 
         /**

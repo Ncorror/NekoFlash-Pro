@@ -43,10 +43,6 @@ data class FastbootConsolePanel(
     val onCommand: (String) -> Unit = {},
     val onVariable: (String) -> Unit = {},
     val onAllVariables: () -> Unit = {},
-    /** Загрузить в буфер устройства столько порождённых приложением байт. */
-    val onDownload: (Long) -> Unit = {},
-    /** Прочитать раздел с устройства — фаза DATA IN. Ничего не меняет. */
-    val onFetch: (String) -> Unit = {},
     /** Прочитать раздел в файл, который выберет пользователь. */
     val onFetchToFile: (String) -> Unit = {},
     /** Загрузить в буфер устройства файл, который выберет пользователь. */

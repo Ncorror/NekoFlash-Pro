@@ -279,12 +279,6 @@ private fun paletteActions(
     PaletteAction(stringResource(R.string.action_recovery_verdict), "verdict вердикт install исход") {
         adbLink.recovery.readVerdict()
     },
-    PaletteAction(stringResource(R.string.action_sideload_small), "sideload пакет малый small") {
-        adbLink.recovery.sideload(SMALL_PACKAGE_BYTES)
-    },
-    PaletteAction(stringResource(R.string.action_sideload_large), "sideload пакет большой large") {
-        adbLink.recovery.sideload(LARGE_PACKAGE_BYTES)
-    },
     PaletteAction(stringResource(R.string.action_reboot_system), "reboot перезагрузка система") {
         adbLink.requestReboot("")
     },
@@ -307,15 +301,6 @@ private fun paletteActions(
         fastbootLink.runCommand("reboot fastboot")
     },
 )
-
-/**
- * Размеры пакетов для палитры — те же, что на кнопках Sideload.
- *
- * Держатся рядом с палитрой, а не переиспользуются из панели: там они приватны,
- * и открывать их наружу ради двух строк значило бы расширить чужой контракт.
- */
-private const val SMALL_PACKAGE_BYTES = 64L * 1024L
-private const val LARGE_PACKAGE_BYTES = 16L * 1024L * 1024L
 
 /** Проводка панели перезагрузки: состояние экрана и действие контроллера. */
 @Composable
@@ -348,7 +333,6 @@ private fun sideloadPanel(adbLink: AdbLinkController): SideloadPanel {
     }
     return SideloadPanel(
         state = adbLink.sideload.collectAsState().value,
-        onSend = adbLink.recovery::sideload,
         onChoose = { chooser.launch(arrayOf("application/zip", "*/*")) },
         onCancel = adbLink.recovery::cancelSideload,
     )
@@ -450,8 +434,6 @@ private fun fastbootConsolePanel(
         onCommand = link::runCommand,
         onVariable = link::readVariable,
         onAllVariables = link::readAllVariables,
-        onDownload = link::downloadGenerated,
-        onFetch = link::fetchPartition,
         onFetchToFile = { partition ->
             pendingFetch.value = partition
             saveLauncher.launch(partition.ifBlank { "partition" } + ".img")
@@ -510,8 +492,6 @@ private fun fileActions(link: AdbLinkController): FileActions {
 
     return FileActions(
         onDescribe = link.storage::describe,
-        onRead = link.storage::read,
-        onWrite = link.storage::write,
         onReadToFile = { path ->
             pendingRead.value = path
             saveLauncher.launch(path.substringAfterLast('/').ifBlank { "artifact.bin" })

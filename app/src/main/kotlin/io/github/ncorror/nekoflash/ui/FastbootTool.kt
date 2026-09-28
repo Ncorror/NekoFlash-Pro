@@ -153,10 +153,7 @@ internal fun FastbootReadTool(console: FastbootConsolePanel) {
     )
     FastbootFetchRole(console.mode)
     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Button(onClick = { console.onFetch(partition) }, enabled = partition.isNotBlank()) {
-            Text(stringResource(R.string.fastboot_fetch_read))
-        }
-        OutlinedButton(onClick = { console.onFetchToFile(partition) }, enabled = partition.isNotBlank()) {
+        Button(onClick = { console.onFetchToFile(partition) }, enabled = partition.isNotBlank()) {
             Text(stringResource(R.string.fastboot_fetch_to_file))
         }
     }
@@ -190,25 +187,12 @@ internal fun FastbootCommandTool(onCommand: (String) -> Unit) {
 /**
  * Загрузка в буфер устройства.
  *
- * Буфер — не раздел: `download:` ничего не прошивает. Выбранный файл — главное
- * действие; шаблоны приложения нужны для проверки счёта байтов и подписаны так.
+ * Буфер — не раздел: `download:` ничего не прошивает.
  */
 @Composable
 internal fun FastbootBufferTool(console: FastbootConsolePanel) {
     Button(onClick = console.onDownloadFile) {
         Text(stringResource(R.string.fastboot_download_file))
-    }
-    Text(
-        text = stringResource(R.string.fastboot_download_pattern),
-        style = MaterialTheme.typography.bodySmall,
-    )
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedButton(onClick = { console.onDownload(SMALL_DOWNLOAD_BYTES) }) {
-            Text(stringResource(R.string.fastboot_download_small))
-        }
-        OutlinedButton(onClick = { console.onDownload(LARGE_DOWNLOAD_BYTES) }) {
-            Text(stringResource(R.string.fastboot_download_large))
-        }
     }
 }
 
@@ -257,13 +241,3 @@ private val COMMON_VARIABLES = listOf(
     "version-bootloader",
 )
 
-/** Маленькая загрузка: доказывает путь, ничего не занимая. */
-private const val SMALL_DOWNLOAD_BYTES = 4L * 1024
-
-/**
- * Большая загрузка: несколько блоков по 16 КиБ.
- *
- * Нужна затем, что путь в один блок не проверяет дописывание короткой записи и
- * счёт байтов через границу блока — а именно там ломалось у Legacy и A2.
- */
-private const val LARGE_DOWNLOAD_BYTES = 2L * 1024 * 1024

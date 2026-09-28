@@ -16,7 +16,6 @@ import io.github.ncorror.nekoflash.core.operation.OperationKind
 import io.github.ncorror.nekoflash.core.operation.OperationOutcome
 import io.github.ncorror.nekoflash.operation.OperationEngine
 import io.github.ncorror.nekoflash.operation.OperationHandle
-import io.github.ncorror.nekoflash.payload.GeneratedPayload
 import io.github.ncorror.nekoflash.protocol.adb.AdbConnection
 import io.github.ncorror.nekoflash.protocol.adb.AdbPeerMode
 import io.github.ncorror.nekoflash.protocol.adb.AdbSideloadContract
@@ -124,28 +123,6 @@ public class AdbSideloadController(
     /** Идёт ли передача прямо сейчас. */
     public val active: Boolean
         get() = running
-
-    /**
-     * Отдаёт пакет Recovery.
-     *
-     * Режим peer'а читается из баннера и сюда приходит готовым: догадываться о
-     * нём по набору сервисов нельзя (`AdbConnectionBanner`). Отказ из-за режима
-     * — это отказ **до единого байта**, и он называется, а не прячется.
-     */
-    public fun start(
-        connection: AdbConnection,
-        peerMode: AdbPeerMode,
-        sizeBytes: Long,
-        target: TargetId,
-        generation: SessionGeneration,
-    ) {
-        if (running) return
-        running = true
-        cancelling.set(false)
-        mutableState.value = AdbSideloadState.Running(nothingYet(sizeBytes), cancellable = true)
-        val handle = record("пакет, порождённый приложением, $sizeBytes байт", target, generation, sizeBytes)
-        executor.execute { transfer(connection, peerMode, sizeBytes, handle) }
-    }
 
     /**
      * Заводит запись операции и держит процесс, пока она идёт.
@@ -290,22 +267,6 @@ public class AdbSideloadController(
         connection: AdbConnection,
         peerMode: AdbPeerMode,
         sizeBytes: Long,
-        handle: OperationHandle?,
-    ) {
-        val payload = GeneratedPayload(sizeBytes)
-        transfer(
-            connection = connection,
-            peerMode = peerMode,
-            sizeBytes = sizeBytes,
-            access = { offset, length -> payload.read(offset, length) },
-            handle = handle,
-        )
-    }
-
-    private fun transfer(
-        connection: AdbConnection,
-        peerMode: AdbPeerMode,
-        sizeBytes: Long,
         access: ArtifactRandomAccess,
         handle: OperationHandle?,
     ) {
@@ -385,16 +346,5 @@ public class AdbSideloadController(
         const val STAGING = "STAGING"
         const val SENDING = "SENDING"
         const val REFUSED = "REFUSED"
-    }
-
-    private fun nothingYet(sizeBytes: Long): AdbSideloadProgress {
-        val block = AdbSideloadContract.BLOCK_SIZE_BYTES.toLong()
-        return AdbSideloadProgress(
-            servedBytes = 0L,
-            uniqueBytes = 0L,
-            totalBytes = sizeBytes,
-            uniqueBlocks = 0,
-            totalBlocks = if (sizeBytes <= 0L) 0 else ((sizeBytes + block - 1) / block).toInt(),
-        )
     }
 }

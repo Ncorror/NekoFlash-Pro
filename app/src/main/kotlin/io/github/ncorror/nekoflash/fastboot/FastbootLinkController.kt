@@ -23,10 +23,6 @@ import io.github.ncorror.nekoflash.protocol.fastboot.FastbootLockState
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootLockStatus
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootReply
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootMode
-import io.github.ncorror.nekoflash.payload.DigestingSink
-import io.github.ncorror.nekoflash.payload.GeneratedPayload
-import io.github.ncorror.nekoflash.payload.GeneratedPayloadStream
-import io.github.ncorror.nekoflash.protocol.fastboot.FastbootDownload
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootFetch
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootFetchOutcome
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootModeProbe
@@ -362,26 +358,6 @@ public class FastbootLinkController(
     }
 
     /**
-     * Загружает в буфер устройства [sizeBytes] порождённых приложением байт.
-     *
-     * Содержимое своё, а не выбранный файл: выбор файла — это artifact source
-     * из Phase 8. Для протокольного пути этого достаточно, и тот же приём уже
-     * принят для sync `SEND` (`07` §6.36).
-     *
-     * **Ничего не прошивает.** `download:` наполняет буфер загрузки; раздел
-     * меняет `flash:`, которого в этой фазе нет вовсе.
-     */
-    public fun downloadGenerated(sizeBytes: Long) {
-        busy("fastboot_download", sizeBytes.toString()) { lane, _ ->
-            val outcome = FastbootDownload(lane).send(
-                source = GeneratedPayloadStream(GeneratedPayload(sizeBytes)),
-                sizeBytes = sizeBytes,
-            )
-            downloaded(sizeBytes, outcome, lane.state)
-        }
-    }
-
-    /**
      * Загружает в буфер устройства **выбранный пользователем** файл — и, если
      * даны [then], выполняет их следом одной операцией.
      *
@@ -550,26 +526,6 @@ public class FastbootLinkController(
     }
 
     /** Приёмник Fastboot говорит на `OutputStream`; запись артефакта — на кусках. */
-
-    /**
-     * Читает раздел с устройства — фаза DATA IN.
-     *
-     * Содержимое нигде не собирается: приёмник считает байты и отпечаток, как
-     * это уже принято для ADB `pull` (`07` §6.32). Сохранение в пользовательское
-     * место требует artifact sink из Phase 8.
-     *
-     * **Ничего не меняет.** `fetch:` только читает; на запертом загрузчике
-     * устройство, скорее всего, откажет — Legacy предупреждает об этом и
-     * запрещать не пытается, решение принадлежит устройству.
-     */
-    public fun fetchPartition(partition: String) {
-        busy("fastboot_fetch", partition) { lane, name ->
-            val sink = DigestingSink()
-            val outcome = FastbootFetch(lane, FastbootGetVar(lane))
-                .fetch(name, sink)
-            fetched(name, sink, outcome, lane.state)
-        }
-    }
 
     /**
      * Выполняет обмен, если полоса свободна.

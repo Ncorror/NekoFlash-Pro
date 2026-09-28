@@ -2,7 +2,6 @@ package io.github.ncorror.nekoflash.fastboot
 
 import io.github.ncorror.nekoflash.core.artifact.ArtifactWriteOutcome
 import io.github.ncorror.nekoflash.core.artifact.ArtifactWriter
-import io.github.ncorror.nekoflash.payload.DigestingSink
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootDownloadOutcome
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootFetchOutcome
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootLaneState
@@ -76,29 +75,6 @@ internal class WriterStream(private val writer: ArtifactWriter) : java.io.Output
     override fun write(source: ByteArray, offset: Int, length: Int) {
         writer.accept(source, offset, length)
     }
-}
-
-internal fun fetched(
-    partition: String,
-    sink: DigestingSink,
-    outcome: FastbootFetchOutcome,
-    lane: FastbootLaneState,
-): FastbootConsoleState {
-    val complete = outcome is FastbootFetchOutcome.Completed
-    val detail = when (outcome) {
-        is FastbootFetchOutcome.Completed -> "кусков: ${outcome.chunks}"
-        is FastbootFetchOutcome.Refused -> outcome.detail
-        is FastbootFetchOutcome.Partial -> outcome.detail
-        is FastbootFetchOutcome.NotStarted -> outcome.detail
-    }
-    return FastbootConsoleState.Fetched(
-        partition = partition,
-        bytes = sink.bytes,
-        sha256 = if (sink.bytes > 0L) sink.sha256() else "",
-        complete = complete,
-        detail = detail,
-        lane = lane,
-    )
 }
 
 internal fun downloaded(

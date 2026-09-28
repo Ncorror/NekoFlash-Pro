@@ -102,18 +102,13 @@
     <string name="files_label">Файлы устройства</string>
     <string name="files_path_hint">Путь на устройстве, например /sdcard/Download/file.zip</string>
     <string name="files_describe">Проверить</string>
-    <string name="files_read">Прочитать и посчитать</string>
     <string name="files_busy">Идёт работа: %1$s…</string>
     <string name="files_missing">%1$s: ничего нет</string>
     <string name="files_directory">%1$s: каталог</string>
     <string name="files_failed">Не получилось: %1$s</string>
-    <string name="files_write_small">Записать 4 КиБ</string>
-    <string name="files_write_large">Записать 16 МиБ</string>
-    <string name="files_write_note">Запись создаёт файл по этому пути и перезаписывает то, что там было. Содержимое порождает само приложение: выбор своего файла появится позже. При неудаче приложение говорит, что известно про файл, и «неизвестно» означает именно это — проверьте его на устройстве.</string>
     <string name="files_write_failed_untouched">Запись не удалась: %1$s. Ничего не записано: запрос не покинул хост, поэтому %2$s не тронут.</string>
     <string name="files_write_failed_unknown">Запись не удалась: %1$s. Состояние %2$s неизвестно: запрос уже ушёл с хоста, и на устройстве может лежать неполный файл. Проверьте его перед повтором.</string>
     <string name="files_write_failed_committed">Запись сообщила об ошибке после подтверждения устройством: %1$s (%2$s). Такого сочетания быть не должно — сообщите о нём.</string>
-    <string name="files_note">Чтение ничего не сохраняет: оно проверяет передачу. Сверьте отпечаток с sha256sum на устройстве — совпадение доказывает, что байты дошли без искажений. Сохранение в доступное место появится позже.</string>
     <plurals name="files_file">
         <item quantity="one">%1$s: файл, %2$d байт</item>
         <item quantity="few">%1$s: файл, %2$d байта</item>
@@ -125,12 +120,6 @@
         <item quantity="few">%1$s: существует, %2$d байта</item>
         <item quantity="many">%1$s: существует, %2$d байт</item>
         <item quantity="other">%1$s: существует, %2$d байта</item>
-    </plurals>
-    <plurals name="files_read_done">
-        <item quantity="one">Прочитан %1$d байт, SHA-256 %2$s</item>
-        <item quantity="few">Прочитано %1$d байта, SHA-256 %2$s</item>
-        <item quantity="many">Прочитано %1$d байт, SHA-256 %2$s</item>
-        <item quantity="other">Прочитано %1$d байта, SHA-256 %2$s</item>
     </plurals>
     <plurals name="files_write_done">
         <item quantity="one">Записан %1$d байт, SHA-256 %2$s</item>
@@ -193,7 +182,6 @@
     <string name="fastboot_tool_buffer">Буфер</string>
     <string name="fastboot_tool_reboot">Режим и слот</string>
     <string name="fastboot_tool_write">Запись</string>
-    <string name="fastboot_download_pattern">Шаблон приложения для проверки счёта байтов:</string>
     <string name="fastboot_variables_filter">Фильтр по имени или значению</string>
     <string name="fastboot_variables_shown">Показано: %1$d из %2$d</string>
     <string name="fastboot_command_label">Команда, как её знает устройство</string>
@@ -215,8 +203,6 @@
     <string name="fastboot_variables_ignored">Строк, которые не удалось разобрать: %1$d — сохранены в диагностике</string>
     <string name="fastboot_console_note">Списка команд здесь нет намеренно: что бывает у Fastboot, знает устройство, и его отказ — это ответ, а не наша ошибка. Две вещи, которые не несёт сам провод, называются, а не отправляются молча подменёнными: команда не в ASCII и команда длиннее 4096 байт. Полоса показана потому, что у Fastboot она одна, а потеря рамки липкая — вторая команда после этого уйдёт в никуда.</string>
     <string name="fastboot_variable_entry">%1$s = %2$s</string>
-    <string name="fastboot_download_small">4 КиБ</string>
-    <string name="fastboot_download_large">2 МиБ</string>
     <string name="fastboot_download_result">Передано %1$d из %2$d байт; устройство ответило %3$s</string>
     <string name="fastboot_download_no_reply">ничего</string>
     <string name="fastboot_download_untouched">Буфер устройства не тронут: ни одного байта не отправлено.</string>
@@ -250,7 +236,6 @@
     <string name="fastboot_fetch_label">Раздел для чтения</string>
     <string name="fastboot_fetch_role">Роль устройства сейчас: %1$s</string>
     <string name="fastboot_fetch_role_bootloader">Команда fetch: обычно живёт в fastbootd, а не в загрузчике. Отправить её отсюда можно — отвечает устройство.</string>
-    <string name="fastboot_fetch_read">Прочитать раздел</string>
     <string name="fastboot_fetch_complete">%1$s прочитан целиком: %2$d байт</string>
     <string name="fastboot_fetch_partial">%1$s прочитан НЕ целиком: %2$d байт. Выдавать это за раздел нельзя — недостающий кусок снаружи не отличить от нулей внутри.</string>
     <string name="fastboot_fetch_sha256">SHA-256 прочитанного: %1$s</string>
@@ -270,8 +255,6 @@
     <string name="sideload_label">Sideload</string>
     <string name="sideload_idle">Не начинали.</string>
     <string name="sideload_running">Подтверждено %1$d%% — %2$d из %3$d блоков, отдано %4$d байт.</string>
-    <string name="sideload_send_small">Отдать малый пакет</string>
-    <string name="sideload_send_large">Отдать большой пакет</string>
     <string name="sideload_cancel">Отменить передачу</string>
     <string name="sideload_cancel_gone">Пакет пошёл на устройство: отменять уже нечего.</string>
     <string name="sideload_transfer_complete">Recovery кончило передачу (DONEDONE). Это значит, что хост отдал всё, и ничего не значит про установку.</string>
@@ -284,8 +267,6 @@
     <string name="sideload_note">Выберите ZIP для передачи. После передачи проверьте результат установки на устройстве в Recovery.</string>
     <string name="sideload_device_hint">Подключите устройство в Recovery, выберите Apply update from ADB и затем укажите ZIP здесь.</string>
     <string name="sideload_mode_hint">Перед передачей выберите на устройстве Recovery → Apply update from ADB.</string>
-    <string name="sideload_test_packages">Тестовые пакеты</string>
-    <string name="sideload_hide_test_packages">Скрыть тестовые пакеты</string>
     <string name="files_read_to_file">Прочитать в файл…</string>
     <string name="files_write_from_file">Записать файл с этого телефона…</string>
     <string name="files_saved">Сохранено %1$d байт в %2$s. SHA-256 %3$s</string>
@@ -326,8 +307,6 @@
     <string name="action_export">Выгрузить диагностику</string>
     <string name="action_recovery_baseline">Снять базу журнала Recovery</string>
     <string name="action_recovery_verdict">Прочитать вердикт Recovery</string>
-    <string name="action_sideload_small">Отдать малый пакет</string>
-    <string name="action_sideload_large">Отдать большой пакет</string>
     <string name="action_reboot_system">Перезагрузить в систему</string>
     <string name="action_reboot_bootloader">Перезагрузить в загрузчик</string>
     <string name="action_reboot_recovery">Перезагрузить в Recovery</string>

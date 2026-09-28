@@ -1,5 +1,12 @@
 package io.github.ncorror.nekoflash.fastboot
 
+import io.github.ncorror.nekoflash.core.artifact.ArtifactAccess
+import io.github.ncorror.nekoflash.core.artifact.ArtifactCommit
+import io.github.ncorror.nekoflash.core.artifact.ArtifactIdentity
+import io.github.ncorror.nekoflash.core.artifact.ArtifactRandomAccess
+import io.github.ncorror.nekoflash.core.artifact.ArtifactSink
+import io.github.ncorror.nekoflash.core.artifact.ArtifactSource
+import io.github.ncorror.nekoflash.core.artifact.ArtifactStamp
 import io.github.ncorror.nekoflash.core.diagnostics.InMemoryDiagnosticSink
 import io.github.ncorror.nekoflash.core.model.SessionGeneration
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootCommands
@@ -7,6 +14,10 @@ import io.github.ncorror.nekoflash.protocol.fastboot.FastbootLaneState
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootMutationClass
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootMutationOutcome
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootReply
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import java.io.InputStream
+import java.io.OutputStream
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -306,15 +317,9 @@ class FastbootConsoleTest {
         assertEquals("vayu", sink.snapshot().last().fields["payload"])
     }
 
-    /**
-     * Чтение раздела: содержимое не хранится, а подтверждается счётом и отпечатком.
-     *
-     * Тот же приём уже принят для ADB `pull` (`07` §6.32). Раздел бывает на
-     * несколько гигабайт, и положить его в память значило бы убить приложение
-     * на первом же большом чтении.
-     */
+    /** Чтение раздела в файл подтверждается счётом байт и отпечатком записанного. */
     @Test
-    fun aFetchIsConfirmedByBytesAndDigestRatherThanKeptInMemory() {
+    fun aFetchIsConfirmedByBytesAndDigest() {
         val sink = InMemoryDiagnosticSink()
         // Шестнадцать печатных символов служат шестнадцатью байтами фазы
         // данных: по проводу кадр и содержимое ничем не отличаются, направление
@@ -326,7 +331,7 @@ class FastbootConsoleTest {
             sink,
         )
 
-        controller.fetchPartition("boot")
+        controller.fetchPartitionTo("boot") { MemorySink() }
 
         val state = controller.console.value as FastbootConsoleState.Fetched
         assertEquals(16L, state.bytes)
@@ -348,7 +353,7 @@ class FastbootConsoleTest {
             sink,
         )
 
-        controller.fetchPartition("boot")
+        controller.fetchPartitionTo("boot") { MemorySink() }
 
         val state = controller.console.value as FastbootConsoleState.Fetched
         assertEquals(0L, state.bytes)
@@ -369,7 +374,7 @@ class FastbootConsoleTest {
         val controller = connected(coordinator, sink)
         coordinator.lastHandle?.dataAfterCommands = 3
 
-        controller.downloadGenerated(4096)
+        controller.downloadFrom { Bytes(ByteArray(4096)) }
 
         val state = controller.console.value as FastbootConsoleState.Downloaded
         assertEquals(4096L, state.sentBytes)
@@ -390,7 +395,7 @@ class FastbootConsoleTest {
         val sink = InMemoryDiagnosticSink()
         val controller = connected(ClaimingCoordinator(PROBE + listOf("FAILtoo large")), sink)
 
-        controller.downloadGenerated(4096)
+        controller.downloadFrom { Bytes(ByteArray(4096)) }
 
         val state = controller.console.value as FastbootConsoleState.Downloaded
         assertEquals(0L, state.sentBytes)
@@ -406,11 +411,29 @@ class FastbootConsoleTest {
         coordinator.lastHandle?.dataAfterCommands = 3
         coordinator.lastHandle?.failDataWrite = true
 
-        controller.downloadGenerated(4096)
+        controller.downloadFrom { Bytes(ByteArray(4096)) }
 
         val state = controller.console.value as FastbootConsoleState.Downloaded
         assertEquals("ответа устройства не было", null, state.reply)
         assertEquals("буфер неизвестен", false, state.untouched)
         assertEquals(FastbootLaneState.STALLED, state.lane)
+    }
+
+    /** Выбранный файл в памяти; дескриптора не отдаёт, поэтому идёт потоком. */
+    private class Bytes(private val bytes: ByteArray) : ArtifactSource {
+        override val identity = ArtifactIdentity("payload.bin", bytes.size.toLong(), ArtifactAccess.SEEKABLE)
+        override val openedStamp = ArtifactStamp(bytes.size.toLong(), null, null)
+        override fun stamp(): ArtifactStamp = openedStamp
+        override fun open(): InputStream = ByteArrayInputStream(bytes)
+        override fun randomAccess(): ArtifactRandomAccess? = null
+    }
+
+    /** Выбранное место в памяти. */
+    private class MemorySink : ArtifactSink {
+        override val destination: String = "boot.img"
+        override val atomicCommit: Boolean = true
+        override fun open(): OutputStream = ByteArrayOutputStream()
+        override fun commit(): ArtifactCommit = ArtifactCommit.Done(destination, atomic = true)
+        override fun abandon(reason: String) = Unit
     }
 }

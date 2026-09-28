@@ -169,9 +169,6 @@ data class RebootPanel(
 /** Действия с файлами устройства. */
 data class FileActions(
     val onDescribe: (String) -> Unit = {},
-    val onRead: (String) -> Unit = {},
-    /** Записать файл заданного размера в байтах. */
-    val onWrite: (String, Long) -> Unit = { _, _ -> },
     /** Прочитать файл устройства в место, которое выберет пользователь. */
     val onReadToFile: (String) -> Unit = {},
     /** Записать на устройство файл, который выберет пользователь. */
@@ -181,16 +178,6 @@ data class FileActions(
     /** Прочитать журнал Recovery и объявить вердикт, если его разрешает база. */
     val onRecoveryVerdict: () -> Unit = {},
 )
-
-/**
- * Размеры файлов, которые приложение умеет записать само.
- *
- * Оба нужны аппаратному гейту `07` §6.34: малый проходит одним блоком,
- * большой — двумястами пятьюдесятью шестью, и его же хватает, чтобы успеть
- * выдернуть кабель посреди передачи.
- */
-private const val SMALL_WRITE_BYTES = 4L * 1024L
-private const val LARGE_WRITE_BYTES = 16L * 1024L * 1024L
 
 /**
  * Операции с файлами устройства: проверка пути, чтение и запись.
@@ -217,20 +204,11 @@ private fun FilesSection(files: AdbFileState, actions: FileActions) {
     Button(onClick = { actions.onDescribe(path.value) }, enabled = idle && path.value.isNotBlank()) {
         Text(stringResource(R.string.files_describe))
     }
-    Button(onClick = { actions.onRead(path.value) }, enabled = idle && path.value.isNotBlank()) {
-        Text(stringResource(R.string.files_read))
-    }
     Button(onClick = { actions.onReadToFile(path.value) }, enabled = idle && path.value.isNotBlank()) {
         Text(stringResource(R.string.files_read_to_file))
     }
     Button(onClick = { actions.onWriteFromFile(path.value) }, enabled = idle && path.value.isNotBlank()) {
         Text(stringResource(R.string.files_write_from_file))
-    }
-    Button(
-        onClick = { actions.onWrite(path.value, SMALL_WRITE_BYTES) },
-        enabled = idle && path.value.isNotBlank(),
-    ) {
-        Text(stringResource(R.string.files_write_small))
     }
     // Две кнопки Recovery не берут путь из поля: журнал текущей сессии один, и
     // дать выбрать другой значило бы позволить снять базу с файла, который
@@ -241,30 +219,12 @@ private fun FilesSection(files: AdbFileState, actions: FileActions) {
     Button(onClick = actions.onRecoveryVerdict, enabled = idle) {
         Text(stringResource(R.string.recovery_verdict_read))
     }
-
-    Button(
-        onClick = { actions.onWrite(path.value, LARGE_WRITE_BYTES) },
-        enabled = idle && path.value.isNotBlank(),
-    ) {
-        Text(stringResource(R.string.files_write_large))
-    }
-    Text(
-        text = stringResource(R.string.files_note),
-        style = MaterialTheme.typography.bodySmall,
-    )
-    Text(
-        text = stringResource(R.string.files_write_note),
-        style = MaterialTheme.typography.bodySmall,
-    )
 }
 
 @Composable
 internal fun fileStateText(files: AdbFileState): String = when (files) {
     AdbFileState.None -> ""
     is AdbFileState.Busy -> stringResource(R.string.files_busy, files.path)
-    is AdbFileState.Read ->
-        pluralStringResource(R.plurals.files_read_done, files.bytes.toQuantity(), files.bytes, files.sha256)
-
     is AdbFileState.Written ->
         pluralStringResource(R.plurals.files_write_done, files.bytes.toQuantity(), files.bytes, files.sha256)
 

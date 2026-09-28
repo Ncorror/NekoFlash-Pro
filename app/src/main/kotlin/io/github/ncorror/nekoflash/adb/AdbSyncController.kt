@@ -1,7 +1,6 @@
 package io.github.ncorror.nekoflash.adb
 
 import io.github.ncorror.nekoflash.artifact.SafArtifactSink
-import io.github.ncorror.nekoflash.core.artifact.ArtifactDigest
 import io.github.ncorror.nekoflash.core.artifact.ArtifactSink
 import io.github.ncorror.nekoflash.core.artifact.ArtifactSource
 import io.github.ncorror.nekoflash.core.artifact.ArtifactStability
@@ -9,7 +8,6 @@ import io.github.ncorror.nekoflash.core.artifact.ArtifactStamps
 import io.github.ncorror.nekoflash.core.artifact.ArtifactWriteOutcome
 import io.github.ncorror.nekoflash.core.artifact.ArtifactWriter
 import io.github.ncorror.nekoflash.core.diagnostics.DiagnosticSink
-import io.github.ncorror.nekoflash.payload.GeneratedPayload
 import io.github.ncorror.nekoflash.protocol.adb.AdbConnection
 import io.github.ncorror.nekoflash.protocol.adb.AdbSyncDestination
 import io.github.ncorror.nekoflash.protocol.adb.AdbSyncFailure
@@ -40,20 +38,10 @@ public sealed interface AdbFileState {
     public data class Described(val path: String, val stat: AdbSyncStat) : AdbFileState
 
     /**
-     * Файл прочитан целиком.
-     *
-     * [sha256] считается на лету и нужен для сверки: тот же файл можно
-     * посчитать на устройстве командой `sha256sum` и сравнить. Совпадение
-     * доказывает, что чтение побайтно верное, а не просто «что-то пришло».
-     */
-    public data class Read(val path: String, val bytes: Long, val sha256: String) : AdbFileState
-
-    /**
      * Исход установки по словам Recovery.
      *
-     * Отдельное состояние, а не строка в `Read`: вердикт — это не содержимое
-     * файла, а вывод из него, и путать их значило бы показывать оператору
-     * оценку там, где он просил данные.
+     * Вердикт — не содержимое журнала, а вывод из него, и показывается
+     * отдельно от прочитанного.
      */
     public data class Verdict(
         val verdict: AdbRecoveryVerdict,
@@ -168,29 +156,6 @@ public class AdbSyncController(
         start(connection, path) { session, target ->
             when (val outcome = session.stat(target)) {
                 is AdbSyncOutcome.Done -> AdbFileState.Described(target, outcome.value)
-                is AdbSyncOutcome.Failed -> failed(target, outcome)
-            }
-        }
-    }
-
-    /**
-     * Читает файл целиком, считая размер и отпечаток.
-     *
-     * Ничего не сохраняет: это проверка чтения, а не загрузка. Сохранение в
-     * доступное пользователю место — работа artifact sink из Phase 8, и делать
-     * его наспех значило бы прятать файл в приватный каталог, откуда его никто
-     * не достанет.
-     */
-    public fun read(connection: AdbConnection, path: String) {
-        start(connection, path) { session, target ->
-            val digest = ArtifactDigest()
-            when (val outcome = session.receive(target) { chunk -> digest.update(chunk) }) {
-                is AdbSyncOutcome.Done -> AdbFileState.Read(
-                    path = target,
-                    bytes = outcome.value,
-                    sha256 = digest.hex(),
-                )
-
                 is AdbSyncOutcome.Failed -> failed(target, outcome)
             }
         }
@@ -379,44 +344,6 @@ public class AdbSyncController(
     private sealed interface TextOutcome {
         data class Read(val text: String) : TextOutcome
         data class Failed(val outcome: AdbSyncOutcome.Failed) : TextOutcome
-    }
-
-    /**
-     * Пишет на устройство файл из содержимого, порождённого приложением.
-     *
-     * Существующий файл перезаписывается без предупреждения на стороне хоста, и
-     * это не упущение: перезапись — обычная профессиональная операция, `adb
-     * push` тоже ни о чём не спрашивает. Предупредить о существующем файле
-     * можно и сейчас — кнопкой «проверить», — а запрет на хосте был бы ровно
-     * тем ограничением, которое запрещает устав.
-     *
-     * Исход отдельно несёт состояние назначения: при неудаче о файле на
-     * устройстве известно ровно то, что доказано, и не больше.
-     */
-    public fun write(connection: AdbConnection, path: String, sizeBytes: Long) {
-        start(connection, path) { session, target ->
-            val payload = GeneratedPayload(sizeBytes)
-            val outcome = session.send(
-                path = target,
-                modifiedAtSeconds = (System.currentTimeMillis() / MILLIS_PER_SECOND).toInt(),
-            ) { buffer -> payload.fill(buffer) }
-            when (outcome) {
-                is AdbSyncSendOutcome.Committed -> AdbFileState.Written(
-                    path = target,
-                    bytes = outcome.bytesSent,
-                    sha256 = outcome.sha256,
-                )
-
-                // Проба `-n` здесь не запрашивается.
-                is AdbSyncSendOutcome.Rehearsed -> error("dry run was not requested")
-
-                is AdbSyncSendOutcome.Failed -> AdbFileState.WriteFailed(
-                    path = target,
-                    reason = "${outcome.reason.name}: ${outcome.detail}",
-                    destination = outcome.destination,
-                )
-            }
-        }
     }
 
     /**

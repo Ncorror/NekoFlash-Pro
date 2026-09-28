@@ -51,7 +51,7 @@ android {
         minSdk = 26
         targetSdk = 36
         versionCode = 51
-        versionName = "0.55.0-dev"
+        versionName = "0.56.0-dev"
     }
 
     androidResources {

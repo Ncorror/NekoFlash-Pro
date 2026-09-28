@@ -3,39 +3,21 @@ package io.github.ncorror.nekoflash.ui
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import io.github.ncorror.nekoflash.R
 import io.github.ncorror.nekoflash.adb.AdbSideloadState
 import io.github.ncorror.nekoflash.protocol.adb.AdbSideloadOutcome
 
-/** Передача пакета в Recovery: состояние и три действия над ним. */
+/** Передача пакета в Recovery: состояние и два действия над ним. */
 data class SideloadPanel(
     val state: AdbSideloadState = AdbSideloadState.None,
-    /** Отдать пакет заданного размера в байтах. */
-    val onSend: (Long) -> Unit = {},
     /** Отдать пакет, который выберет пользователь. */
     val onChoose: () -> Unit = {},
     val onCancel: () -> Unit = {},
 )
-
-/**
- * Размеры пакетов, которые приложение умеет породить само.
- *
- * Малый проходит одним блоком, большой — двумястами пятьюдесятью шестью: на нём
- * видно и повторные запросы блоков, и успевает оператор выдернуть кабель
- * посреди передачи, если гейт этого требует.
- */
-private const val SMALL_PACKAGE_BYTES = 64L * 1024L
-private const val LARGE_PACKAGE_BYTES = 16L * 1024L * 1024L
 
 /**
  * Sideload на экране.
@@ -58,7 +40,6 @@ internal fun SideloadSection(panel: SideloadPanel) {
     // не тронуто: кнопки гасит и то, и другое, а формулировки у них разные.
     val busy = running != null || state is AdbSideloadState.Staging
 
-    var showTestPackages by rememberSaveable { mutableStateOf(false) }
     LabelledValue(label = stringResource(R.string.sideload_label), value = sideloadText(state))
 
     Button(onClick = panel.onChoose, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
@@ -71,19 +52,6 @@ internal fun SideloadSection(panel: SideloadPanel) {
         text = stringResource(R.string.sideload_note),
         style = MaterialTheme.typography.bodySmall,
     )
-    TextButton(onClick = { showTestPackages = !showTestPackages }) {
-        Text(stringResource(
-            if (showTestPackages) R.string.sideload_hide_test_packages else R.string.sideload_test_packages,
-        ))
-    }
-    if (showTestPackages) {
-        OutlinedButton(onClick = { panel.onSend(SMALL_PACKAGE_BYTES) }, enabled = !busy) {
-            Text(stringResource(R.string.sideload_send_small))
-        }
-        OutlinedButton(onClick = { panel.onSend(LARGE_PACKAGE_BYTES) }, enabled = !busy) {
-            Text(stringResource(R.string.sideload_send_large))
-        }
-    }
 }
 
 /**
