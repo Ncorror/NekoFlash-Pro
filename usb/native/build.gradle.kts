@@ -19,6 +19,14 @@ android {
         // Правила сжатия A2 (`app/proguard-rules.pro`) — вместе с модулем, чтобы
         // имена JNI пережили R8, если выпуск начнут сжимать.
         consumerProguardFiles("consumer-rules.pro")
+        // Воспроизводимость (D074): Build ID считается по библиотеке вместе с
+        // отладочными сведениями, где лежит абсолютный путь дерева, и сборка
+        // того же коммита в другом каталоге давала другую `.so`.
+        externalNativeBuild {
+            cmake {
+                cppFlags("-ffile-prefix-map=${rootDir.absolutePath}=.")
+            }
+        }
     }
 
     externalNativeBuild {
