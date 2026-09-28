@@ -12,7 +12,17 @@ JDK 17 и Android SDK (платформа 37, build-tools 37.0.0). Вход в �
 ```
 <!-- ci-command:end -->
 
-Debug APK — `app/build/outputs/apk/debug/`. Подписанный релиз не настроен.
+Debug APK — `app/build/outputs/apk/debug/`.
+
+**Выпуск (D074).** `scripts/ci/release_apk.sh` при чистом рабочем дереве собирает `assembleRelease` дважды — в дереве и в отдельном рабочем дереве того же коммита без кеша сборки — и останавливается, если неподписанные APK не совпали побайтно. Затем, если задан `NEKOFLASH_RELEASE_KEYSTORE`, подписывает APK `apksigner` и проверяет подпись. Итог — в `build/release/`: `NekoFlash-Pro-<версия>-unsigned.apk`, `NekoFlash-Pro-<версия>.apk` (если был ключ), `SHA256SUMS`, `COMMIT`. Ключ в Gradle не попадает, поэтому любой может собрать тот же коммит (JDK 17, build-tools 37.0.0) и сравнить свой неподписанный APK с выпущенным. Ключ выпуска владелец создаёт один раз и хранит сам; в секреты Actions кладутся `NEKOFLASH_RELEASE_KEYSTORE_BASE64`, `NEKOFLASH_RELEASE_KEYSTORE_PASSWORD`, `NEKOFLASH_RELEASE_KEY_ALIAS` и, если отличается, `NEKOFLASH_RELEASE_KEY_PASSWORD`:
+
+```sh
+keytool -genkeypair -keystore nekoflash-release.keystore -alias nekoflash \
+  -keyalg RSA -keysize 4096 -validity 10000 -dname "CN=NekoFlash Pro"
+base64 -w0 nekoflash-release.keystore
+```
+
+Подписанный выпуск имеет тот же `applicationId`, что и debug, но другой ключ: поверх debug-сборки он не встаёт — debug придётся удалить, и вместе с ним уйдёт ключ хоста ADB.
 
 **Постоянная debug-подпись.** Без неё каждая сборка CI подписана временным ключом: поверх прежней она не встаёт, приложение приходится удалять, а вместе с ним теряется ключ хоста ADB, и целевое устройство снова спрашивает разрешение отладки. Чтобы этого не было, владелец репозитория один раз создаёт ключ и кладёт его в секрет Actions `NEKOFLASH_DEBUG_KEYSTORE_BASE64` (Settings → Secrets and variables → Actions):
 
@@ -36,6 +46,8 @@ base64 -w0 nekoflash-debug.keystore
 3. все тесты, Android lint, debug APK (команда выше);
 4. сводка тестов `scripts/ci-test-summary.py` → `build/verification/test-summary.md` и Job summary;
 5. артефакты: `NekoFlash-Pro-debug-<номер>` (APK) и `NekoFlash-Pro-test-results-<номер>` (JUnit XML, отчёты тестов и lint, этот документ).
+
+`.github/workflows/release.yml` запускается тегом `v*` и вручную: ключ выпуска из секрета, если он задан, затем `scripts/ci/release_apk.sh`; артефакт `NekoFlash-Pro-release-<номер>` — содержимое `build/release/`.
 
 Зелёный CI подтверждает сборку и тесты, **но не поведение USB, ADB, Fastboot и Recovery**. Это доказывает только прогон на устройстве.
 

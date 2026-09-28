@@ -72,6 +72,7 @@
 | `scripts/dev/provision_android_toolchain.sh` | добавлено локальное зеркало Maven Central | из облачной среды Maven Central отвечает 429 на параллельные запросы Gradle |
 | `gradle/wrapper/gradle-wrapper.jar` | взят из архива вместо прежнего jar репозитория | jar архива совпадает с тем, что генерирует сам Gradle 9.5.0; прежний — нет |
 | `app/build.gradle.kts` | `applicationId` `com.ncorror.nekoflash.pro`, свой `versionCode`/`versionName` | D041: APK обновляет установленную сборку этого репозитория |
+| `app/build.gradle.kts`, `scripts/ci/release_apk.sh`, `.github/workflows/release.yml` (новые) | у `release` нет `version-control-info`; выпуск — две сборки с побайтным сравнением и подпись `apksigner` | в архиве выпуска не было (D074) |
 | `app/src/main/res/values/strings.xml` | `app_name` — «NekoFlash Pro» | на том же телефоне может стоять APK архива «NekoFlash»; при проверке их нельзя путать |
 | `core/diagnostics/.../DiagnosticRedaction.kt` (+ тест) | новый файл | D050: обезличивание выгружаемого отчёта |
 | `app/.../NekoFlashApplication.kt`, `diagnostics/ExportIdentifiers.kt` (новый, + тест) | `writeDiagnostics` обезличивает секции перед записью: серийные номера (USB, личность цели, `getvar:serialno`), Android ID, отпечаток ключа ADB хоста | D050, D073 |

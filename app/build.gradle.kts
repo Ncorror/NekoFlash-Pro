@@ -59,6 +59,17 @@ android {
         localeFilters += listOf("en", "ru")
     }
 
+    buildTypes {
+        getByName("release") {
+            // Воспроизводимость (D074): AGP кладёт в APK
+            // `META-INF/version-control-info.textproto` с коммитом, а без
+            // каталога `.git` (архив исходников, рабочее дерево) — с ошибкой
+            // вместо коммита, и одинаковые исходники дают разные APK. Коммит
+            // выпуска записывается рядом с APK (`scripts/ci/release_apk.sh`).
+            vcsInfo.include = false
+        }
+    }
+
     buildFeatures {
         compose = true
         buildConfig = false
