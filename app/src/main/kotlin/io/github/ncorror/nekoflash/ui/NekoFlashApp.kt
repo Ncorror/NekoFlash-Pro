@@ -97,6 +97,11 @@ fun NekoFlashApp(
     var chosenGeneration by rememberSaveable { mutableStateOf<Long?>(null) }
     val selected = sessions.firstOrNull { it.generation.value == chosenGeneration } ?: sessions.firstOrNull()
     val selectSession: (UsbSession) -> Unit = { chosenGeneration = it.generation.value }
+    val navigate: (WorkspaceDestination) -> Unit = { next ->
+        destination = next
+        terminalFocus = next == WorkspaceDestination.TERMINAL
+        if (terminalFocus) showTerminalCommands = false
+    }
 
     // Рабочая область одинакова в обеих раскладках и отличается только тем,
     // как занимает место. Список аргументов длинный, и два его экземпляра уже
@@ -132,7 +137,7 @@ fun NekoFlashApp(
             desktopCommand = desktopCommand,
             onExportDiagnostics = onExportDiagnostics,
             selected = selected,
-            onNavigate = { destination = it; terminalFocus = false },
+            onNavigate = navigate,
             destination = shown,
             terminalFocus = terminalFocus,
             onToggleTerminalFocus = { terminalFocus = !terminalFocus },
@@ -149,7 +154,7 @@ fun NekoFlashApp(
         sessions = sessions,
         selected = selected,
         onSelectSession = selectSession,
-        onSelectDestination = { destination = it },
+        onSelectDestination = navigate,
         workspace = workspace,
     )
 }
