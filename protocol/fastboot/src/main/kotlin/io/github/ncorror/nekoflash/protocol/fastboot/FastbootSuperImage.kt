@@ -38,11 +38,16 @@ public object FastbootSuperImage {
         metadata.blockDevices.mapIndexed { index, device ->
             val blocks = device.size / blockSize
             require(blocks < UINT) { "Block device is too large to encode with libsparse." }
-            val chunks = if (index == 0) listOf(Chunk.Fill(RESERVED / blockSize), Chunk.Raw(all)) else emptyList()
+            val reserved = (RESERVED / blockSize).toLong()
+            val chunks = if (index == 0) {
+                listOf(SparseChunk.Fill(0, reserved), SparseChunk.Raw(reserved, all))
+            } else {
+                emptyList()
+            }
             SuperDeviceImage(
                 partition = device.partitionName,
                 slotSuffixed = device.flags and SLOT_SUFFIXED != 0,
-                sparse = sparse(blockSize, blocks, chunks),
+                sparse = SparseWriter.write(blockSize, blocks, chunks),
             )
         }
     }
@@ -94,56 +99,6 @@ public object FastbootSuperImage {
         sha256(header).copyInto(header, HEADER_CHECKSUM_OFFSET)
         return header + tables
     }
-
-    private sealed interface Chunk {
-        /** Заполнение нулём на [blocks] блоков. */
-        data class Fill(val blocks: Int) : Chunk
-
-        /** Данные, дополненные нулями до целого блока. */
-        class Raw(val bytes: ByteArray) : Chunk
-    }
-
-    /** `sparse_file_write` без сжатия и суммы: заданные участки подряд, хвост — пропуск. */
-    private fun sparse(blockSize: Int, totalBlocks: Long, chunks: List<Chunk>): ByteArray {
-        val body = mutableListOf<ByteArray>()
-        var at = 0L
-        for (chunk in chunks) {
-            when (chunk) {
-                is Chunk.Fill -> {
-                    body += chunkHeader(FastbootSparse.CHUNK_FILL, chunk.blocks, CHUNK_HEADER + FILL_BYTES) +
-                        ByteArray(FILL_BYTES)
-                    at += chunk.blocks
-                }
-                is Chunk.Raw -> {
-                    val blocks = (chunk.bytes.size + blockSize - 1) / blockSize
-                    val padded = chunk.bytes.copyOf(blocks * blockSize)
-                    body += chunkHeader(FastbootSparse.CHUNK_RAW, blocks, CHUNK_HEADER + padded.size) + padded
-                    at += blocks
-                }
-            }
-        }
-        if (at < totalBlocks) body += chunkHeader(FastbootSparse.CHUNK_DONT_CARE, (totalBlocks - at).toInt(), CHUNK_HEADER)
-        val header = ByteBuffer.allocate(FILE_HEADER).order(ByteOrder.LITTLE_ENDIAN).apply {
-            putInt(FastbootSparse.MAGIC)
-            putShort(MAJOR.toShort())
-            putShort(0)
-            putShort(FILE_HEADER.toShort())
-            putShort(CHUNK_HEADER.toShort())
-            putInt(blockSize)
-            putInt(totalBlocks.toInt())
-            putInt(body.size)
-            putInt(0)
-        }.array()
-        return body.fold(header) { acc, part -> acc + part }
-    }
-
-    private fun chunkHeader(type: Int, blocks: Int, total: Int): ByteArray =
-        ByteBuffer.allocate(CHUNK_HEADER).order(ByteOrder.LITTLE_ENDIAN).apply {
-            putShort(type.toShort())
-            putShort(0)
-            putInt(blocks)
-            putInt(total)
-        }.array()
 
     private fun partition(entry: LpPartition): ByteArray =
         ByteBuffer.allocate(PARTITION_BYTES).order(ByteOrder.LITTLE_ENDIAN).apply {
@@ -198,9 +153,5 @@ public object FastbootSuperImage {
     private const val DEVICE_BYTES = 64
     private const val NAME_BYTES = 36
     private const val SLOT_SUFFIXED = 1
-    private const val FILE_HEADER = 28
-    private const val CHUNK_HEADER = 12
-    private const val FILL_BYTES = 4
-    private const val MAJOR = 1
     private const val UINT = 0xFFFF_FFFFL
 }
