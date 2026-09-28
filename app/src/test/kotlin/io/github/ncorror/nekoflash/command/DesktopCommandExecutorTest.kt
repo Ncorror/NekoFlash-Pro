@@ -186,6 +186,9 @@ class DesktopCommandExecutorTest {
         override fun fastbootFetch(partition: String, slot: String?, destination: () -> ArtifactSink) {
             calls += "fetch $partition" + (slot?.let { " slot=$it" } ?: "")
         }
+        override fun fastbootWipeSuper(slot: String, sparseLimit: Long?, origin: () -> ArtifactSource) {
+            calls += "wipe-super slot=$slot"
+        }
         override fun fastbootFlashAll(step: TerminalPlanStep.FastbootFlashAll, picked: PickedFile) {
             calls += (step.archiveName?.let { "update $it" } ?: "flashall") + " ${picked.javaClass.simpleName}"
         }

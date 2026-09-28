@@ -29,6 +29,9 @@ interface DesktopCommandTargets {
 
     /** `flashall` — [picked] папка; `update` — выбранный архив. */
     fun fastbootFlashAll(step: TerminalPlanStep.FastbootFlashAll, picked: PickedFile)
+
+    /** `wipe-super`: выбранный `super_empty.img`. */
+    fun fastbootWipeSuper(slot: String, sparseLimit: Long?, origin: () -> ArtifactSource)
     fun adbShell(command: String)
     fun adbInteractiveShell(firstLine: String?, mode: ShellMode)
     fun adbService(service: String)
@@ -131,6 +134,8 @@ class DesktopCommandExecutor(private val targets: DesktopCommandTargets) {
             is TerminalPlanStep.FastbootGetvar -> targets.fastbootVariable(first.variable)
             TerminalPlanStep.FastbootGetvarAll -> targets.fastbootAllVariables()
             is TerminalPlanStep.FastbootFlashAll -> targets.fastbootFlashAll(first, checkNotNull(file))
+            is TerminalPlanStep.FastbootWipeSuper ->
+                targets.fastbootWipeSuper(first.slot, first.sparseLimit, file.open())
             // Слот уточняется на устройстве — это тоже план.
             else -> if (wires.size == 1 && slot == null) {
                 targets.fastbootCommand(wires.single())
@@ -174,6 +179,7 @@ fun TerminalPlanStep.isFastboot(): Boolean = when (this) {
     is TerminalPlanStep.FastbootBootImage,
     is TerminalPlanStep.FastbootFetch,
     is TerminalPlanStep.FastbootFlashAll,
+    is TerminalPlanStep.FastbootWipeSuper,
     -> true
 
     else -> false

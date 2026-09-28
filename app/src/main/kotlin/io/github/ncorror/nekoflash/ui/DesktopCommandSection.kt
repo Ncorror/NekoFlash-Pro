@@ -318,6 +318,11 @@ private fun baseStepText(step: TerminalPlanStep): String = when (step) {
         step.remotePath,
     ) + dryRunNote(step.dryRun)
     is TerminalPlanStep.AdbSideload -> stringResource(R.string.command_step_adb_sideload, step.archiveName)
+    is TerminalPlanStep.FastbootWipeSuper -> stringResource(
+        R.string.command_step_fastboot_wipe_super,
+        step.imageName,
+        step.slot.ifEmpty { "—" },
+    )
     is TerminalPlanStep.FastbootFlashAll -> step.archiveName
         ?.let { stringResource(R.string.command_step_fastboot_update, it, flashAllOptions(step)) }
         ?: stringResource(R.string.command_step_fastboot_flashall, flashAllOptions(step))

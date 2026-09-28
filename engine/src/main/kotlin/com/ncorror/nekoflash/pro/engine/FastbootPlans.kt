@@ -75,6 +75,7 @@ internal object FastbootPlans {
         this == FastbootCommand.FlashAll || this is FastbootCommand.Update
 
     private fun FastbootCommand.takesSlot(): Boolean = when (this) {
+        is FastbootCommand.WipeSuper,
         FastbootCommand.FlashAll,
         is FastbootCommand.Update,
         is FastbootCommand.Flash,
@@ -88,7 +89,8 @@ internal object FastbootPlans {
     /** `-S` режет образ для `flash`; у прочих команд ему не к чему применяться. */
     private fun sparseBlocker(command: FastbootCommand, options: FastbootOptions): String? =
         "fastboot -S".takeIf {
-            options.sparseLimit != null && command !is FastbootCommand.Flash && !command.flashesAll()
+            options.sparseLimit != null && command !is FastbootCommand.Flash && !command.flashesAll() &&
+                command !is FastbootCommand.WipeSuper
         }
 
     /**
@@ -108,6 +110,7 @@ internal object FastbootPlans {
                     is TerminalPlanStep.FastbootWire -> step.copy(slot = slot)
                     is TerminalPlanStep.FastbootFetch -> step.copy(slot = slot)
                     is TerminalPlanStep.FastbootFlashAll -> step.copy(slot = slot)
+                    is TerminalPlanStep.FastbootWipeSuper -> step.copy(slot = slot)
                     else -> step
                 }
             }
@@ -134,6 +137,7 @@ internal object FastbootPlans {
         return steps.map { step ->
             when (step) {
                 is TerminalPlanStep.FastbootFlashImage -> step.copy(vbmetaFlags = flags, sparseLimit = sparse)
+                is TerminalPlanStep.FastbootWipeSuper -> step.copy(sparseLimit = sparse)
                 is TerminalPlanStep.FastbootFlashAll -> step.copy(
                     vbmetaFlags = flags,
                     sparseLimit = sparse,
@@ -164,6 +168,8 @@ internal object FastbootPlans {
             ?.let { listOf(TerminalPlanStep.FastbootGetvar("$IS_LOGICAL:${it.argument}")) }
         is FastbootCommand.Wire -> listOf(TerminalPlanStep.FastbootWire(command.payload))
         FastbootCommand.FlashAll -> listOf(TerminalPlanStep.FastbootFlashAll(archiveName = null))
+        is FastbootCommand.WipeSuper ->
+            listOf(TerminalPlanStep.FastbootWipeSuper(command.emptySuperImage ?: SUPER_EMPTY))
         is FastbootCommand.Update -> listOf(TerminalPlanStep.FastbootFlashAll(archiveName = command.archive))
         FastbootCommand.LocalStatus -> listOf(report(LocalReportKind.STATUS))
         is FastbootCommand.Devices ->
@@ -189,6 +195,7 @@ internal object FastbootPlans {
     }
 
     private const val ALL = "all"
+    private const val SUPER_EMPTY = "super_empty.img"
     private const val VBMETA = "vbmeta"
     private const val DISABLE_VERITY = 1
     private const val DISABLE_VERIFICATION = 2

@@ -57,7 +57,6 @@ class TerminalPlanCompilerTest {
             "fastboot --set-active=a getvar product",
             "fastboot -S 512M erase system",
             "fastboot format userdata",
-            "fastboot wipe-super super_empty.img",
             "fastboot -w flashall",
             "fastboot flash vendor_boot:default ramdisk.img",
             "fastboot boot kernel ramdisk",
@@ -89,6 +88,10 @@ class TerminalPlanCompilerTest {
         )
         assertEquals(TerminalFileNeed.FOLDER, steps("fastboot flashall").single().fileNeed)
         assertEquals(TerminalFileNeed.OPEN, steps("fastboot update image.zip").single().fileNeed)
+        assertEquals(
+            listOf(TerminalPlanStep.FastbootWipeSuper("super_empty.img", slot = "a", sparseLimit = 4096L)),
+            steps("fastboot --slot a -S 4K wipe-super"),
+        )
     }
 
     @Test

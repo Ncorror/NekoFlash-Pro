@@ -100,6 +100,16 @@ sealed interface TerminalPlanStep {
     data class AdbSideload(val archiveName: String) : TerminalPlanStep
 
     /**
+     * `fastboot wipe-super [SUPER_EMPTY]`: пустой `super` по выбранному
+     * `super_empty.img` ([imageName] — как его назвал оператор).
+     */
+    data class FastbootWipeSuper(
+        val imageName: String,
+        val slot: String = CURRENT_SLOT,
+        val sparseLimit: Long? = null,
+    ) : TerminalPlanStep
+
+    /**
      * `fastboot flashall` (набор — выбранная папка вместо `$ANDROID_PRODUCT_OUT`)
      * или `fastboot update АРХИВ` ([archiveName] — выбранный архив).
      */
@@ -161,6 +171,7 @@ val TerminalPlanStep.fileNeed: TerminalFileNeed
     get() = when (this) {
         is TerminalPlanStep.FastbootFlashImage,
         is TerminalPlanStep.FastbootBootImage,
+        is TerminalPlanStep.FastbootWipeSuper,
         is TerminalPlanStep.AdbSideload,
         -> TerminalFileNeed.OPEN
 
@@ -185,7 +196,10 @@ val TerminalPlanStep.fileNeed: TerminalFileNeed
  */
 val TerminalPlanStep.writesPartition: Boolean
     get() = when (this) {
-        is TerminalPlanStep.FastbootFlashImage, is TerminalPlanStep.FastbootFlashAll -> true
+        is TerminalPlanStep.FastbootFlashImage,
+        is TerminalPlanStep.FastbootFlashAll,
+        is TerminalPlanStep.FastbootWipeSuper,
+        -> true
         is TerminalPlanStep.FastbootWire -> PARTITION_WRITES.any { command.startsWith(it) }
         else -> false
     }

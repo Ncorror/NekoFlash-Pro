@@ -6,16 +6,6 @@ import io.github.ncorror.nekoflash.core.artifact.ArtifactRandomAccess
 import io.github.ncorror.nekoflash.core.artifact.ArtifactSource
 import io.github.ncorror.nekoflash.core.artifact.ArtifactStamp
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootLane
-import io.github.ncorror.nekoflash.usb.api.UsbDeviceDescriptor
-import io.github.ncorror.nekoflash.usb.api.UsbEndpointDescriptor
-import io.github.ncorror.nekoflash.usb.api.UsbEndpointDirection
-import io.github.ncorror.nekoflash.usb.api.UsbInterfaceCandidate
-import io.github.ncorror.nekoflash.usb.api.UsbInterfaceKind
-import io.github.ncorror.nekoflash.usb.api.UsbMatchConfidence
-import io.github.ncorror.nekoflash.usb.api.UsbTransferFailure
-import io.github.ncorror.nekoflash.usb.api.UsbTransferResult
-import io.github.ncorror.nekoflash.usb.api.UsbTransferType
-import io.github.ncorror.nekoflash.usb.api.UsbTransportHandle
 import java.io.ByteArrayInputStream
 import java.io.InputStream
 import java.nio.ByteBuffer
@@ -29,7 +19,7 @@ import org.junit.Test
 class FastbootFlashAllTest {
     private val vayu = mapOf("product" to "vayu", "max-download-size" to "0x10000000")
 
-    private fun flashAll(device: Device, set: Map<String, ByteArray>, request: FlashAllRequest = FlashAllRequest()) =
+    private fun flashAll(device: ScriptedBootloader, set: Map<String, ByteArray>, request: FlashAllRequest = FlashAllRequest()) =
         FastbootFlashAll(FastbootLane(device), MapImageSet(set), request).run() as FastbootConsoleState.Planned
 
     private val images = mapOf(
@@ -43,7 +33,7 @@ class FastbootFlashAllTest {
 
     @Test
     fun bootImagesThenSystemImagesThenReboot() {
-        val device = Device(vayu)
+        val device = ScriptedBootloader(vayu)
 
         val planned = flashAll(device, images)
 
@@ -61,13 +51,13 @@ class FastbootFlashAllTest {
     fun anUnmetRequirementStopsBeforeAnyCommandUnlessForced() {
         val other = images + ("android-info.txt" to "require board=bhima\n".toByteArray())
 
-        val stopped = flashAll(Device(vayu), other)
+        val stopped = flashAll(ScriptedBootloader(vayu), other)
         assertEquals(0, stopped.stoppedAt)
         assertTrue(stopped.commands.isEmpty())
         assertTrue(stopped.detail, stopped.detail.contains("Device product is 'vayu'. Update requires 'bhima'."))
         assertTrue(stopped.detail.endsWith("requirements not met!"))
 
-        val device = Device(vayu)
+        val device = ScriptedBootloader(vayu)
         val forced = flashAll(device, other, FlashAllRequest(force = true))
         assertEquals(null, forced.stoppedAt)
         assertTrue(forced.detail.contains("requirements not met! but proceeding due to --force"))
@@ -75,7 +65,7 @@ class FastbootFlashAllTest {
 
     @Test
     fun aMissingRequiredImageStopsBeforeFlashing() {
-        val device = Device(vayu)
+        val device = ScriptedBootloader(vayu)
 
         val planned = flashAll(device, images - "system.img")
 
@@ -85,7 +75,7 @@ class FastbootFlashAllTest {
 
     @Test
     fun aSuperEmptySetFromTheBootloaderStopsBeforeAnyCommand() {
-        val device = Device(vayu + ("is-userspace" to "no"))
+        val device = ScriptedBootloader(vayu + ("is-userspace" to "no"))
 
         val planned = flashAll(device, images + ("super_empty.img" to superEmpty()))
 
@@ -95,7 +85,7 @@ class FastbootFlashAllTest {
 
     @Test
     fun inFastbootdTheSuperIsUpdatedAndLogicalPartitionsResized() {
-        val device = Device(
+        val device = ScriptedBootloader(
             mapOf(
                 "product" to "vayu",
                 "is-userspace" to "yes",
@@ -127,7 +117,7 @@ class FastbootFlashAllTest {
 
     @Test
     fun aSignatureGoesBeforeItsImageAndSecondaryImagesTakeTheOtherSlot() {
-        val device = Device(
+        val device = ScriptedBootloader(
             mapOf(
                 "product" to "vayu",
                 "slot-count" to "2",
@@ -149,7 +139,7 @@ class FastbootFlashAllTest {
 
     @Test
     fun fastbootInfoLeadsWhenItIsInTheSet() {
-        val device = Device(vayu + ("is-userspace" to "yes"))
+        val device = ScriptedBootloader(vayu + ("is-userspace" to "yes"))
         val info = """
             version 1
             # comment
@@ -170,11 +160,11 @@ class FastbootFlashAllTest {
 
     @Test
     fun aNewerFastbootInfoOrAPlainEraseStopsBeforeAnyCommand() {
-        val newer = flashAll(Device(vayu), images + ("fastboot-info.txt" to "version 2\nflash boot".toByteArray()))
+        val newer = flashAll(ScriptedBootloader(vayu), images + ("fastboot-info.txt" to "version 2\nflash boot".toByteArray()))
         assertTrue(newer.detail.contains("not compatible with host tool version --> 1"))
         assertTrue(newer.commands.isEmpty())
 
-        val erase = flashAll(Device(vayu), images + ("fastboot-info.txt" to "erase userdata".toByteArray()))
+        val erase = flashAll(ScriptedBootloader(vayu), images + ("fastboot-info.txt" to "erase userdata".toByteArray()))
         assertTrue(erase.detail.contains("fb_perform_format"))
         assertTrue(erase.commands.isEmpty())
     }
@@ -193,62 +183,7 @@ class FastbootFlashAllTest {
         override fun randomAccess(): ArtifactRandomAccess? = null
     }
 
-    /** Загрузчик в миниатюре: `getvar` по таблице, `download`, остальное — `OKAY`. */
-    private class Device(private val variables: Map<String, String>) : UsbTransportHandle {
-        val sent = mutableListOf<String>()
-        private val replies = ArrayDeque<String>()
-        private var expected = 0
-
-        override val candidate: UsbInterfaceCandidate = CANDIDATE
-        override val held: Boolean = true
-
-        override fun send(source: ByteArray, offset: Int, length: Int, timeoutMillis: Int): UsbTransferResult {
-            if (expected > 0) {
-                expected -= length
-                if (expected == 0) replies += "OKAY"
-            } else {
-                command(String(source, offset, length, Charsets.US_ASCII))
-            }
-            return UsbTransferResult.Completed(length)
-        }
-
-        private fun command(text: String) {
-            sent += text
-            replies += when {
-                text.startsWith("download:") -> {
-                    expected = text.removePrefix("download:").toInt(16)
-                    "DATA%08x".format(expected)
-                }
-                text.startsWith("getvar:") -> variables[text.removePrefix("getvar:")]?.let { "OKAY$it" } ?: "FAILunknown"
-                // `set_active` подтверждается перечитыванием `current-slot` — у фейка он неизменен.
-                else -> "OKAY"
-            }
-        }
-
-        override fun receive(destination: ByteArray, offset: Int, length: Int, timeoutMillis: Int): UsbTransferResult {
-            val next = replies.removeFirstOrNull() ?: return UsbTransferResult.Failed(UsbTransferFailure.NOT_COMPLETED)
-            val bytes = next.toByteArray(Charsets.US_ASCII)
-            bytes.copyInto(destination, offset)
-            return UsbTransferResult.Completed(bytes.size)
-        }
-
-        override fun close() = Unit
-    }
-
-    private companion object {
-        val CANDIDATE = UsbInterfaceCandidate(
-            device = UsbDeviceDescriptor(deviceId = 1, deviceName = "/dev/bus/usb/001/002", vendorId = 0x18D1, productId = 0xD00D),
-            kind = UsbInterfaceKind.FASTBOOT,
-            confidence = UsbMatchConfidence.CANONICAL,
-            interfaceIndex = 0,
-            interfaceId = 0,
-            interfaceClass = 0xFF,
-            interfaceSubclass = 0x42,
-            interfaceProtocol = 0x03,
-            endpointIn = UsbEndpointDescriptor(0x81, UsbEndpointDirection.IN, UsbTransferType.BULK, 512),
-            endpointOut = UsbEndpointDescriptor(0x01, UsbEndpointDirection.OUT, UsbTransferType.BULK, 512),
-        )
-
+    internal companion object {
         /** `super_empty.img` с одним логическим разделом `system` со слотом. */
         fun superEmpty(): ByteArray {
             val partition = ByteBuffer.allocate(52).order(ByteOrder.LITTLE_ENDIAN).apply {

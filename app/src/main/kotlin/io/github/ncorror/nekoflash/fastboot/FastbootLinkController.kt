@@ -339,6 +339,11 @@ public class FastbootLinkController(
         }
     }
 
+    /** `fastboot wipe-super`: пустой `super` по выбранному `super_empty.img` ([wipeSuper]). */
+    internal fun wipeSuper(slot: String, sparseLimit: Long?, origin: () -> ArtifactSource) {
+        busy("fastboot_wipe_super", "wipe-super") { lane, _ -> wipeSuper(lane, origin(), slot, sparseLimit) }
+    }
+
     /** Читает раздел в место, выбранное пользователем. */
     public fun fetchPartitionTo(partition: String, slot: String? = null, destination: () -> ArtifactSink) {
         busy("fastboot_fetch_file", partition) { lane, typed ->
