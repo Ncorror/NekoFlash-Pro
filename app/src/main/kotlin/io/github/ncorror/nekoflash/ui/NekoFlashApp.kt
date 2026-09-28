@@ -292,8 +292,7 @@ private fun Workspace(
             WorkspaceDestination.HOME -> HomeWorkspace(selected, paletteActions, onRescanUsb, onNavigate)
             WorkspaceDestination.DEVICE,
             WorkspaceDestination.ADB,
-            WorkspaceDestination.FASTBOOT,
-            WorkspaceDestination.RECOVERY -> {
+            WorkspaceDestination.FASTBOOT -> {
                 SectionHeading(stringResource(destination.label), style = MaterialTheme.typography.headlineMedium)
                 SessionList(
                     selected = selected,
@@ -317,6 +316,18 @@ private fun Workspace(
                     fastboot = fastboot,
                     fastbootConsole = fastbootConsole,
                 )
+            }
+            WorkspaceDestination.RECOVERY -> {
+                SectionHeading(stringResource(R.string.nav_recovery), style = MaterialTheme.typography.headlineMedium)
+                Text(
+                    text = when {
+                        selected == null -> stringResource(R.string.sideload_device_hint)
+                        selected.candidate.kind != UsbInterfaceKind.ADB -> stringResource(R.string.tools_need_recovery)
+                        else -> stringResource(R.string.sideload_mode_hint)
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                SideloadSection(panel = sideload)
             }
             WorkspaceDestination.TERMINAL -> Unit
             WorkspaceDestination.MI_UNLOCK -> MiUnlockSection(miUnlock)
@@ -606,9 +617,6 @@ private fun SessionCard(
                         }
                         Text(stringResource(R.string.fastboot_note), style = MaterialTheme.typography.bodySmall)
                     } else Text(stringResource(R.string.tools_need_fastboot))
-                    WorkspaceDestination.RECOVERY -> if (session.candidate.kind == UsbInterfaceKind.ADB) {
-                        SideloadSection(sideload)
-                    } else Text(stringResource(R.string.tools_need_recovery))
                     WorkspaceDestination.DEVICE -> if (session.candidate.kind != UsbInterfaceKind.ADB &&
                         session.candidate.kind != UsbInterfaceKind.FASTBOOT) {
                         Button(onClick = if (claimed) onRelease else onClaim) {
