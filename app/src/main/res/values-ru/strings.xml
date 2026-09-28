@@ -467,4 +467,5 @@
     <string name="terminal_shell">Оболочка</string>
     <string name="terminal_fullscreen">На весь экран</string>
     <string name="terminal_exit_fullscreen">Свернуть</string>
+    <string name="target_bar_switch">Сменить</string>
 </resources>

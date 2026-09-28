@@ -464,4 +464,5 @@
     <string name="terminal_shell">Shell</string>
     <string name="terminal_fullscreen">Full screen</string>
     <string name="terminal_exit_fullscreen">Exit full screen</string>
+    <string name="target_bar_switch">Switch</string>
 </resources>
