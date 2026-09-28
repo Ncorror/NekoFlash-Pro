@@ -81,7 +81,7 @@ internal class AdbLineParser(private val original: String, private val tokens: L
             val option = args[index]
             when {
                 option == END_OF_OPTIONS -> scanning = false.also { index++ }
-                option == "-z" -> options = options.copy(compression = value(index++, option))
+                option == "-z" -> options = options.copy(compression = compression(index++))
                 !option.startsWith('-') -> scanning = false
                 else -> transferFlag(option, options)?.let { options = it } ?: verdict.unsupported(TOOL, "$op $option")
             }
@@ -103,9 +103,13 @@ internal class AdbLineParser(private val original: String, private val tokens: L
         "-a" -> options.takeIf { op == PULL }?.copy(preserveAttributes = true)
         "-n" -> options.takeIf { op == PUSH }?.copy(dryRun = true)
         "-q" -> options.copy(quiet = true)
-        "-Z" -> options.copy(noCompression = true)
+        "-Z" -> options.copy(compression = NO_COMPRESSION)
         else -> null
     }
+
+    /** `parse_compression_type` без чисел: имя из `-z` или ошибка разбора. */
+    private fun compression(at: Int): String? =
+        value(at, "-z")?.let { name -> name.takeIf { it in COMPRESSION_TYPES } ?: verdict.invalid("-z $name") }
 
     /** Значение опции — следующее слово, если это не другая опция. */
     private fun value(at: Int, option: String): String? =
@@ -121,8 +125,8 @@ internal class AdbLineParser(private val original: String, private val tokens: L
                 "-l" -> listOnly = true
                 "-n" -> options = options.copy(dryRun = true)
                 "-q" -> options = options.copy(quiet = true)
-                "-Z" -> options = options.copy(noCompression = true)
-                "-z" -> options = options.copy(compression = value(index++, option))
+                "-Z" -> options = options.copy(compression = NO_COMPRESSION)
+                "-z" -> options = options.copy(compression = compression(index++))
                 END_OF_OPTIONS -> scanning = false
                 else -> verdict.unsupported(TOOL, "sync $option")
             }
@@ -184,6 +188,8 @@ internal class AdbLineParser(private val original: String, private val tokens: L
         val TTY_FLAGS = setOf("-t", "-tt", "-T")
         val PORTS = 1..65_535
         val SYNC_PARTITIONS = setOf("all", "data", "odm", "oem", "product", "system", "system_ext", "vendor")
+        val COMPRESSION_TYPES = setOf("any", "none", "brotli", "lz4", "zstd")
+        const val NO_COMPRESSION = "none"
         val INSTALL_FLAGS = setOf(
             "-l", "-r", "-t", "-s", "-d", "-p", "-g", "--instant",
             "--no-streaming", "--streaming", "--fastdeploy", "--no-fastdeploy", "--force-agent",

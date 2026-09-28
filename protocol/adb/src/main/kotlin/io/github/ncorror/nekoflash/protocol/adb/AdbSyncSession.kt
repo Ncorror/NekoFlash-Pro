@@ -54,6 +54,12 @@ public enum class AdbSyncFailure {
      * решением D031.
      */
     UNREPRESENTABLE_PATH,
+
+    /**
+     * Сжатый поток `RCV2` испорчен или кончился не там: `decompress failed`
+     * настольного клиента.
+     */
+    DECOMPRESSION_FAILED,
 }
 
 /** Исход обмена по `sync:`. */
@@ -148,10 +154,16 @@ public class AdbSyncSession(
      * Блоки отдаются [sink] по мере поступления и нигде не накапливаются: файл
      * может быть больше памяти, и собирать его целиком, чтобы потом записать,
      * значило бы ограничить размер оперативной памятью.
+     *
+     * @param v2 `RECV_V2`, как `sync_recv_v2` у устройства с `sendrecv_v2`;
+     *   иначе `RECV`. [compression] — флаг `RCV2`: блоки `DATA` тогда — один
+     *   сжатый поток, и [sink] получает уже распакованное.
      */
     public fun receive(
         path: String,
         timeoutMillis: Int = TRANSFER_TIMEOUT_MS,
+        v2: Boolean = false,
+        compression: SyncCompression? = null,
         sink: (ByteArray) -> Unit,
     ): AdbSyncOutcome<Long> {
         return if (!exchange.active) {
@@ -159,11 +171,16 @@ public class AdbSyncSession(
         } else {
             val deadline = exchange.deadlineFrom(timeoutMillis)
             val digest = MessageDigest.getInstance("SHA-256")
-            val outcome = exchange.request(AdbSyncProtocol.ID_RECV, path)
-                ?: receiveLoop(path, deadline) { chunk ->
-                    digest.update(chunk)
-                    sink(chunk)
-                }
+            val stream = AdbSyncReceiveStream(compression?.decoder()) { chunk ->
+                digest.update(chunk)
+                sink(chunk)
+            }
+            val request = if (v2 || compression != null) {
+                exchange.request(AdbSyncProtocol.recvV2(path, compression?.flag ?: 0), "RCV2 $path")
+            } else {
+                exchange.request(AdbSyncProtocol.ID_RECV, path)
+            }
+            val outcome = request ?: receiveLoop(path, deadline, stream)
             if (outcome is AdbSyncOutcome.Done) {
                 val sha256 = digest.digest().joinToString(separator = "") { byte -> "%02x".format(byte) }
                 exchange.emit(
@@ -198,18 +215,16 @@ public class AdbSyncSession(
      *
      * @param modifiedAtSeconds время изменения файла в секундах эпохи; уходит
      *   в `DONE`, как в Legacy `pushFile`.
-     * @param dryRun `SEND_V2` с `kSyncFlagDryRun`: устройство читает данные и
-     *   отвечает, ничего не записывая (`adb push -n`). Наличие у устройства
-     *   `sendrecv_v2_dry_run_send` проверяет вызывающий, как настольный клиент.
+     * @param sendMode `SEND` или `SEND_V2`, проба и сжатие — [AdbSyncSendMode].
      */
     public fun send(
         path: String,
         modifiedAtSeconds: Int,
         mode: Int = AdbSyncProtocol.DEFAULT_FILE_MODE,
         timeoutMillis: Int = TRANSFER_TIMEOUT_MS,
-        dryRun: Boolean = false,
+        sendMode: AdbSyncSendMode = AdbSyncSendMode(),
         source: (ByteArray) -> Int,
-    ): AdbSyncSendOutcome = upload.send(path, modifiedAtSeconds, mode, timeoutMillis, dryRun, source)
+    ): AdbSyncSendOutcome = upload.send(path, modifiedAtSeconds, mode, timeoutMillis, sendMode, source)
 
     private fun readStatResponse(
         path: String,
@@ -233,13 +248,22 @@ public class AdbSyncSession(
     private fun receiveLoop(
         path: String,
         deadline: Long,
-        sink: (ByteArray) -> Unit,
+        stream: AdbSyncReceiveStream,
     ): AdbSyncOutcome<Long> {
         var progress = ReceiveProgress()
         while (progress.outcome == null) {
             progress = when (val read = exchange.readHeader(deadline)) {
                 is AdbSyncOutcome.Failed -> progress.copy(outcome = read)
-                is AdbSyncOutcome.Done -> receiveHeader(path, deadline, sink, read.value, progress.received)
+                is AdbSyncOutcome.Done -> try {
+                    receiveHeader(path, deadline, stream, read.value, progress.received)
+                } catch (broken: SyncCodecException) {
+                    progress.copy(
+                        outcome = exchange.failure(
+                            AdbSyncFailure.DECOMPRESSION_FAILED,
+                            "recv $path: decompress failed: ${broken.message}",
+                        ),
+                    )
+                }
             }
         }
         return checkNotNull(progress.outcome)
@@ -248,7 +272,7 @@ public class AdbSyncSession(
     private fun receiveHeader(
         path: String,
         deadline: Long,
-        sink: (ByteArray) -> Unit,
+        stream: AdbSyncReceiveStream,
         header: AdbSyncHeader,
         received: Long,
     ): ReceiveProgress = when (header.id) {
@@ -261,13 +285,16 @@ public class AdbSyncSession(
             when (val chunk = exchange.readExactly(header.value, deadline)) {
                 is AdbSyncOutcome.Failed -> ReceiveProgress(received, chunk)
                 is AdbSyncOutcome.Done -> {
-                    sink(chunk.value)
-                    ReceiveProgress(received + chunk.value.size)
+                    stream.data(chunk.value)
+                    ReceiveProgress(stream.delivered)
                 }
             }
         }
 
-        AdbSyncProtocol.ID_DONE -> ReceiveProgress(received, AdbSyncOutcome.Done(received))
+        AdbSyncProtocol.ID_DONE -> {
+            stream.done()
+            ReceiveProgress(stream.delivered, AdbSyncOutcome.Done(stream.delivered))
+        }
 
         AdbSyncProtocol.ID_FAIL -> ReceiveProgress(
             received,
@@ -304,6 +331,24 @@ public class AdbSyncSession(
             size = size,
             modifiedAtSeconds = readIntLe(body, 4),
         )
+    }
+
+    /** Куда идут блоки `DATA`: прямо в вывод или через декодер `RCV2`. */
+    private class AdbSyncReceiveStream(private val decoder: SyncDecoder?, private val output: (ByteArray) -> Unit) {
+        var delivered = 0L
+            private set
+
+        private val counted: (ByteArray) -> Unit = { chunk ->
+            delivered += chunk.size
+            output(chunk)
+        }
+
+        fun data(chunk: ByteArray) = decoder?.feed(chunk, counted) ?: counted(chunk)
+
+        /** `DONE`: поток обязан быть закончен (`Finish` у декодера AOSP). */
+        fun done() {
+            decoder?.end(counted)
+        }
     }
 
     private data class ReceiveProgress(

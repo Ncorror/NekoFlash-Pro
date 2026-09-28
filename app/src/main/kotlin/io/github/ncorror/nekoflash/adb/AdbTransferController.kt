@@ -10,9 +10,12 @@ import io.github.ncorror.nekoflash.core.diagnostics.DiagnosticSink
 import io.github.ncorror.nekoflash.protocol.adb.AdbConnection
 import io.github.ncorror.nekoflash.protocol.adb.AdbSyncEntry
 import io.github.ncorror.nekoflash.protocol.adb.AdbSyncOutcome
+import io.github.ncorror.nekoflash.protocol.adb.AdbSyncProtocol
+import io.github.ncorror.nekoflash.protocol.adb.AdbSyncSendMode
 import io.github.ncorror.nekoflash.protocol.adb.AdbSyncSendOutcome
 import io.github.ncorror.nekoflash.protocol.adb.AdbSyncSession
 import io.github.ncorror.nekoflash.protocol.adb.AdbSyncStat
+import io.github.ncorror.nekoflash.protocol.adb.SyncCompression
 import java.util.concurrent.Executor
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -29,6 +32,9 @@ public sealed interface AdbTransferState {
     /** Сессия `sync:` не открылась или перенос сорвался исключением. */
     public data class Failed(val what: String, val detail: String) : AdbTransferState
 }
+
+/** `-n` и сжатие записи: имя из `-z` (`any` — лучшее, что объявило устройство; `none` — без сжатия). */
+internal data class AdbPushMode(val dryRun: Boolean = false, val compression: String = SyncCompression.ANY)
 
 /**
  * `adb push`/`pull` настольного клиента: несколько файлов и каталоги.
@@ -52,10 +58,10 @@ public class AdbTransferController(
         sources: () -> List<PushSource>,
         destination: String,
         sync: Boolean,
-        dryRun: Boolean,
+        mode: AdbPushMode,
     ) {
-        run(connection, "push → $destination") { port ->
-            AdbTreePush(port, sync, dryRun = dryRun).push(sources(), destination)
+        run(connection, "push → $destination", mode.compression) { port ->
+            AdbTreePush(port, sync, dryRun = mode.dryRun).push(sources(), destination)
         }
     }
 
@@ -64,25 +70,32 @@ public class AdbTransferController(
         productOut: () -> LocalFolder,
         partition: String,
         listOnly: Boolean,
-        dryRun: Boolean,
+        mode: AdbPushMode,
     ) {
-        run(connection, "sync $partition") { port ->
-            AdbTreePush(port, sync = true, listOnly = listOnly, dryRun = dryRun).syncBuild(productOut(), partition)
+        run(connection, "sync $partition", mode.compression) { port ->
+            AdbTreePush(port, sync = true, listOnly = listOnly, dryRun = mode.dryRun).syncBuild(productOut(), partition)
         }
     }
 
-    internal fun pull(connection: AdbConnection, sources: List<String>, target: () -> PullTarget) {
-        run(connection, "pull ${sources.joinToString(" ")}") { port -> AdbTreePull(port).pull(sources, target()) }
+    internal fun pull(connection: AdbConnection, sources: List<String>, compression: String, target: () -> PullTarget) {
+        run(connection, "pull ${sources.joinToString(" ")}", compression) { port ->
+            AdbTreePull(port).pull(sources, target())
+        }
     }
 
-    private fun run(connection: AdbConnection, what: String, work: (AdbTransferPort) -> AdbTransferReport) {
+    private fun run(
+        connection: AdbConnection,
+        what: String,
+        compression: String,
+        work: (AdbTransferPort) -> AdbTransferReport,
+    ) {
         if (active) return
         mutableState.value = AdbTransferState.Running(what)
         executor.execute {
             val session = connection.syncSession(diagnostics)
             mutableState.value = when (val opened = session.open()) {
                 is AdbSyncOutcome.Failed -> AdbTransferState.Failed(what, "${opened.reason.name}: ${opened.detail}")
-                is AdbSyncOutcome.Done -> runCatching { work(SessionPort(session, connection)) }.fold(
+                is AdbSyncOutcome.Done -> runCatching { work(SessionPort(session, connection, compression)) }.fold(
                     onSuccess = { AdbTransferState.Finished(what, it) },
                     onFailure = { AdbTransferState.Failed(what, it.message ?: it.javaClass.simpleName) },
                 )
@@ -91,9 +104,23 @@ public class AdbTransferController(
         }
     }
 
-    /** Порт поверх открытой сессии и того же соединения. */
-    private class SessionPort(private val session: AdbSyncSession, private val connection: AdbConnection) :
-        AdbTransferPort {
+    /**
+     * Порт поверх открытой сессии и того же соединения.
+     *
+     * Версию и сжатие выбирает как `SyncConnection` Android 14: при
+     * `sendrecv_v2` `pull` идёт через `RCV2`, а `push` файла от 64 КиБ — через
+     * `SND2`, оба со сжатием [compressionName] (`ResolveCompressionType`).
+     * Файл меньше 64 КиБ уходит `SEND` без сжатия (`SendSmallFile`), кроме
+     * пробы `-n`: она — `SND2` без сжатия.
+     */
+    private class SessionPort(
+        private val session: AdbSyncSession,
+        private val connection: AdbConnection,
+        compressionName: String,
+    ) : AdbTransferPort {
+        private val v2 = SEND_RECV_V2 in connection.peerFeatures
+        private val compression = SyncCompression.named(compressionName, connection.peerFeatures)
+
         override fun stat(path: String): AdbSyncOutcome<AdbSyncStat> = session.stat(path)
 
         override fun list(path: String): AdbSyncOutcome<List<AdbSyncEntry>> = session.list(path)
@@ -104,11 +131,22 @@ public class AdbTransferController(
                 // устройства проба не отправляется вовсе.
                 Moved.Failed("dry-run not supported by the device")
             } else {
-                source.open().use { input -> sent(path, modifiedAtSeconds, dryRun, input) }
+                val small = (source.identity.sizeBytes ?: Long.MAX_VALUE) < AdbSyncProtocol.DATA_CHUNK_BYTES
+                val large = v2 && !small
+                source.open().use { input ->
+                    sent(path, modifiedAtSeconds, dryRun, input, large)
+                }
             }
 
-        private fun sent(path: String, modifiedAtSeconds: Int, dryRun: Boolean, input: java.io.InputStream): Moved {
-            val sent = session.send(path, modifiedAtSeconds, dryRun = dryRun) { buffer ->
+        private fun sent(
+            path: String,
+            modifiedAtSeconds: Int,
+            dryRun: Boolean,
+            input: java.io.InputStream,
+            large: Boolean,
+        ): Moved {
+            val sendMode = AdbSyncSendMode(dryRun = dryRun, v2 = large, compression = compression.takeIf { large })
+            val sent = session.send(path, modifiedAtSeconds, sendMode = sendMode) { buffer ->
                 input.read(buffer).coerceAtLeast(0)
             }
             return when (sent) {
@@ -120,7 +158,10 @@ public class AdbTransferController(
 
         override fun receive(path: String, sink: ArtifactSink): Moved {
             val writer = ArtifactWriter(sink)
-            return when (val received = session.receive(path) { chunk -> writer.accept(chunk) }) {
+            val received = session.receive(path, v2 = v2, compression = compression.takeIf { v2 }) { chunk ->
+                writer.accept(chunk)
+            }
+            return when (received) {
                 is AdbSyncOutcome.Failed -> {
                     writer.interrupted(received.detail)
                     (sink as? SafArtifactSink)?.removed()
@@ -146,6 +187,9 @@ public class AdbTransferController(
 
         /** `kFeatureSendRecv2DryRunSend`: устройство понимает `SEND_V2` с `kSyncFlagDryRun`. */
         const val DRY_RUN_SEND = "sendrecv_v2_dry_run_send"
+
+        /** `kFeatureSendRecv2`: устройство понимает `SND2` и `RCV2`. */
+        const val SEND_RECV_V2 = "sendrecv_v2"
         private const val MKDIR = "mkdir"
         private const val MAX_COMMAND = 32_768
 

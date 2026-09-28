@@ -75,11 +75,16 @@ sealed interface TerminalPlanStep {
      * [localName] `null` — назначение и есть выбранная папка (`.` или путь с
      * `/` на конце); иначе папка — его родитель, а имя — последнее слово пути.
      */
-    /** `adb pull`; [preserveAttributes] — `-a`: время изменения и режим файла, как на устройстве. */
+    /**
+     * `adb pull`; [preserveAttributes] — `-a`: время изменения и режим файла,
+     * как на устройстве; [compression] — `-z`/`-Z`, по умолчанию `none`, как у
+     * настольного клиента Android 14.
+     */
     data class AdbPull(
         val remotePaths: List<String>,
         val localName: String?,
         val preserveAttributes: Boolean = false,
+        val compression: String = "none",
     ) : TerminalPlanStep
 
     /**
@@ -87,19 +92,27 @@ sealed interface TerminalPlanStep {
      *
      * [localNames] — как источники назвал оператор: по ним строятся имена на
      * устройстве. [sync] — `--sync`, [dryRun] — `-n`: проба, устройство ничего не пишет.
+     * [compression] — `-z`/`-Z`, по умолчанию `any`.
      */
     data class AdbPush(
         val localNames: List<String>,
         val remotePath: String,
         val sync: Boolean = false,
         val dryRun: Boolean = false,
+        val compression: String = "any",
     ) : TerminalPlanStep
 
     /**
      * `adb sync [-l] [РАЗДЕЛ]`: выбранная папка вместо `$ANDROID_PRODUCT_OUT`;
-     * [partition] `all` — все разделы, для которых там есть папка; [dryRun] — `-n`.
+     * [partition] `all` — все разделы, для которых там есть папка; [dryRun] — `-n`;
+     * [compression] — `-z`/`-Z`, по умолчанию `any`.
      */
-    data class AdbSync(val partition: String, val listOnly: Boolean, val dryRun: Boolean = false) : TerminalPlanStep
+    data class AdbSync(
+        val partition: String,
+        val listOnly: Boolean,
+        val dryRun: Boolean = false,
+        val compression: String = "any",
+    ) : TerminalPlanStep
 
     /** Sideload выбранного архива. */
     data class AdbSideload(val archiveName: String) : TerminalPlanStep

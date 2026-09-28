@@ -26,11 +26,11 @@ internal class AdbSyncUpload(private val exchange: AdbSyncExchange) {
         modifiedAtSeconds: Int,
         mode: Int,
         timeoutMillis: Int,
-        dryRun: Boolean,
+        sendMode: AdbSyncSendMode,
         source: (ByteArray) -> Int,
     ): AdbSyncSendOutcome {
-        val outcome = attempt(path, modifiedAtSeconds, mode, timeoutMillis, dryRun, source)
-        return if (dryRun) rehearsed(outcome) else outcome
+        val outcome = attempt(path, modifiedAtSeconds, mode, timeoutMillis, sendMode, source)
+        return if (sendMode.dryRun) rehearsed(outcome) else outcome
     }
 
     /**
@@ -49,7 +49,7 @@ internal class AdbSyncUpload(private val exchange: AdbSyncExchange) {
         modifiedAtSeconds: Int,
         mode: Int,
         timeoutMillis: Int,
-        dryRun: Boolean,
+        sendMode: AdbSyncSendMode,
         source: (ByteArray) -> Int,
     ): AdbSyncSendOutcome {
         if (!exchange.active) {
@@ -74,9 +74,16 @@ internal class AdbSyncUpload(private val exchange: AdbSyncExchange) {
         val deadline = exchange.deadlineFrom(timeoutMillis)
         exchange.emit(
             "sync_send_started",
-            mapOf("path" to path, "mode" to mode.toString(), "dryRun" to dryRun.toString()),
+            mapOf(
+                "path" to path,
+                "mode" to mode.toString(),
+                "dryRun" to sendMode.dryRun.toString(),
+                "v2" to sendMode.secondVersion.toString(),
+                "compression" to (sendMode.compression?.name ?: "none"),
+            ),
         )
-        return openDestination(path, mode, dryRun) ?: transferBody(path, modifiedAtSeconds, deadline, source)
+        return openDestination(path, mode, sendMode)
+            ?: transferBody(path, modifiedAtSeconds, deadline, sendMode.compression?.encoder(), source)
     }
 
     /**
@@ -86,9 +93,9 @@ internal class AdbSyncUpload(private val exchange: AdbSyncExchange) {
      * `UNTOUCHED`/`UNKNOWN` опирается на число фактически отданных в USB байт:
      * пока их ноль, устройство запроса не видело.
      */
-    private fun openDestination(path: String, mode: Int, dryRun: Boolean): AdbSyncSendOutcome.Failed? {
-        val frame = if (dryRun) {
-            AdbSyncProtocol.sendV2(path, mode, AdbSyncProtocol.FLAG_DRY_RUN)
+    private fun openDestination(path: String, mode: Int, sendMode: AdbSyncSendMode): AdbSyncSendOutcome.Failed? {
+        val frame = if (sendMode.secondVersion) {
+            AdbSyncProtocol.sendV2(path, mode, sendMode.flags)
         } else {
             AdbSyncProtocol.message(AdbSyncProtocol.ID_SEND, AdbSyncProtocol.sendSpec(path, mode))
         }
@@ -116,34 +123,48 @@ internal class AdbSyncUpload(private val exchange: AdbSyncExchange) {
      *
      * Вызывается только после того, как `SEND` ушёл, поэтому любой отказ здесь
      * оставляет назначение в [AdbSyncDestination.UNKNOWN].
+     *
+     * Со сжатием блок файла сначала проходит [encoder], а в `DATA` уходит его
+     * вывод кусками не больше 64 КиБ, как у `SendLargeFile`. `sent` тогда —
+     * байты файла, отданные кодировщику без сбоя записи: сколько из них уже
+     * дошло до устройства, по сжатому потоку не сказать.
      */
     private fun transferBody(
         path: String,
         modifiedAtSeconds: Int,
         deadline: Long,
+        encoder: SyncEncoder?,
         source: (ByteArray) -> Int,
     ): AdbSyncSendOutcome {
         val buffer = ByteArray(AdbSyncProtocol.DATA_CHUNK_BYTES)
         val digest = MessageDigest.getInstance("SHA-256")
         var sent = 0L
         var failure: AdbSyncSendOutcome.Failed? = null
+        val frames = OutputChunks(AdbSyncProtocol.DATA_CHUNK_BYTES) { chunk ->
+            if (failure == null) {
+                failure = writeAfterBoundary(AdbSyncProtocol.dataFrame(chunk, chunk.size), "send $path data", sent)
+            }
+        }
         var finished = false
         while (failure == null && !finished) {
             val read = source(buffer)
             if (read <= 0) {
                 finished = true
+                encoder?.end { frames.write(it, 0, it.size) }
+                frames.flush()
             } else {
                 digest.update(buffer, 0, read)
-                val outcome = writeAfterBoundary(
-                    AdbSyncProtocol.dataFrame(buffer, read),
-                    "send $path data",
-                    sent,
-                )
+                if (encoder != null) {
+                    encoder.feed(buffer, read) { frames.write(it, 0, it.size) }
+                } else {
+                    frames.write(buffer, 0, read)
+                    frames.flush()
+                }
                 // Блок засчитывается, только если его кадр ушёл целиком.
                 // Прибавлять его до проверки значило бы сообщать об отправке
                 // того, что не отправлено: прогон 2026-09-08 (`07` §6.36) на
                 // обрыве кабеля отчитался ровно на один блок больше, чем ушло.
-                if (outcome == null) sent += read else failure = outcome
+                if (failure == null) sent += read
             }
         }
         return failure ?: finishTransfer(path, modifiedAtSeconds, deadline, sent, digest)

@@ -318,21 +318,21 @@ public class AdbLinkController(
     public inner class StorageActions internal constructor() {
 
         /** `adb push`: файлы и папки, выбранные через Android, по правилам настольного клиента. */
-        internal fun push(sources: () -> List<PushSource>, destination: String, sync: Boolean, dryRun: Boolean) {
+        internal fun push(sources: () -> List<PushSource>, destination: String, sync: Boolean, mode: AdbPushMode) {
             val live = connection ?: return
-            transfers.push(live, sources, destination, sync, dryRun)
+            transfers.push(live, sources, destination, sync, mode)
         }
 
         /** `adb sync`: выбранная папка — каталог сборки. */
-        internal fun syncBuild(productOut: () -> LocalFolder, partition: String, listOnly: Boolean, dryRun: Boolean) {
+        internal fun syncBuild(productOut: () -> LocalFolder, partition: String, listOnly: Boolean, mode: AdbPushMode) {
             val live = connection ?: return
-            transfers.syncBuild(live, productOut, partition, listOnly, dryRun)
+            transfers.syncBuild(live, productOut, partition, listOnly, mode)
         }
 
-        /** `adb pull`: пути устройства в папку, выбранную через Android. */
-        internal fun pull(sources: List<String>, target: () -> PullTarget) {
+        /** `adb pull`: пути устройства в папку, выбранную через Android; [compression] — имя из `-z`. */
+        internal fun pull(sources: List<String>, compression: String, target: () -> PullTarget) {
             val live = connection ?: return
-            transfers.pull(live, sources, target)
+            transfers.pull(live, sources, compression, target)
         }
 
         /** Спрашивает сведения о пути на устройстве. */

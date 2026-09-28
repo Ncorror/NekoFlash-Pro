@@ -37,7 +37,7 @@ class AdbSyncSendTest {
     fun dryRunGoesAsSendV2WithTheDryRunFlag() {
         val device = Device(okay(), verdict(AdbSyncProtocol.ID_OKAY))
 
-        val outcome = device.opened().send("/sdcard/a.bin", 7, mode = 0x1A4, dryRun = true, source = once(byteArrayOf(5)))
+        val outcome = device.opened().send("/sdcard/a.bin", 7, mode = 0x1A4, sendMode = AdbSyncSendMode(dryRun = true), source = once(byteArrayOf(5)))
 
         assertTrue(outcome is AdbSyncSendOutcome.Rehearsed)
         assertEquals(AdbSyncDestination.UNTOUCHED, outcome.destination)
@@ -52,6 +52,49 @@ class AdbSyncSendTest {
         assertEquals(listOf(5.toByte()), device.syncFrames().single { it.id == AdbSyncProtocol.ID_DATA }.payload.toList())
     }
 
+    /**
+     * `push -z`: `SND2` с флагом кодека; содержимое — один сжатый поток в
+     * блоках `DATA` не больше 64 КиБ, а счёт — байты самого файла.
+     */
+    @Test
+    fun compressedSendGoesAsSendV2AndPacksTheContent() {
+        val device = Device(okay(), verdict(AdbSyncProtocol.ID_OKAY))
+        val random = kotlin.random.Random(5)
+        val content = ByteArray(200_000) { if (it % 3 == 0) random.nextInt().toByte() else (it % 11).toByte() }
+
+        val outcome = device.opened().send("/sdcard/a.bin", 7, sendMode = AdbSyncSendMode(compression = SyncCompression.ZSTD), source = chunks(content))
+
+        assertTrue(outcome is AdbSyncSendOutcome.Committed)
+        assertEquals(content.size.toLong(), outcome.bytesSent)
+        val frames = device.syncFrames()
+        val request = frames.first()
+        assertEquals(AdbSyncProtocol.ID_SEND_V2, request.id)
+        val setup = java.nio.ByteBuffer.wrap(request.payload, request.value + 4, 8).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+        assertEquals(AdbSyncProtocol.DEFAULT_FILE_MODE, setup.getInt())
+        assertEquals(SyncCompression.ZSTD.flag, setup.getInt())
+        val data = frames.filter { it.id == AdbSyncProtocol.ID_DATA }
+        assertTrue(data.all { it.payload.size <= AdbSyncProtocol.DATA_CHUNK_BYTES })
+        val unpacked = java.io.ByteArrayOutputStream()
+        val decoder = SyncCompression.ZSTD.decoder()
+        data.forEach { frame -> decoder.feed(frame.payload) { unpacked.write(it) } }
+        decoder.end { unpacked.write(it) }
+        assertEquals(content.toList(), unpacked.toByteArray().toList())
+    }
+
+    /** `SND2` без сжатия и пробы — как `SendLargeFile` при `sendrecv_v2`: флаги нулевые, данные как есть. */
+    @Test
+    fun plainSendV2CarriesNoFlags() {
+        val device = Device(okay(), verdict(AdbSyncProtocol.ID_OKAY))
+
+        device.opened().send("/sdcard/a.bin", 7, sendMode = AdbSyncSendMode(v2 = true), source = once(byteArrayOf(9, 8)))
+
+        val request = device.syncFrames().first()
+        assertEquals(AdbSyncProtocol.ID_SEND_V2, request.id)
+        val setup = java.nio.ByteBuffer.wrap(request.payload, request.value + 8, 4).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+        assertEquals(0, setup.getInt())
+        assertEquals(listOf<Byte>(9, 8), device.syncFrames().single { it.id == AdbSyncProtocol.ID_DATA }.payload.toList())
+    }
+
     /** Проба не трогает файл: `adbd` его не удаляет и не открывает, даже если потом откажет. */
     @Test
     fun aRefusedDryRunLeavesTheDestinationUntouched() {
@@ -61,7 +104,7 @@ class AdbSyncSendTest {
         )
 
         val outcome = device.opened()
-            .send("/sdcard/a.bin", 1, dryRun = true, source = once(byteArrayOf(1))) as AdbSyncSendOutcome.Failed
+            .send("/sdcard/a.bin", 1, sendMode = AdbSyncSendMode(dryRun = true), source = once(byteArrayOf(1))) as AdbSyncSendOutcome.Failed
 
         assertEquals(AdbSyncDestination.UNTOUCHED, outcome.destination)
     }
@@ -386,6 +429,17 @@ class AdbSyncSendTest {
     private companion object {
         const val REMOTE_ID = 42
         const val LOCAL_ID = 1
+
+        /** Источник, отдающий содержимое кусками по размеру буфера. */
+        fun chunks(content: ByteArray): (ByteArray) -> Int {
+            var at = 0
+            return { buffer ->
+                val take = minOf(buffer.size, content.size - at)
+                content.copyInto(buffer, 0, at, at + take)
+                at += take
+                take
+            }
+        }
 
         /** Источник, отдающий содержимое одним куском и затем конец. */
         fun once(content: ByteArray): (ByteArray) -> Int {

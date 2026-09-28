@@ -29,8 +29,14 @@ internal object AdbPlans {
                 (listOf("logcat") + command.arguments.map(::shellWord)).joinToString(" "),
             ),
         )
-        is AdbCommand.Sync -> transferBlocker("sync", command.options)?.let(::notImplemented)
-            ?: single(TerminalPlanStep.AdbSync(command.partition ?: "all", command.listOnly, command.options.dryRun))
+        is AdbCommand.Sync -> single(
+            TerminalPlanStep.AdbSync(
+                command.partition ?: "all",
+                command.listOnly,
+                command.options.dryRun,
+                command.options.compression ?: ANY,
+            ),
+        )
         is AdbCommand.Install -> install(listOf(command.packagePath), command.options, several = false)
         is AdbCommand.InstallMultiple -> install(command.packages, command.options, several = true)
         AdbCommand.LocalStatus -> report(LocalReportKind.STATUS)
@@ -90,35 +96,36 @@ internal object AdbPlans {
             single(TerminalPlanStep.AdbService(name))
         }
 
-    /**
-     * `-q` и `-Z` исполняются как есть: вывода прогресса нет, сжатия тоже.
-     * `-n` — проба `SEND_V2` (D062), `-a` у `pull` — время и режим файла
-     * (D071). `-z` — сжатие `sync` второй версии, кодеков которого здесь нет.
-     */
-    private fun transferBlocker(op: String, options: FileTransferOptions): String? =
-        "adb $op -z".takeIf { options.compression != null }
-
     /** Куда сохранять — по правилам `do_sync_pull`; путь назначения стал папкой и именем в ней. */
     private fun pull(command: AdbCommand.Pull): TerminalPlanResult {
         val destination = command.destination
         val intoFolder = destination == "." || destination == "./" || destination.endsWith('/')
         val name = if (intoFolder) null else destination.substringAfterLast('/')
-        return transferBlocker("pull", command.options)?.let(::notImplemented)
-            ?: single(TerminalPlanStep.AdbPull(command.sources, name, command.options.preserveAttributes))
+        return single(
+            TerminalPlanStep.AdbPull(
+                command.sources,
+                name,
+                command.options.preserveAttributes,
+                command.options.compression ?: NONE,
+            ),
+        )
     }
 
     /** Имена на устройстве строит исполнитель: каталог ли назначение, знает только устройство. */
     private fun push(command: AdbCommand.Push): TerminalPlanResult =
-        transferBlocker("push", command.options)?.let(::notImplemented)
-            ?: single(
-                TerminalPlanStep.AdbPush(
-                    command.sources,
-                    command.destination,
-                    command.options.syncOnly,
-                    command.options.dryRun,
-                ),
-            )
+        single(
+            TerminalPlanStep.AdbPush(
+                command.sources,
+                command.destination,
+                command.options.syncOnly,
+                command.options.dryRun,
+                command.options.compression ?: ANY,
+            ),
+        )
 
+    /** Умолчания Android 14: `push` и `sync` сжимают (`any`), `pull` — нет. */
+    private const val ANY = "any"
+    private const val NONE = "none"
     private const val REBOOT = "reboot:"
     private const val NO_TTY = "-T"
     private const val STREAMING = "--streaming"

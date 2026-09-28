@@ -64,8 +64,8 @@ data class FileTransferOptions(
     val preserveAttributes: Boolean = false,
     val dryRun: Boolean = false,
     val quiet: Boolean = false,
+    /** `-z ИМЯ` (`any`, `none`, `brotli`, `lz4`, `zstd`) или `-Z` (`none`); `null` — умолчание команды. */
     val compression: String? = null,
-    val noCompression: Boolean = false,
 )
 
 sealed interface AdbCommand {

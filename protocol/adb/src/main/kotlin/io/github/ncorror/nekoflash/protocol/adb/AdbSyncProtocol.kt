@@ -29,12 +29,14 @@ public object AdbSyncProtocol {
     public const val ID_DATA: String = "DATA"
 
     /**
-     * Запись второй версии: `SND2` с путём, следом `SND2`, режим и флаги.
-     *
-     * Здесь — только ради `kSyncFlagDryRun` (`adb push -n`, `adb sync -n`), как
-     * `SendSend2` в AOSP `client/file_sync_client.cpp` (Android 14).
+     * Запись второй версии: `SND2` с путём, следом `SND2`, режим и флаги —
+     * сжатие ([SyncCompression.flag]) и `kSyncFlagDryRun`, как `SendSend2` в
+     * AOSP `client/file_sync_client.cpp` (Android 14).
      */
     public const val ID_SEND_V2: String = "SND2"
+
+    /** Чтение второй версии: `RCV2` с путём, следом `RCV2` и флаги сжатия (`SendRecv2`). */
+    public const val ID_RECV_V2: String = "RCV2"
 
     /** `kSyncFlagDryRun`: устройство принимает данные, ничего не записывая. */
     public const val FLAG_DRY_RUN: Int = Int.MIN_VALUE
@@ -133,6 +135,10 @@ public object AdbSyncProtocol {
         message(ID_SEND_V2, path.toByteArray(Charsets.UTF_8)) +
             header(ID_SEND_V2, mode) +
             ByteArray(Int.SIZE_BYTES).also { writeIntLe(it, 0, flags) }
+
+    /** Запрос `RECV_V2`: `SyncRequest` с путём, затем `sync_recv_v2` (`RCV2`, флаги) — одной записью. */
+    public fun recvV2(path: String, flags: Int): ByteArray =
+        message(ID_RECV_V2, path.toByteArray(Charsets.UTF_8)) + header(ID_RECV_V2, flags)
 
     /**
      * Собирает блок `DATA` из первых [length] байт буфера.

@@ -145,7 +145,7 @@ class TerminalPlanCompilerTest {
         assertEquals(listOf(TerminalPlanStep.AdbPull(listOf("/sdcard/DCIM"), "photos")), steps("adb pull /sdcard/DCIM photos"))
         assertEquals(listOf(TerminalPlanStep.AdbPull(listOf("/a", "/b"), null)), steps("adb pull -q /a /b out/"))
         assertEquals(listOf(TerminalPlanStep.AdbPush(listOf("a.txt"), "/sdcard/")), steps("adb push a.txt /sdcard/"))
-        assertEquals(listOf(TerminalPlanStep.AdbPush(listOf("a", "b"), "/sdcard", sync = true)),
+        assertEquals(listOf(TerminalPlanStep.AdbPush(listOf("a", "b"), "/sdcard", sync = true, compression = "none")),
             steps("adb push --sync -Z a b /sdcard"))
         assertEquals(TerminalFileNeed.OPEN_OR_FOLDER, steps("adb push photos /sdcard/").single().fileNeed)
         assertEquals(TerminalFileNeed.OPEN_MANY, steps("adb push a b /sdcard/").single().fileNeed)
@@ -159,9 +159,11 @@ class TerminalPlanCompilerTest {
             listOf(TerminalPlanStep.AdbPull(listOf("/sdcard/a.txt"), null, preserveAttributes = true)),
             steps("adb pull -a /sdcard/a.txt"),
         )
-        for (command in listOf("adb pull -z brotli /sdcard/a", "adb push -z lz4 a /sdcard/")) {
-            assertIs<TerminalPlanResult.NotImplemented>(compiler.compile(command), command)
-        }
+        assertEquals(listOf(TerminalPlanStep.AdbPull(listOf("/sdcard/a"), null, compression = "brotli")),
+            steps("adb pull -z brotli /sdcard/a"))
+        assertEquals(listOf(TerminalPlanStep.AdbPush(listOf("a"), "/sdcard/", compression = "lz4")),
+            steps("adb push -Z -z lz4 a /sdcard/"))
+        assertEquals(listOf(TerminalPlanStep.AdbSync("all", false, compression = "none")), steps("adb sync -Z"))
     }
 
     @Test

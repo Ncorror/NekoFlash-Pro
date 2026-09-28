@@ -90,9 +90,13 @@ internal class AdbSyncExchange(
      * между операциями сессии, и сказать оператору «сессия не открыта» вместо
      * «устройство закрыло поток» значило бы утаить причину, которая известна.
      */
-    fun request(id: String, path: String): AdbSyncOutcome.Failed? {
-        val packet = dispatcher.write(localId, AdbSyncProtocol.request(id, path))
-            ?: return drain(0) ?: failure(AdbSyncFailure.NOT_OPEN, "$id $path")
+    fun request(id: String, path: String): AdbSyncOutcome.Failed? =
+        request(AdbSyncProtocol.request(id, path), "$id $path")
+
+    /** Запрос готовой записью — `RCV2` идёт двумя сообщениями сразу. */
+    fun request(frame: ByteArray, stage: String): AdbSyncOutcome.Failed? {
+        val packet = dispatcher.write(localId, frame)
+            ?: return drain(0) ?: failure(AdbSyncFailure.NOT_OPEN, stage)
         return sendPacket(packet)
     }
 

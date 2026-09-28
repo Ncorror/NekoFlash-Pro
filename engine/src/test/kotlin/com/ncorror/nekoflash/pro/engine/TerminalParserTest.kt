@@ -113,6 +113,8 @@ class TerminalParserTest {
             preserveAttributes = true,
         )), adb("adb pull -a /sdcard/example").command)
         assertIs<TerminalParseResult.Invalid>(parser.parse("adb push -z -q local /sdcard/"))
+        // `parse_compression_type`: только any, none, brotli, lz4, zstd.
+        assertIs<TerminalParseResult.Invalid>(parser.parse("adb push -z gzip local /sdcard/"))
     }
 
     @Test

@@ -5,6 +5,7 @@ import com.ncorror.nekoflash.pro.engine.ShellMode
 import com.ncorror.nekoflash.pro.engine.TerminalParser
 import com.ncorror.nekoflash.pro.engine.TerminalPlanStep
 import io.github.ncorror.nekoflash.adb.AdbLinkController
+import io.github.ncorror.nekoflash.adb.AdbPushMode
 import io.github.ncorror.nekoflash.adb.PullTarget
 import io.github.ncorror.nekoflash.adb.PushSource
 import io.github.ncorror.nekoflash.artifact.LocalFolder
@@ -105,11 +106,17 @@ internal class ControllerCommandTargets(
         remotePaths: List<String>,
         localName: String?,
         keepAttributes: Boolean,
+        compression: String,
         folder: () -> LocalFolder,
-    ) = adb.storage.pull(remotePaths) { PullTarget(folder(), localName, keepAttributes) }
+    ) = adb.storage.pull(remotePaths, compression) { PullTarget(folder(), localName, keepAttributes) }
 
-    override fun adbSync(partition: String, listOnly: Boolean, dryRun: Boolean, productOut: () -> LocalFolder) =
-        adb.storage.syncBuild(productOut, partition, listOnly, dryRun)
+    override fun adbSync(
+        partition: String,
+        listOnly: Boolean,
+        dryRun: Boolean,
+        compression: String,
+        productOut: () -> LocalFolder,
+    ) = adb.storage.syncBuild(productOut, partition, listOnly, AdbPushMode(dryRun, compression))
 
     override fun adbPush(
         localNames: List<String>,
@@ -117,7 +124,8 @@ internal class ControllerCommandTargets(
         remotePath: String,
         sync: Boolean,
         dryRun: Boolean,
-    ) = adb.storage.push({ pushSources(localNames, picked) }, remotePath, sync, dryRun)
+        compression: String,
+    ) = adb.storage.push({ pushSources(localNames, picked) }, remotePath, sync, AdbPushMode(dryRun, compression))
     override fun adbSideload(origin: () -> ArtifactSource) = adb.recovery.sideloadFrom(stagingDirectory, origin)
     override fun adbInstall(origins: List<() -> ArtifactSource>, options: List<String>, several: Boolean) =
         adb.packages.install(origins, options, several)

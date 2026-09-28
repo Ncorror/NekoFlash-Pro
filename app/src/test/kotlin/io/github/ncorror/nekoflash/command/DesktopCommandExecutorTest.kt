@@ -87,7 +87,8 @@ class DesktopCommandExecutorTest {
         assertEquals(
             listOf(
                 "shell id", "interactive", "service root:", "reboot bootloader",
-                "pull /sdcard/a.txt into=.", "push a.txt -> /sdcard/", "sideload", "interactive logcat -s Tag",
+                "pull /sdcard/a.txt into=. z=none", "push a.txt -> /sdcard/ z=any", "sideload",
+                "interactive logcat -s Tag",
             ),
             calls,
         )
@@ -123,14 +124,20 @@ class DesktopCommandExecutorTest {
         executor.execute(plan("adb pull /sdcard/DCIM photos"), folder)
         executor.execute(plan("adb pull -a /sdcard/a.txt"), folder)
         executor.execute(plan("adb sync -l system"), folder)
+        executor.execute(plan("adb push -z lz4 photos /sdcard/"), folder)
+        executor.execute(plan("adb pull -z any /sdcard/DCIM photos"), folder)
+        executor.execute(plan("adb sync -Z system"), folder)
 
         assertEquals(
             listOf(
-                "push a,b -> /sdcard/ sync",
-                "push photos -> /sdcard/",
-                "pull /sdcard/DCIM into=photos",
-                "pull /sdcard/a.txt into=. -a",
-                "sync system -l",
+                "push a,b -> /sdcard/ sync z=any",
+                "push photos -> /sdcard/ z=any",
+                "pull /sdcard/DCIM into=photos z=none",
+                "pull /sdcard/a.txt into=. -a z=none",
+                "sync system -l z=any",
+                "push photos -> /sdcard/ z=lz4",
+                "pull /sdcard/DCIM into=photos z=any",
+                "sync system z=none",
             ),
             calls,
         )
@@ -219,11 +226,24 @@ class DesktopCommandExecutorTest {
         }
         override fun adbService(service: String) { calls += "service $service" }
         override fun adbReboot(target: String) { calls += "reboot $target" }
-        override fun adbPull(remotePaths: List<String>, localName: String?, keepAttributes: Boolean, folder: () -> LocalFolder) {
-            calls += "pull ${remotePaths.joinToString(" ")} into=${localName ?: "."}" + if (keepAttributes) " -a" else ""
+        override fun adbPull(
+            remotePaths: List<String>,
+            localName: String?,
+            keepAttributes: Boolean,
+            compression: String,
+            folder: () -> LocalFolder,
+        ) {
+            calls += "pull ${remotePaths.joinToString(" ")} into=${localName ?: "."}" + (if (keepAttributes) " -a" else "") +
+                " z=$compression"
         }
-        override fun adbSync(partition: String, listOnly: Boolean, dryRun: Boolean, productOut: () -> LocalFolder) {
-            calls += "sync $partition" + (if (listOnly) " -l" else "") + if (dryRun) " -n" else ""
+        override fun adbSync(
+            partition: String,
+            listOnly: Boolean,
+            dryRun: Boolean,
+            compression: String,
+            productOut: () -> LocalFolder,
+        ) {
+            calls += "sync $partition" + (if (listOnly) " -l" else "") + (if (dryRun) " -n" else "") + " z=$compression"
         }
         override fun adbPush(
             localNames: List<String>,
@@ -231,9 +251,10 @@ class DesktopCommandExecutorTest {
             remotePath: String,
             sync: Boolean,
             dryRun: Boolean,
+            compression: String,
         ) {
             calls += "push ${localNames.joinToString(",")} -> $remotePath" + (if (sync) " sync" else "") +
-                if (dryRun) " -n" else ""
+                (if (dryRun) " -n" else "") + " z=$compression"
         }
         override fun adbSideload(origin: () -> ArtifactSource) { calls += "sideload" }
         override fun adbInstall(origins: List<() -> ArtifactSource>, options: List<String>, several: Boolean) {

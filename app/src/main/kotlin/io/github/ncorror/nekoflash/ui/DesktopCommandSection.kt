@@ -309,16 +309,17 @@ private fun baseStepText(step: TerminalPlanStep): String = when (step) {
         step.localName
             ?.let { stringResource(R.string.command_step_adb_pull_named, step.remotePaths.joinToString(" "), it) }
             ?: stringResource(R.string.command_step_adb_pull, step.remotePaths.joinToString(" "))
-        ) + if (step.preserveAttributes) stringResource(R.string.command_step_adb_keep_attributes) else ""
+        ) + (if (step.preserveAttributes) stringResource(R.string.command_step_adb_keep_attributes) else "") +
+        compressionNote(step.compression, PULL_COMPRESSION)
     is TerminalPlanStep.AdbSync -> stringResource(
         if (step.listOnly) R.string.command_step_adb_sync_list else R.string.command_step_adb_sync,
         step.partition,
-    ) + dryRunNote(step.dryRun)
+    ) + dryRunNote(step.dryRun) + compressionNote(step.compression, PUSH_COMPRESSION)
     is TerminalPlanStep.AdbPush -> stringResource(
         if (step.sync) R.string.command_step_adb_push_sync else R.string.command_step_adb_push,
         step.localNames.joinToString(" "),
         step.remotePath,
-    ) + dryRunNote(step.dryRun)
+    ) + dryRunNote(step.dryRun) + compressionNote(step.compression, PUSH_COMPRESSION)
     is TerminalPlanStep.AdbSideload -> stringResource(R.string.command_step_adb_sideload, step.archiveName)
     is TerminalPlanStep.FastbootFlashVendorRamdisk,
     is TerminalPlanStep.FastbootWipeSuper,
@@ -451,6 +452,14 @@ private const val CONFIRM_WORD = "yes"
 @Composable
 private fun dryRunNote(dryRun: Boolean): String =
     if (dryRun) stringResource(R.string.command_step_adb_dry_run) else ""
+
+/** `-z`/`-Z`, если они меняют умолчание команды: `push` и `sync` сжимают, `pull` — нет. */
+@Composable
+private fun compressionNote(compression: String, default: String): String =
+    if (compression != default) stringResource(R.string.command_step_adb_compression, compression) else ""
+
+private const val PUSH_COMPRESSION = "any"
+private const val PULL_COMPRESSION = "none"
 
 /** Опции `flashall`/`update` словами команды: они не переводятся. */
 private fun formatOptions(slot: String, sparseLimit: Long?, fsOptions: Set<String>): String = listOfNotNull(

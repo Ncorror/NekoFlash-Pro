@@ -1,6 +1,28 @@
 package io.github.ncorror.nekoflash.protocol.adb
 
 /**
+ * Как открыть запись.
+ *
+ * @property dryRun `SEND_V2` с `kSyncFlagDryRun`: устройство читает данные и
+ *   отвечает, ничего не записывая (`adb push -n`). Наличие у устройства
+ *   `sendrecv_v2_dry_run_send` проверяет вызывающий, как настольный клиент.
+ * @property v2 `SEND_V2` и без пробы и сжатия — как `SendLargeFile` у
+ *   устройства с `sendrecv_v2`.
+ * @property compression флаг `SND2`: содержимое уходит одним сжатым потоком в
+ *   блоках `DATA`.
+ */
+public data class AdbSyncSendMode(
+    val dryRun: Boolean = false,
+    val v2: Boolean = false,
+    val compression: SyncCompression? = null,
+) {
+    /** Проба и сжатие бывают только во второй версии. */
+    val secondVersion: Boolean get() = v2 || dryRun || compression != null
+
+    val flags: Int get() = (compression?.flag ?: 0) or (if (dryRun) AdbSyncProtocol.FLAG_DRY_RUN else 0)
+}
+
+/**
  * Что стало с файлом назначения на устройстве.
  *
  * Отдельно от исхода операции намеренно. «Операция не удалась» и «на устройстве

@@ -165,6 +165,59 @@ class AdbSyncSessionTest {
         assertArrayEquals("split me".toByteArray(), collected.single())
     }
 
+    /** `pull -z`: `RCV2` с путём и флагом кодека одной записью; блоки `DATA` — один сжатый поток. */
+    @Test
+    fun compressedReceiveAsksWithRecvV2AndUnpacks() {
+        val content = "hello world ".repeat(500).toByteArray()
+        val packed = pack(SyncCompression.LZ4, content)
+        val device = Device(
+            okay(),
+            data(AdbSyncProtocol.message(AdbSyncProtocol.ID_DATA, packed.copyOfRange(0, 10))),
+            data(AdbSyncProtocol.message(AdbSyncProtocol.ID_DATA, packed.copyOfRange(10, packed.size))),
+            data(AdbSyncProtocol.header(AdbSyncProtocol.ID_DONE, 0)),
+        )
+        val collected = java.io.ByteArrayOutputStream()
+
+        val outcome = device.opened().receive("/sdcard/a.txt", v2 = true, compression = SyncCompression.LZ4) { chunk ->
+            collected.write(chunk)
+        }
+
+        assertEquals(content.size.toLong(), (outcome as AdbSyncOutcome.Done).value)
+        assertArrayEquals(content, collected.toByteArray())
+        val request = device.handle.sentFrames().filter { it.command == AdbCommand.WRTE }.first().payload
+        assertArrayEquals(AdbSyncProtocol.recvV2("/sdcard/a.txt", SyncCompression.LZ4.flag), request)
+    }
+
+    /** Без сжатия у устройства с `sendrecv_v2` — тоже `RCV2`, с нулевыми флагами, как `sync_recv_v2`. */
+    @Test
+    fun plainReceiveV2CarriesNoFlags() {
+        val device = Device(
+            okay(),
+            data(AdbSyncProtocol.message(AdbSyncProtocol.ID_DATA, "abc".toByteArray())),
+            data(AdbSyncProtocol.header(AdbSyncProtocol.ID_DONE, 0)),
+        )
+
+        val outcome = device.opened().receive("/sdcard/a.txt", v2 = true) { }
+
+        assertEquals(3L, (outcome as AdbSyncOutcome.Done).value)
+        val request = device.handle.sentFrames().filter { it.command == AdbCommand.WRTE }.first().payload
+        assertArrayEquals(AdbSyncProtocol.recvV2("/sdcard/a.txt", 0), request)
+    }
+
+    /** Испорченный поток — `decompress failed`, а не успех с мусором. */
+    @Test
+    fun brokenCompressedStreamFails() {
+        val device = Device(
+            okay(),
+            data(AdbSyncProtocol.message(AdbSyncProtocol.ID_DATA, byteArrayOf(1, 2, 3, 4, 5))),
+            data(AdbSyncProtocol.header(AdbSyncProtocol.ID_DONE, 0)),
+        )
+
+        val outcome = device.opened().receive("/sdcard/a.txt", compression = SyncCompression.ZSTD) { }
+
+        assertEquals(AdbSyncFailure.DECOMPRESSION_FAILED, (outcome as AdbSyncOutcome.Failed).reason)
+    }
+
     @Test
     fun receivedEventContainsSha256() {
         val sink = InMemoryDiagnosticSink()
@@ -314,6 +367,14 @@ class AdbSyncSessionTest {
 
         val stat = sink.snapshot().single { it.message == "sync_stat" }
         assertEquals("/sdcard/nf-w3.bin", stat.fields["path"])
+    }
+
+    private fun pack(codec: SyncCompression, content: ByteArray): ByteArray {
+        val out = java.io.ByteArrayOutputStream()
+        val encoder = codec.encoder()
+        encoder.feed(content, content.size) { out.write(it) }
+        encoder.end { out.write(it) }
+        return out.toByteArray()
     }
 
     private inner class Device(vararg responses: List<FakeUsbTransportHandle.Transfer>) {
