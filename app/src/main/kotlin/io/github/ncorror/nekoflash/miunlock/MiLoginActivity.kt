@@ -58,24 +58,51 @@ class MiLoginActivity : ComponentActivity() {
     private lateinit var loginMessage: TextView
     private lateinit var progressBar: ProgressBar
 
-    @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         WebView.setWebContentsDebuggingEnabled(false)
 
+        setupLoginView()
+        onBackPressedDispatcher.addCallback(this) {
+            setResult(
+                Activity.RESULT_CANCELED,
+                Intent().putExtra(
+                    EXTRA_LOGIN_ERROR,
+                    lastFailureMessage ?: getString(R.string.mi_login_cancelled_by_user),
+                ),
+            )
+            finish()
+        }
+
+        if (checkExistingCookies()) {
+            webView.visibility = View.GONE
+            progressBar.visibility = View.GONE
+            continueButton.visibility = View.VISIBLE
+            logoutButton.visibility = View.VISIBLE
+            loginMessage.visibility = View.VISIBLE
+            loginMessage.text = getString(R.string.mi_login_already, userId ?: "")
+        } else {
+            setupWebView()
+        }
+    }
+
+    private fun setupLoginView() {
         val dp = { v: Int -> (v * resources.displayMetrics.density).toInt() }
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(Color.parseColor("#090B0F"))
-            setPadding(dp(12), dp(12), dp(12), dp(12))
+            setPadding(dp(ROOT_PADDING_DP), dp(ROOT_PADDING_DP), dp(ROOT_PADDING_DP), dp(ROOT_PADDING_DP))
         }
         loginMessage = TextView(this).apply {
             setTextColor(Color.parseColor("#F5F5F7"))
-            textSize = 14f
+            textSize = MESSAGE_TEXT_SP
             typeface = android.graphics.Typeface.MONOSPACE
             visibility = View.GONE
-            setPadding(dp(6), dp(6), dp(6), dp(10))
+            setPadding(
+                dp(MESSAGE_PADDING_DP), dp(MESSAGE_PADDING_DP),
+                dp(MESSAGE_PADDING_DP), dp(MESSAGE_BOTTOM_DP),
+            )
         }
         progressBar = ProgressBar(this).apply {
             isIndeterminate = true
@@ -104,25 +131,6 @@ class MiLoginActivity : ComponentActivity() {
         root.addView(logoutButton)
         root.addView(webView)
         setContentView(root)
-
-        onBackPressedDispatcher.addCallback(this) {
-            setResult(
-                Activity.RESULT_CANCELED,
-                Intent().putExtra(EXTRA_LOGIN_ERROR, lastFailureMessage ?: getString(R.string.mi_login_cancelled_by_user))
-            )
-            finish()
-        }
-
-        if (checkExistingCookies()) {
-            webView.visibility = View.GONE
-            progressBar.visibility = View.GONE
-            continueButton.visibility = View.VISIBLE
-            logoutButton.visibility = View.VISIBLE
-            loginMessage.visibility = View.VISIBLE
-            loginMessage.text = getString(R.string.mi_login_already, userId ?: "")
-        } else {
-            setupWebView()
-        }
     }
 
     private fun checkExistingCookies(): Boolean {
@@ -175,19 +183,16 @@ class MiLoginActivity : ComponentActivity() {
         webView.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                 val raw = request.url.toString()
-                if (request.isForMainFrame) {
-                    if (MiAccountSecurityPolicy.isOfficialUnlockCallbackUrl(raw)) {
-                        handleOfficialCompletion(raw)
-                        return true
+                return if (request.isForMainFrame) {
+                    when {
+                        MiAccountSecurityPolicy.isOfficialUnlockCallbackUrl(raw) -> {
+                            handleOfficialCompletion(raw)
+                            true
+                        }
+                        MiAccountSecurityPolicy.isAllowedAccountUrl(raw) -> false
+                        else -> { blockUnsafeNavigation(raw); true }
                     }
-                    return if (MiAccountSecurityPolicy.isAllowedAccountUrl(raw)) {
-                        false
-                    } else {
-                        blockUnsafeNavigation(raw)
-                        true
-                    }
-                }
-                return request.url.scheme?.equals("https", ignoreCase = true) != true
+                } else request.url.scheme?.equals("https", ignoreCase = true) != true
             }
 
             @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
@@ -338,7 +343,7 @@ class MiLoginActivity : ComponentActivity() {
         loginMessage.text = getString(R.string.mi_login_success, userId ?: "")
         loginMessage.visibility = View.VISIBLE
         progressBar.visibility = View.GONE
-        handler.postDelayed({ returnResults() }, 350)
+        handler.postDelayed({ returnResults() }, LOGIN_RETURN_DELAY_MS)
     }
 
     private fun extractCookies() {
@@ -362,7 +367,7 @@ class MiLoginActivity : ComponentActivity() {
                     monitoringEnded = true
                     loginMessage.text = getString(R.string.mi_login_success, userId ?: "")
                     loginMessage.visibility = View.VISIBLE
-                    handler.postDelayed({ returnResults() }, 350)
+                    handler.postDelayed({ returnResults() }, LOGIN_RETURN_DELAY_MS)
                 }
             }
         }
@@ -426,6 +431,11 @@ class MiLoginActivity : ComponentActivity() {
     }
 
     companion object {
+        private const val ROOT_PADDING_DP = 12
+        private const val MESSAGE_PADDING_DP = 6
+        private const val MESSAGE_BOTTOM_DP = 10
+        private const val MESSAGE_TEXT_SP = 14f
+        private const val LOGIN_RETURN_DELAY_MS = 350L
         /** Error message returned with [Activity.RESULT_CANCELED]. */
         const val EXTRA_LOGIN_ERROR = "nekoflash_mi_login_error"
 

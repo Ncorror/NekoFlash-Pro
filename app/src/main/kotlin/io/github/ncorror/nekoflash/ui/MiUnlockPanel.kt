@@ -42,43 +42,13 @@ data class MiUnlockPanel(
 
 @Composable
 fun MiUnlockSection(panel: MiUnlockPanel) {
-    var showZones by remember { mutableStateOf(false) }
     var confirm by remember { mutableStateOf(false) }
-    var typed by remember { mutableStateOf("") }
     val connected = panel.fastboot as? FastbootLinkState.Connected
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(stringResource(R.string.mi_unlock_title), style = MaterialTheme.typography.titleLarge)
             Text(stringResource(R.string.mi_unlock_warning), color = MaterialTheme.colorScheme.error)
-            when (val account = panel.account) {
-                MiAccountState.SignedOut -> Button(onClick = panel.onSignIn) {
-                    Text(stringResource(R.string.mi_unlock_sign_in))
-                }
-                MiAccountState.SigningIn -> Text(stringResource(R.string.mi_unlock_signing_in))
-                MiAccountState.Failed -> {
-                    Text(stringResource(R.string.mi_unlock_auth_failed))
-                    Button(onClick = panel.onSignIn) { Text(stringResource(R.string.mi_unlock_sign_in)) }
-                }
-                is MiAccountState.SignedIn -> {
-                    Text(stringResource(R.string.mi_unlock_account, account.userId, account.region, account.zone))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Column {
-                            OutlinedButton(onClick = { showZones = true }) {
-                                Text(stringResource(R.string.mi_unlock_change_zone))
-                            }
-                            DropdownMenu(expanded = showZones, onDismissRequest = { showZones = false }) {
-                                MiAccountClient.dataCenterZones().forEach { zone ->
-                                    DropdownMenuItem(text = { Text(zone) }, onClick = {
-                                        showZones = false
-                                        panel.onChangeZone(zone)
-                                    })
-                                }
-                            }
-                        }
-                        OutlinedButton(onClick = panel.onSignOut) { Text(stringResource(R.string.mi_unlock_sign_out)) }
-                    }
-                }
-            }
+            MiAccountSection(panel)
             when {
                 connected == null -> Text(stringResource(R.string.mi_unlock_need_fastboot))
                 connected.lock.state == FastbootLockState.UNLOCKED -> Text(stringResource(R.string.mi_unlock_already))
@@ -87,20 +57,63 @@ fun MiUnlockSection(panel: MiUnlockPanel) {
             MiUnlockProgress(panel.operation)
             val running = panel.operation is MiUnlockStatus.Running
             Button(
-                onClick = { typed = ""; confirm = true },
+                onClick = { confirm = true },
                 enabled = panel.account is MiAccountState.SignedIn && connected != null &&
                     connected.lock.state != FastbootLockState.UNLOCKED && !running,
             ) { Text(stringResource(R.string.mi_unlock_action)) }
         }
     }
-    if (confirm && connected != null) {
-        AlertDialog(
-            onDismissRequest = { confirm = false },
+    if (confirm && connected != null) MiUnlockConfirmationDialog(
+        locked = connected.lock.state == FastbootLockState.LOCKED,
+        onDismiss = { confirm = false },
+        onConfirm = { confirm = false; panel.onUnlock() },
+    )
+}
+
+@Composable
+private fun MiAccountSection(panel: MiUnlockPanel) {
+    var showZones by remember { mutableStateOf(false) }
+    when (val account = panel.account) {
+        MiAccountState.SignedOut -> Button(onClick = panel.onSignIn) {
+            Text(stringResource(R.string.mi_unlock_sign_in))
+        }
+        MiAccountState.SigningIn -> Text(stringResource(R.string.mi_unlock_signing_in))
+        MiAccountState.Failed -> {
+            Text(stringResource(R.string.mi_unlock_auth_failed))
+            Button(onClick = panel.onSignIn) { Text(stringResource(R.string.mi_unlock_sign_in)) }
+        }
+        is MiAccountState.SignedIn -> {
+            Text(stringResource(R.string.mi_unlock_account, account.userId, account.region, account.zone))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column {
+                    OutlinedButton(onClick = { showZones = true }) {
+                        Text(stringResource(R.string.mi_unlock_change_zone))
+                    }
+                    DropdownMenu(expanded = showZones, onDismissRequest = { showZones = false }) {
+                        MiAccountClient.dataCenterZones().forEach { zone ->
+                            DropdownMenuItem(text = { Text(zone) }, onClick = {
+                                showZones = false
+                                panel.onChangeZone(zone)
+                            })
+                        }
+                    }
+                }
+                OutlinedButton(onClick = panel.onSignOut) { Text(stringResource(R.string.mi_unlock_sign_out)) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MiUnlockConfirmationDialog(locked: Boolean, onDismiss: () -> Unit, onConfirm: () -> Unit) {
+    var typed by remember { mutableStateOf("") }
+    AlertDialog(
+            onDismissRequest = onDismiss,
             title = { Text(stringResource(R.string.mi_unlock_confirm_title)) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(stringResource(R.string.mi_unlock_warning))
-                    if (connected.lock.state == FastbootLockState.LOCKED) {
+                    if (locked) {
                         Text(stringResource(R.string.mi_unlock_type_word))
                         OutlinedTextField(value = typed, onValueChange = { typed = it }, singleLine = true)
                     }
@@ -108,13 +121,14 @@ fun MiUnlockSection(panel: MiUnlockPanel) {
             },
             confirmButton = {
                 TextButton(
-                    enabled = connected.lock.state != FastbootLockState.LOCKED || typed == "UNLOCK",
-                    onClick = { confirm = false; panel.onUnlock() },
+                    enabled = !locked || typed == "UNLOCK",
+                    onClick = onConfirm,
                 ) { Text(stringResource(R.string.mi_unlock_action)) }
             },
-            dismissButton = { TextButton(onClick = { confirm = false }) { Text(stringResource(R.string.mi_unlock_cancel)) } },
-        )
-    }
+            dismissButton = {
+                TextButton(onClick = onDismiss) { Text(stringResource(R.string.mi_unlock_cancel)) }
+            },
+    )
 }
 
 @Composable

@@ -284,6 +284,9 @@ public class FastbootLinkController(
         }
     }
 
+    // Each early exit is a safety boundary: never proceed from an absent token,
+    // stale USB session or rejected server response to the mutating command.
+    @Suppress("ReturnCount")
     private fun runMiUnlockOnLane(active: FastbootLane, auth: MiAccountClient.AuthResult): FastbootConsoleState {
         val connected = mutableState.value as? FastbootLinkState.Connected
             ?: return unlockFailure(active, MiUnlockStatus.Reason.DEVICE)
