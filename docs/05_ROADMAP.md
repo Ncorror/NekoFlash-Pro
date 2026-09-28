@@ -2,7 +2,7 @@
 
 **Единственный источник статуса проекта.** Другие документы описывают цель и правила; что сделано — только здесь. Статус меняется тем же коммитом, что и код.
 
-Версия APK: `0.50.0-dev`
+Версия APK: `0.51.0-dev`
 
 Текущий этап: **Этап 3 — Команды настольных `adb`/`fastboot` поверх нового ядра**
 
@@ -127,7 +127,8 @@
 | push/pull в выбранное место | `в репо` | кнопки — `AdbSyncController.readTo`/`writeFrom`; `adb push`/`pull` — строкой ниже |
 | `adb push`/`pull` нескольких файлов и каталогов, `--sync`, `-q`, `-Z`; `adb sync [-l]` | `в репо` | `AdbTreePush`/`AdbTreePull` по `do_sync_push`/`do_sync_pull`/`do_sync_sync` (AOSP android11), `LIST` в `AdbSyncList`, папка — через `OpenDocumentTree`, для `sync` она — каталог сборки; D059 |
 | `push -n`, `sync -n`: проба без записи | `в репо` | `SEND_V2` с `kSyncFlagDryRun`, как Android 14 `SendSend2`; без `sendrecv_v2_dry_run_send` у устройства — `dry-run not supported by the device`; D062 |
-| `pull -a`, `-z` | `нет` | `-a` — время и режим, которых SAF не выставляет; `-z` — кодеки brotli/lz4/zstd `sync` второй версии; D059 |
+| `pull -a` | `в репо` | `set_time_and_mode` по дескриптору документа SAF (`fchmod`, время через `/proc/self/fd`), итог сверяется `fstat`; даёт ли провайдер это сделать — проверит телефон (шаг D4a); D071 |
+| `pull -z`, `push -z` | `нет` | кодеки brotli/lz4/zstd `sync` второй версии; D059 |
 | `install`/`install-multiple` | `в репо` | из поля команды (этап 3); отдельной кнопки нет |
 
 ## Этап 7 — Интерфейс целиком

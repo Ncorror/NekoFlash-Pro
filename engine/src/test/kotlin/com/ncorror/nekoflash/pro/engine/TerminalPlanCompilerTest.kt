@@ -155,9 +155,11 @@ class TerminalPlanCompilerTest {
         assertEquals(TerminalFileNeed.FOLDER, steps("adb sync").single().fileNeed)
         assertEquals(listOf(TerminalPlanStep.AdbPush(listOf("a"), "/sdcard/", dryRun = true)), steps("adb push -n a /sdcard/"))
         assertEquals(listOf(TerminalPlanStep.AdbSync("all", false, dryRun = true)), steps("adb sync -n"))
-        for (command in listOf(
-            "adb pull -a /sdcard/a.txt", "adb pull -z brotli /sdcard/a", "adb push -z lz4 a /sdcard/",
-        )) {
+        assertEquals(
+            listOf(TerminalPlanStep.AdbPull(listOf("/sdcard/a.txt"), null, preserveAttributes = true)),
+            steps("adb pull -a /sdcard/a.txt"),
+        )
+        for (command in listOf("adb pull -z brotli /sdcard/a", "adb push -z lz4 a /sdcard/")) {
             assertIs<TerminalPlanResult.NotImplemented>(compiler.compile(command), command)
         }
     }

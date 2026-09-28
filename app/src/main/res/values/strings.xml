@@ -384,6 +384,7 @@
     <string name="transfer_done_with_errors">Finished with errors: %1$d files, %2$d bytes, skipped %3$d.</string>
     <string name="command_step_adb_sync">adb: sync %1$s from the folder you pick as the build output: files newer or of another size go to the device</string>
     <string name="command_step_adb_sync_list">adb: list what sync %1$s would push from the folder you pick, without pushing</string>
+    <string name="command_step_adb_keep_attributes">. With -a: each file gets the modification time and mode it has on the device; if the folder provider does not allow it, that file counts as failed</string>
     <string name="command_step_adb_dry_run">. Dry run (-n): the device reads every file and writes nothing</string>
     <string name="command_step_fastboot_flashall">fastboot: flashall from the folder you pick as the build output: android-info.txt requirements, set_active, boot images, then system images, reboot at the end. Options: %1$s</string>
     <string name="command_step_fastboot_update">fastboot: update from %1$s (the archive you pick): android-info.txt requirements, set_active, boot images, then system images, reboot at the end. Options: %2$s</string>

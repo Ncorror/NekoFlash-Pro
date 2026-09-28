@@ -92,15 +92,11 @@ internal object AdbPlans {
 
     /**
      * `-q` и `-Z` исполняются как есть: вывода прогресса нет, сжатия тоже.
-     * `-n` — проба `SEND_V2` (D062). `-a` — время и режим файла, которых
-     * папка Android выставить не даёт; `-z` — сжатие `sync` второй версии,
-     * кодеков которого здесь нет.
+     * `-n` — проба `SEND_V2` (D062), `-a` у `pull` — время и режим файла
+     * (D071). `-z` — сжатие `sync` второй версии, кодеков которого здесь нет.
      */
-    private fun transferBlocker(op: String, options: FileTransferOptions): String? = when {
-        options.preserveAttributes -> "adb $op -a"
-        options.compression != null -> "adb $op -z"
-        else -> null
-    }
+    private fun transferBlocker(op: String, options: FileTransferOptions): String? =
+        "adb $op -z".takeIf { options.compression != null }
 
     /** Куда сохранять — по правилам `do_sync_pull`; путь назначения стал папкой и именем в ней. */
     private fun pull(command: AdbCommand.Pull): TerminalPlanResult {
@@ -108,7 +104,7 @@ internal object AdbPlans {
         val intoFolder = destination == "." || destination == "./" || destination.endsWith('/')
         val name = if (intoFolder) null else destination.substringAfterLast('/')
         return transferBlocker("pull", command.options)?.let(::notImplemented)
-            ?: single(TerminalPlanStep.AdbPull(command.sources, name))
+            ?: single(TerminalPlanStep.AdbPull(command.sources, name, command.options.preserveAttributes))
     }
 
     /** Имена на устройстве строит исполнитель: каталог ли назначение, знает только устройство. */

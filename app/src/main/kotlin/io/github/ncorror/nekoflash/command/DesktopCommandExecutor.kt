@@ -46,7 +46,8 @@ interface DesktopCommandTargets {
     fun adbInteractiveShell(firstLine: String?, mode: ShellMode)
     fun adbService(service: String)
     fun adbReboot(target: String)
-    fun adbPull(remotePaths: List<String>, localName: String?, folder: () -> LocalFolder)
+    /** `adb pull`; [keepAttributes] — `-a`. */
+    fun adbPull(remotePaths: List<String>, localName: String?, keepAttributes: Boolean, folder: () -> LocalFolder)
     fun adbPush(localNames: List<String>, picked: PickedFile, remotePath: String, sync: Boolean, dryRun: Boolean)
     fun adbSync(partition: String, listOnly: Boolean, dryRun: Boolean, productOut: () -> LocalFolder)
     fun adbSideload(origin: () -> ArtifactSource)
@@ -166,7 +167,8 @@ class DesktopCommandExecutor(private val targets: DesktopCommandTargets) {
         is TerminalPlanStep.AdbService -> DesktopCommandArea.ADB_SERVICE.also { targets.adbService(step.service) }
         is TerminalPlanStep.AdbReboot -> DesktopCommandArea.ADB_REBOOT.also { targets.adbReboot(step.target) }
         is TerminalPlanStep.AdbPull -> DesktopCommandArea.ADB_TRANSFER.also {
-            targets.adbPull(step.remotePaths, step.localName, (file as PickedFile.Folder).folder)
+            val folder = (file as PickedFile.Folder).folder
+            targets.adbPull(step.remotePaths, step.localName, step.preserveAttributes, folder)
         }
         is TerminalPlanStep.AdbSync -> DesktopCommandArea.ADB_TRANSFER.also {
             targets.adbSync(step.partition, step.listOnly, step.dryRun, (file as PickedFile.Folder).folder)

@@ -4,6 +4,7 @@ import io.github.ncorror.nekoflash.artifact.LocalEntry
 import io.github.ncorror.nekoflash.artifact.LocalFolder
 import io.github.ncorror.nekoflash.protocol.adb.AdbSyncOutcome
 import io.github.ncorror.nekoflash.protocol.adb.AdbSyncProtocol
+import io.github.ncorror.nekoflash.protocol.adb.AdbSyncStat
 
 /**
  * Куда сохранять: папка, выбранная через Android, и имя в ней.
@@ -12,7 +13,7 @@ import io.github.ncorror.nekoflash.protocol.adb.AdbSyncProtocol
  * или назначение с `/` на конце. Иначе папка — родитель, а [name] — то, что
  * настольный клиент создал бы по пути назначения.
  */
-internal data class PullTarget(val folder: LocalFolder, val name: String?)
+internal data class PullTarget(val folder: LocalFolder, val name: String?, val keepAttributes: Boolean = false)
 
 /**
  * `adb pull` — как `do_sync_pull`, `copy_remote_dir_local` и
@@ -22,12 +23,17 @@ internal data class PullTarget(val folder: LocalFolder, val name: String?)
  * Каталог устройства уходит рекурсивно: сначала весь список (`LIST` по
  * каждому уровню, ссылки уточняются `STAT`), потом каталоги создаются, а
  * файлы читаются. Особые файлы, кроме блочных и символьных устройств,
- * пропускаются с предупреждением.
+ * пропускаются с предупреждением. С `-a` у каждого файла — время изменения и
+ * режим с устройства (`set_time_and_mode`); не вышло — перенос файла
+ * неудачен, а каталог дальше не идёт, как `return false` у AOSP.
  */
 internal class AdbTreePull(private val port: AdbTransferPort) {
     private val ledger = TransferLedger()
 
+    private var keep = false
+
     fun pull(sources: List<String>, target: PullTarget): AdbTransferReport {
+        keep = target.keepAttributes
         run(sources, target)
         return ledger.report()
     }
@@ -84,12 +90,12 @@ internal class AdbTreePull(private val port: AdbTransferPort) {
 
     private fun pullFile(source: String, found: RemoteKind.Other, destination: Destination) {
         if (pullable(found.stat.mode)) {
-            val sink = if (destination.isDirectory) {
-                destination.directory.file(basename(source))
+            val (folder, name) = if (destination.isDirectory) {
+                destination.directory to basename(source)
             } else {
-                destination.target.folder.file(destination.named)
+                destination.target.folder to destination.named
             }
-            ledger.moved(port.receive(source, sink), source)
+            received(source, folder, name, found.stat)
         } else {
             ledger.warning(special(source, found.stat.mode))
         }
@@ -105,13 +111,19 @@ internal class AdbTreePull(private val port: AdbTransferPort) {
         for (item in items) {
             when (item) {
                 is Item.Directory -> folderAt(item.path)
-                is Item.File -> {
-                    val sink = folderAt(item.path).file(item.name)
-                    if (!ledger.moved(port.receive(item.remote, sink), item.remote)) return
-                }
+                is Item.File -> if (!received(item.remote, folderAt(item.path), item.name, item.stat)) return
                 is Item.Skipped -> ledger.skipped++
             }
         }
+    }
+
+    /** Файл в [folder] под именем [name]; с `-a` — ещё время и режим. */
+    private fun received(remote: String, folder: LocalFolder, name: String, stat: AdbSyncStat): Boolean {
+        if (!ledger.moved(port.receive(remote, folder.file(name)), remote)) return false
+        if (!keep) return true
+        val problem = folder.keepTimeAndMode(name, stat.modifiedAtSeconds.toLong() and UINT, stat.mode)
+        problem?.let { ledger.error("failed to preserve time and mode of '$remote': $it") }
+        return problem == null
     }
 
     /**
@@ -131,7 +143,7 @@ internal class AdbTreePull(private val port: AdbTransferPort) {
         for (entry in entries.filter { !it.symlink }) {
             when {
                 entry.stat.directory -> directories += entry.name
-                pullable(entry.stat.mode) -> items += Item.File(local, entry.name, remote + entry.name)
+                pullable(entry.stat.mode) -> items += Item.File(local, entry.name, remote + entry.name, entry.stat)
                 else -> {
                     ledger.warning(special(remote + entry.name, entry.stat.mode))
                     items += Item.Skipped
@@ -141,10 +153,10 @@ internal class AdbTreePull(private val port: AdbTransferPort) {
         for (link in entries.filter { it.symlink }) {
             when (val kind = port.kindOf(remote + link.name)) {
                 is AdbSyncOutcome.Failed -> ledger.warning("stat failed for path ${remote + link.name}: ${kind.detail}")
-                is AdbSyncOutcome.Done -> if (kind.value == RemoteKind.Directory) {
-                    directories += link.name
-                } else {
-                    items += Item.File(local, link.name, remote + link.name)
+                is AdbSyncOutcome.Done -> when (val target = kind.value) {
+                    RemoteKind.Directory -> directories += link.name
+                    is RemoteKind.Other -> items += Item.File(local, link.name, remote + link.name, target.stat)
+                    RemoteKind.Missing -> items += Item.File(local, link.name, remote + link.name, link.stat)
                 }
             }
         }
@@ -153,12 +165,13 @@ internal class AdbTreePull(private val port: AdbTransferPort) {
 
     private sealed interface Item {
         data class Directory(val path: List<String>) : Item
-        data class File(val path: List<String>, val name: String, val remote: String) : Item
+        data class File(val path: List<String>, val name: String, val remote: String, val stat: AdbSyncStat) : Item
         data object Skipped : Item
     }
 
     private companion object {
         const val OCTAL = 8
+        const val UINT = 0xFFFF_FFFFL
         const val BLOCK_DEVICE = 0x6000
         const val CHARACTER_DEVICE = 0x2000
 

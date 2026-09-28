@@ -101,8 +101,12 @@ internal class ControllerCommandTargets(
     )
     override fun adbService(service: String) = adb.callRawService(service)
     override fun adbReboot(target: String) = adb.requestReboot(target)
-    override fun adbPull(remotePaths: List<String>, localName: String?, folder: () -> LocalFolder) =
-        adb.storage.pull(remotePaths) { PullTarget(folder(), localName) }
+    override fun adbPull(
+        remotePaths: List<String>,
+        localName: String?,
+        keepAttributes: Boolean,
+        folder: () -> LocalFolder,
+    ) = adb.storage.pull(remotePaths) { PullTarget(folder(), localName, keepAttributes) }
 
     override fun adbSync(partition: String, listOnly: Boolean, dryRun: Boolean, productOut: () -> LocalFolder) =
         adb.storage.syncBuild(productOut, partition, listOnly, dryRun)

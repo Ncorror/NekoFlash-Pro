@@ -3,6 +3,7 @@ package io.github.ncorror.nekoflash.artifact
 import android.content.ContentResolver
 import android.net.Uri
 import android.provider.DocumentsContract
+import android.system.Os
 import io.github.ncorror.nekoflash.core.artifact.ArtifactSink
 import java.io.IOException
 
@@ -62,6 +63,31 @@ internal class SafFolder(
         return SafArtifactSink(resolver, DocumentsContract.buildDocumentUriUsingTree(tree, id), name)
     }
 
+    /**
+     * `set_time_and_mode` по дескриптору документа: `utime` — через
+     * `/proc/self/fd/N` (у Android нет `futimens` в открытом API), `chmod` —
+     * `fchmod` с `umask` процесса. Провайдер вправе не позволить ни того, ни
+     * другого, поэтому итог сверяется `fstat`, а не принимается на веру.
+     */
+    override fun keepTimeAndMode(name: String, modifiedAtSeconds: Long, mode: Int): String? = runCatching {
+        val uri = DocumentsContract.buildDocumentUriUsingTree(tree, childId(name))
+        val descriptor = resolver.openFileDescriptor(uri, "rw") ?: return "провайдер не открыл $name"
+        descriptor.use { pfd ->
+            val wanted = mode and PERMISSIONS and synchronized(UMASK_LOCK) { Os.umask(0).also { Os.umask(it) } }.inv()
+            java.io.File("/proc/self/fd/${pfd.fd}").setLastModified(modifiedAtSeconds * MILLIS)
+            val chmod = runCatching { Os.fchmod(pfd.fileDescriptor, wanted) }.exceptionOrNull()
+            val stat = Os.fstat(pfd.fileDescriptor)
+            when {
+                stat.st_mtime != modifiedAtSeconds ->
+                    "время изменения не выставилось: провайдер оставил ${stat.st_mtime}, нужно $modifiedAtSeconds"
+                stat.st_mode and PERMISSIONS != wanted ->
+                    "режим не выставился: 0${Integer.toOctalString(stat.st_mode and PERMISSIONS)} вместо " +
+                        "0${Integer.toOctalString(wanted)}" + (chmod?.message?.let { " ($it)" } ?: "")
+                else -> null
+            }
+        }
+    }.getOrElse { failure -> failure.message ?: failure.javaClass.simpleName }
+
     private fun childId(name: String): String {
         val children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, documentId)
         return resolver.query(children, COLUMNS, null, null, null)?.use { cursor ->
@@ -77,6 +103,9 @@ internal class SafFolder(
     }
 
     private companion object {
+        const val PERMISSIONS = 0xFFF
+        const val MILLIS = 1000L
+        val UMASK_LOCK = Any()
         const val BINARY = "application/octet-stream"
         const val SIZE = 3
         const val MODIFIED = 4

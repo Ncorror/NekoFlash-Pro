@@ -23,6 +23,13 @@ interface LocalFolder {
 
     /** Файл [name] на запись: существующий переписывается, как у настольного клиента. */
     fun file(name: String): ArtifactSink
+
+    /**
+     * `set_time_and_mode` настольного клиента для файла [name]: время
+     * изменения [modifiedAtSeconds] и режим [mode] с учётом `umask`.
+     * `null` — выставлено и проверено; иначе — почему нет.
+     */
+    fun keepTimeAndMode(name: String, modifiedAtSeconds: Long, mode: Int): String?
 }
 
 /** Элемент папки. */

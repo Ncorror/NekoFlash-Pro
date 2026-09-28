@@ -149,6 +149,36 @@ class AdbTreeTransferTest {
         assertEquals(mapOf("b.txt" to "x"), chosen.written())
     }
 
+    /** `-a`: время и режим с устройства — `set_time_and_mode` после каждого файла. */
+    @Test
+    fun pullWithAttributesKeepsTimeAndMode() {
+        device.files["/sdcard/a.txt"] = "x"
+        device.times["/sdcard/a.txt"] = 1_600_000_000
+        val chosen = Folder("Download")
+
+        val report = AdbTreePull(device).pull(listOf("/sdcard/a.txt"), PullTarget(chosen, null, keepAttributes = true))
+
+        assertTrue(report.messages.toString(), report.success)
+        assertEquals(mapOf("a.txt" to (1_600_000_000L to (AdbSyncProtocol.MODE_REGULAR_FILE or 0x1A4))), chosen.kept)
+    }
+
+    /** Атрибуты не выставились — файл неудачен, каталог дальше не идёт, как `return false` у AOSP. */
+    @Test
+    fun attributesThatCannotBeKeptStopTheDirectory() {
+        device.dirs += "/sdcard/d"
+        device.files["/sdcard/d/a"] = "A"
+        device.files["/sdcard/d/b"] = "B"
+        val chosen = Folder("Download")
+        val inner = chosen.folder("d") as Folder
+        inner.refuseAttributes = "провайдер не дал"
+
+        val report = AdbTreePull(device).pull(listOf("/sdcard/d"), PullTarget(chosen, null, keepAttributes = true))
+
+        assertEquals(false, report.success)
+        assertEquals(1, inner.written().size)
+        assertTrue(report.messages.single().contains("failed to preserve time and mode of '/sdcard/d/"))
+    }
+
     @Test
     fun aMissingRemoteObjectIsNamedAndTheRestContinues() {
         device.files["/sdcard/a"] = "1"
@@ -269,6 +299,12 @@ class AdbTreeTransferTest {
         override fun entries(): List<LocalEntry> =
             bytes.map { (name, data) -> LocalEntry.File(name, data.size().toLong(), 5_000L) { Source(data.toString()) } } +
                 folders.map { (name, folder) -> LocalEntry.Folder(name, folder) }
+
+        val kept = mutableMapOf<String, Pair<Long, Int>>()
+        var refuseAttributes: String? = null
+
+        override fun keepTimeAndMode(name: String, modifiedAtSeconds: Long, mode: Int): String? =
+            refuseAttributes ?: null.also { kept[name] = modifiedAtSeconds to mode }
 
         override fun folder(name: String): LocalFolder = folders.getOrPut(name) { Folder(name) }
 

@@ -75,7 +75,12 @@ sealed interface TerminalPlanStep {
      * [localName] `null` — назначение и есть выбранная папка (`.` или путь с
      * `/` на конце); иначе папка — его родитель, а имя — последнее слово пути.
      */
-    data class AdbPull(val remotePaths: List<String>, val localName: String?) : TerminalPlanStep
+    /** `adb pull`; [preserveAttributes] — `-a`: время изменения и режим файла, как на устройстве. */
+    data class AdbPull(
+        val remotePaths: List<String>,
+        val localName: String?,
+        val preserveAttributes: Boolean = false,
+    ) : TerminalPlanStep
 
     /**
      * Файлы или папка, выбранные через Android, на устройство.
