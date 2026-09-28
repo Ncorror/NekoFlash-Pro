@@ -138,6 +138,50 @@ class FastbootFlashAllTest {
     }
 
     @Test
+    fun fromTheBootloaderTheSetGoesOnInFastbootdAfterTheDeviceReturns() {
+        val bootloader = ScriptedBootloader(vayu + ("is-userspace" to "no"))
+        val fastbootd = ScriptedBootloader(vayu + ("is-userspace" to "yes"))
+        val rejoin = object : FastbootRejoin {
+            override val possible = true
+            override fun await() = FastbootLane(fastbootd)
+        }
+
+        val planned = FastbootFlashAll(
+            FastbootLane(bootloader),
+            MapImageSet(images + ("super_empty.img" to superEmpty())),
+            FlashAllRequest(),
+            rejoin,
+        ).run() as FastbootConsoleState.Planned
+
+        assertEquals(null, planned.stoppedAt)
+        assertEquals(
+            listOf("flash:boot", "flash:dtbo", "flash:vbmeta", "reboot-fastboot"),
+            bootloader.sent.filterNot { it.startsWith("getvar:") || it.startsWith("download:") },
+        )
+        assertEquals(
+            listOf("update-super:super", "flash:system", "reboot"),
+            fastbootd.sent.filterNot { it.startsWith("getvar:") || it.startsWith("download:") },
+        )
+    }
+
+    @Test
+    fun aDeviceThatDoesNotReturnStopsTheSet() {
+        val rejoin = object : FastbootRejoin {
+            override val possible = true
+            override fun await(): FastbootLane? = null
+        }
+
+        val planned = FastbootFlashAll(
+            FastbootLane(ScriptedBootloader(vayu)),
+            MapImageSet(images + ("super_empty.img" to superEmpty())),
+            FlashAllRequest(),
+            rejoin,
+        ).run() as FastbootConsoleState.Planned
+
+        assertEquals("The device did not come back after reboot-fastboot.", planned.detail.lines().last())
+    }
+
+    @Test
     fun fastbootInfoLeadsWhenItIsInTheSet() {
         val device = ScriptedBootloader(vayu + ("is-userspace" to "yes"))
         val info = """

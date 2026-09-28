@@ -13,7 +13,12 @@ import io.github.ncorror.nekoflash.protocol.fastboot.FastbootVariable
  * (`CheckRequirements`, `HandlePartitionExists`). Строки — словами
  * настольного клиента, в [report].
  */
-internal class FlashAllPreflight(private val variables: FastbootGetVar, private val report: MutableList<String>) {
+internal class FlashAllPreflight(
+    private val current: () -> FastbootGetVar,
+    private val report: MutableList<String>,
+) {
+    private val variables: FastbootGetVar get() = current()
+
     /** Разделы, которых требует `partition-exists`: их образ обязателен. */
     val required = mutableSetOf<String>()
 

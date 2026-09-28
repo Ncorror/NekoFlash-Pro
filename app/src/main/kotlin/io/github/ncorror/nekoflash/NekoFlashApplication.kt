@@ -163,6 +163,7 @@ public class NekoFlashApplication : Application() {
             claim = usbSessions::claim,
             executor = adbOperationThreads,
             diagnostics = events,
+            sessions = { usbSessions.sessions.value },
         )
     }
 

@@ -57,17 +57,19 @@ internal data class FlashAllRequest(
  * так же, как `die` настольного клиента, и называется его словами.
  */
 internal class FastbootFlashAll(
-    private val lane: FastbootLane,
+    private var lane: FastbootLane,
     private val images: FastbootImageSet,
     private val request: FlashAllRequest,
+    private val rejoin: FastbootRejoin = FastbootRejoin.NONE,
 ) {
-    private val variables = FastbootGetVar(lane)
+    /** Переменные — всегда текущей полосы: после перехода в fastbootd она новая. */
+    private val variables: FastbootGetVar get() = FastbootGetVar(lane)
     private val report = mutableListOf<String>()
     private val commands = mutableListOf<String>()
     private var applied = 0
     private var skipSecondary = request.skipSecondary
 
-    private val preflight = FlashAllPreflight(variables, report)
+    private val preflight = FlashAllPreflight({ variables }, report)
     private val superMetadata: LpMetadata? by lazy {
         images.bytes(SUPER_EMPTY)?.let { (FastbootSuperMetadata.fromImageBlob(it) as? LpMetadataRead.Parsed)?.metadata }
     }
@@ -193,6 +195,8 @@ internal class FastbootFlashAll(
      * команды, а не на середине.
      */
     private fun gate(tasks: List<FlashAllTask>) {
+        // `erase` из `fastboot-info.txt` — это `WipeTask`: он создаёт файловую
+        // систему на хосте.
         val wipe = tasks.filterIsInstance<FlashAllTask.Wipe>().firstOrNull()
         if (wipe != null) {
             throw FlashAllStop(
@@ -201,19 +205,32 @@ internal class FastbootFlashAll(
         }
         val hop = tasks.any { it == FlashAllTask.Reboot(FASTBOOTD) } ||
             FlashAllTask.UpdateSuper in tasks && images.source(SUPER_EMPTY) != null
-        if (hop && value(IS_USERSPACE) != YES) {
+        if (hop && !rejoin.possible && value(IS_USERSPACE) != YES) {
             throw FlashAllStop(
-                "The image set needs fastbootd, and the device is in the bootloader; " +
-                    "switching to fastbootd in the middle of flashall is not implemented here. " +
+                "The image set needs fastbootd, and the device is in the bootloader; the device has no serial " +
+                    "number, so after it reboots there is no way to know it is the same device. " +
                     "Run 'fastboot reboot fastboot', then flashall again.",
             )
         }
     }
 
-    /** `RebootTask`: в fastbootd уже здесь — ничего; иначе `reboot` или `reboot-ЦЕЛЬ`. */
+    /**
+     * `RebootTask`: в fastbootd уже здесь — ничего; из загрузчика —
+     * `reboot_to_userspace_fastboot` (`reboot-fastboot`, новое подключение той
+     * же цели, и оно обязано ответить `is-userspace` = `yes`); иначе `reboot`
+     * или `reboot-ЦЕЛЬ`.
+     */
     private fun reboot(target: String) {
         when (target) {
-            FASTBOOTD -> Unit
+            FASTBOOTD -> if (value(IS_USERSPACE) != YES) {
+                command("$REBOOT-$FASTBOOTD")
+                lane = rejoin.await() ?: throw FlashAllStop("The device did not come back after reboot-fastboot.")
+                if (value(IS_USERSPACE) != YES) {
+                    throw FlashAllStop(
+                        "Failed to boot into userspace fastboot; one or more components might be unbootable.",
+                    )
+                }
+            }
             "" -> command(REBOOT)
             else -> command("$REBOOT-$target")
         }
@@ -249,6 +266,7 @@ internal class FastbootFlashAll(
     /** `UpdateSuperTask`: `super_empty.img` в буфер и `update-super:ИМЯ`. */
     private fun updateSuper() {
         val empty = images.source(SUPER_EMPTY) ?: return
+        reboot(FASTBOOTD)
         val name = value(SUPER_NAME) ?: "super"
         download(empty)
         command("update-super:$name")
@@ -283,7 +301,7 @@ internal class FastbootFlashAll(
         commands += command
         val outcome = FastbootMutation(lane, variables).run(command)
         val done = outcome is FastbootMutationOutcome.Applied ||
-            outcome is FastbootMutationOutcome.Departed && command == REBOOT
+            outcome is FastbootMutationOutcome.Departed && command.startsWith(REBOOT)
         if (!done) throw FlashAllStop("$command: ${describe(outcome)}", commands.size - 1)
         applied++
     }

@@ -4,6 +4,7 @@ import io.github.ncorror.nekoflash.core.diagnostics.InMemoryDiagnosticSink
 import io.github.ncorror.nekoflash.core.model.SessionGeneration
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootLockState
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootMode
+import io.github.ncorror.nekoflash.usb.api.UsbClaimResult
 import io.github.ncorror.nekoflash.usb.api.UsbDeviceDescriptor
 import io.github.ncorror.nekoflash.usb.api.UsbEndpointDescriptor
 import io.github.ncorror.nekoflash.usb.api.UsbEndpointDirection
@@ -190,6 +191,70 @@ class FastbootLinkControllerTest {
 
         controller.onUsbSessionsChanged(emptyList())
         assertEquals(FastbootLinkState.Idle, controller.state.value)
+    }
+
+    /** `flashall` уходит в fastbootd и продолжает на новом подключении той же цели. */
+    @Test
+    fun aScenarioRejoinsTheSameTargetAfterItReboots() {
+        val bootloader = ScriptedBootloader(mapOf("product" to "vayu", "is-userspace" to "no", "unlocked" to "yes"))
+        val fastbootd = ScriptedBootloader(mapOf("product" to "vayu", "is-userspace" to "yes", "unlocked" to "yes"))
+        var secondClaimed = false
+        val sessions = {
+            if ("reboot-fastboot" in bootloader.sent) {
+                listOf(
+                    fastbootSession(1, UsbSessionState.CLOSED, UsbSessionClosureReason.DETACHED),
+                    fastbootSession(2, if (secondClaimed) UsbSessionState.CLAIMED else UsbSessionState.READY),
+                )
+            } else {
+                listOf(fastbootSession(1, UsbSessionState.CLAIMED))
+            }
+        }
+        val controller = FastbootLinkController(
+            claim = { generation ->
+                if (generation.value == 1L) {
+                    UsbClaimResult.Claimed(bootloader)
+                } else {
+                    secondClaimed = true
+                    UsbClaimResult.Claimed(fastbootd)
+                }
+            },
+            executor = { it.run() },
+            diagnostics = InMemoryDiagnosticSink(),
+            sessions = sessions,
+            pause = {},
+        )
+        controller.connect(SessionGeneration(1))
+        val images = mapOf(
+            "android-info.txt" to "require board=vayu".toByteArray(),
+            "boot.img" to ByteArray(4),
+            "system.img" to ByteArray(4),
+            "super_empty.img" to FastbootFlashAllTest.superEmpty(),
+        )
+
+        controller.scenarios.flashAll(FlashAllRequest(skipReboot = true)) {
+            object : FastbootImageSet {
+                override fun bytes(name: String) = images[name]
+                override fun source(name: String) = images[name]?.let { bytes -> MemorySource(name, bytes) }
+            }
+        }
+
+        val planned = controller.console.value as FastbootConsoleState.Planned
+        assertEquals(null, planned.stoppedAt)
+        assertTrue(fastbootd.sent.contains("update-super:super"))
+        assertEquals(SessionGeneration(2), (controller.state.value as FastbootLinkState.Connected).generation)
+    }
+
+    private class MemorySource(name: String, private val bytes: ByteArray) :
+        io.github.ncorror.nekoflash.core.artifact.ArtifactSource {
+        override val identity = io.github.ncorror.nekoflash.core.artifact.ArtifactIdentity(
+            name,
+            bytes.size.toLong(),
+            io.github.ncorror.nekoflash.core.artifact.ArtifactAccess.SEEKABLE,
+        )
+        override val openedStamp = io.github.ncorror.nekoflash.core.artifact.ArtifactStamp(bytes.size.toLong())
+        override fun stamp() = openedStamp
+        override fun open() = bytes.inputStream()
+        override fun randomAccess(): io.github.ncorror.nekoflash.core.artifact.ArtifactRandomAccess? = null
     }
 
     private fun fastbootSession(

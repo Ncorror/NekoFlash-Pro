@@ -37,6 +37,7 @@ import io.github.ncorror.nekoflash.protocol.fastboot.FastbootPlan
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootPlanOutcome
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootVariable
 import io.github.ncorror.nekoflash.usb.api.UsbClaimResult
+import io.github.ncorror.nekoflash.usb.api.UsbInterfaceKind
 import io.github.ncorror.nekoflash.usb.api.UsbSession
 import io.github.ncorror.nekoflash.usb.api.UsbSessionState
 import io.github.ncorror.nekoflash.usb.api.UsbTransportHandle
@@ -114,7 +115,17 @@ public class FastbootLinkController(
     private val executor: Executor,
     private val diagnostics: DiagnosticSink,
     private val clock: () -> Instant = Instant::now,
+    /**
+     * Сессии USB сейчас — чтобы узнать цель после её перезагрузки посреди
+     * сценария (`flashall` уходит в fastbootd). В production —
+     * `UsbSessionCoordinator.sessions`.
+     */
+    private val sessions: () -> List<UsbSession> = { emptyList() },
+    private val pause: (Long) -> Unit = Thread::sleep,
 ) {
+    /** Идёт сценарий, который вправе сменить подключение: смена сессии — его дело. */
+    @Volatile
+    private var scenarioRunning = false
     private val mutableState = MutableStateFlow<FastbootLinkState>(FastbootLinkState.Idle)
 
     /** Состояние соединения. */
@@ -178,6 +189,9 @@ public class FastbootLinkController(
      * никто не захватывает сам — опрос остаётся за оператором.
      */
     public fun onUsbSessionsChanged(sessions: List<UsbSession>) {
+        // Сценарий сам переводит связь на новое подключение; после него сверка
+        // повторяется (см. [busy]).
+        if (scenarioRunning) return
         val stale = when (val state = mutableState.value) {
             is FastbootLinkState.Connected -> state.generation.takeIf { generation ->
                 sessions.none { it.generation == generation && !it.closed && it.state == UsbSessionState.CLAIMED }
@@ -426,8 +440,8 @@ public class FastbootLinkController(
          * `FlashAllTool` настольного клиента ([FastbootFlashAll]).
          */
         internal fun flashAll(request: FlashAllRequest, images: () -> FastbootImageSet) {
-            busy("fastboot_flashall", if (request.flashAll) "flashall" else "update") { lane, _ ->
-                FastbootFlashAll(lane, images(), request).run()
+            busy("fastboot_flashall", if (request.flashAll) "flashall" else "update", scenario = true) { lane, _ ->
+                FastbootFlashAll(lane, images(), request, rejoin()).run()
             }
         }
 
@@ -447,6 +461,48 @@ public class FastbootLinkController(
         /** `fastboot wipe-super`: пустой `super` по выбранному `super_empty.img` ([wipeSuper]). */
         internal fun wipeSuper(slot: String, sparseLimit: Long?, origin: () -> ArtifactSource) {
             busy("fastboot_wipe_super", "wipe-super") { lane, _ -> wipeSuper(lane, origin(), slot, sparseLimit) }
+        }
+
+        /** Как вернуться к этой цели после её перезагрузки: по серийному номеру текущей сессии. */
+        private fun rejoin(): FastbootRejoin {
+            val generation = (mutableState.value as? FastbootLinkState.Connected)?.generation
+            val previous = generation?.let { current -> sessions().firstOrNull { it.generation == current } }
+            return if (previous == null || !previous.identity.survivesReattachment) {
+                FastbootRejoin.NONE
+            } else {
+                SessionReturn(previous)
+            }
+        }
+    }
+
+    /**
+     * Ждёт новую сессию Fastboot той же цели, захватывает её и опрашивает, как
+     * [connect]. Разрешение на новое подключение даёт оператор в диалоге
+     * системы; ожидание ограничено [REJOIN_BUDGET_MS], чтобы полоса не
+     * оставалась занятой навсегда.
+     */
+    private inner class SessionReturn(private val previous: UsbSession) : FastbootRejoin {
+        override val possible = true
+
+        override fun await(): FastbootLane? {
+            emit("fastboot_rejoin_waiting", mapOf("generation" to previous.generation.value.toString()))
+            val deadline = clock().toEpochMilli() + REJOIN_BUDGET_MS
+            while (clock().toEpochMilli() < deadline) {
+                val next = sessions().firstOrNull { session ->
+                    session.targetId == previous.targetId && session.generation != previous.generation &&
+                        session.candidate.kind == UsbInterfaceKind.FASTBOOT && session.state == UsbSessionState.READY
+                }
+                val claimed = next?.let { claim(it.generation) as? UsbClaimResult.Claimed }
+                if (next != null && claimed != null) {
+                    lane?.close()
+                    handle?.close()
+                    probe(next.generation, claimed.handle)
+                    return lane
+                }
+                pause(REJOIN_POLL_MS)
+            }
+            emit("fastboot_rejoin_timed_out", mapOf("generation" to previous.generation.value.toString()))
+            return null
         }
     }
 
@@ -499,6 +555,7 @@ public class FastbootLinkController(
     private fun busy(
         event: String,
         raw: String,
+        scenario: Boolean = false,
         action: (FastbootLane, String) -> FastbootConsoleState,
     ) {
         val live = lane
@@ -513,7 +570,10 @@ public class FastbootLinkController(
                 mutableConsole.value = FastbootConsoleState.Running(trimmed, clock().toEpochMilli())
                 executor.execute {
                     emit(event, mapOf("command" to trimmed))
+                    scenarioRunning = scenario
                     val outcome = runCatching { action(live, trimmed) }
+                    scenarioRunning = false
+                    if (scenario) onUsbSessionsChanged(sessions())
                     mutableConsole.value = outcome.getOrElse { failure ->
                         FastbootConsoleState.NotAnswered(
                             command = trimmed,
@@ -759,6 +819,10 @@ public class FastbootLinkController(
     private companion object {
         const val MAX_PRODUCT_LENGTH = 128
         const val FETCH = "fetch:"
+
+        /** Сколько ждать возвращения цели после её перезагрузки посреди сценария. */
+        const val REJOIN_BUDGET_MS = 180_000L
+        const val REJOIN_POLL_MS = 250L
         const val DIAGNOSTIC_CATEGORY = "fastboot"
 
         /** Вопросы, ответ на которые в выгрузку не идёт. Совпадение — по вопросу. */

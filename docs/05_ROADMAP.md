@@ -2,7 +2,7 @@
 
 **Единственный источник статуса проекта.** Другие документы описывают цель и правила; что сделано — только здесь. Статус меняется тем же коммитом, что и код.
 
-Версия APK: `0.46.0-dev`
+Версия APK: `0.47.0-dev`
 
 Текущий этап: **Этап 3 — Команды настольных `adb`/`fastboot` поверх нового ядра**
 
@@ -100,7 +100,7 @@
 | План из нескольких команд (Quick Flash) | `в репо` | `FastbootPlan` через `FastbootLinkController.runPlan`: группа «Запись» и планы поля команды, остановка на первом непринятом шаге |
 | Sparse и разбиение по `max-download-size`, `-S` | `в репо` | `FastbootSparse` по AOSP `libsparse`; `flashImage`: образ больше предела уходит кусками, каждый — `download` + `flash:РАЗДЕЛ`; D056 |
 | `update`/`flashall`, `--force`, `--skip-*` | `в репо` | `FastbootFlashAll` по `FlashAllTool` и `task.cpp`: требования `android-info.txt`, `set_active`, `fastboot-info.txt` или таблица образов, подписи `.sig`, `update-super`, сжатие логических разделов, `reboot`; набор — выбранная папка или архив (`ZipArchive`, с ZIP64); `super_empty.img` читает `FastbootSuperMetadata` по `liblp`; D063 |
-| `flashall`/`update` из загрузчика, когда набору нужен fastbootd (`super_empty.img`, `reboot fastboot`) | `нет` | переход в fastbootd посреди работы и продолжение на новом подключении; до него — отказ до первой команды с советом `fastboot reboot fastboot`; D063 |
+| `flashall`/`update` из загрузчика, когда набору нужен fastbootd (`super_empty.img`, `reboot fastboot`) | `в репо` | `reboot-fastboot`, ожидание нового подключения той же цели по серийному номеру (до 3 мин), проверка `is-userspace`, продолжение на новой полосе — `FastbootRejoin`; без серийного номера — отказ до первой команды; D067 |
 | `format`, `-w`: создание файловой системы на хосте | `нет` | D053; `erase` в `fastboot-info.txt` отвергается до первой команды по той же причине (D063) |
 | `wipe-super` | `в репо` | `FastbootSuperImage` по `liblp` `ImageBuilder`: пустой `super` из метаданных выбранного `super_empty.img`, sparse; каждое устройство `super` под слот, у retrofit — `oem allow-flash-super`; D064 |
 | `vendor_boot:RAMDISK`: перепаковка | `в репо` | `FastbootVendorBoot` по `vendor_boot_img_utils.cpp`: `default` — весь рамдиск одной записью, иное имя — фрагмент таблицы v4; раздел читается `fetch` во временный файл, новый образ собирается из него потоком и прошивается обратно; D065 |
