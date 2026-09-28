@@ -17,6 +17,7 @@ import io.github.ncorror.nekoflash.miunlock.MiUnlockStatus
 import io.github.ncorror.nekoflash.miunlock.MiUnlockReporter
 import io.github.ncorror.nekoflash.vendor.xiaomi.MiAccountClient
 import io.github.ncorror.nekoflash.vendor.xiaomi.MiUnlockClient
+import io.github.ncorror.nekoflash.vendor.xiaomi.MiUnlockData
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootLockProbe
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootLockState
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootLockStatus
@@ -314,7 +315,7 @@ public class FastbootLinkController(
         unlockReporter.stage(MiUnlockStatus.Stage.AUTHORIZE)
         // This request changes server-side unlock state: it is deliberately never retried.
         val encryptedHex = client.requestUnlock(product, token, nonce)
-        val bytes = parseUnlockData(encryptedHex) ?: return unlockReporter.fail(active, MiUnlockStatus.Reason.SERVER)
+        val bytes = MiUnlockData.decode(encryptedHex) ?: return unlockReporter.fail(active, MiUnlockStatus.Reason.SERVER)
         if (mutableState.value != connected || lane !== active || active.state != FastbootLaneState.IDLE) {
             return unlockReporter.fail(active, MiUnlockStatus.Reason.DEVICE)
         }
@@ -336,19 +337,6 @@ public class FastbootLinkController(
             is XiaomiUnlockOutcome.Unknown -> unlockReporter.fail(active, MiUnlockStatus.Reason.UNKNOWN)
             is XiaomiUnlockOutcome.NotStarted -> unlockReporter.fail(active, MiUnlockStatus.Reason.NOT_STARTED)
         }
-    }
-
-    private fun parseUnlockData(hex: String): ByteArray? {
-        if (hex.length !in HEX_CHARS_PER_BYTE..MAX_UNLOCK_HEX_CHARS ||
-            hex.length % HEX_CHARS_PER_BYTE != 0) return null
-        val bytes = ByteArray(hex.length / HEX_CHARS_PER_BYTE)
-        for (index in bytes.indices) {
-            val high = Character.digit(hex[index * HEX_CHARS_PER_BYTE], HEX_RADIX)
-            val low = Character.digit(hex[index * HEX_CHARS_PER_BYTE + 1], HEX_RADIX)
-            if (high < 0 || low < 0) return null
-            bytes[index] = ((high shl HEX_NIBBLE_BITS) or low).toByte()
-        }
-        return bytes
     }
 
     /** Спрашивает всё, что устройство готово рассказать. */
@@ -769,10 +757,6 @@ public class FastbootLinkController(
 
     private companion object {
         const val MAX_PRODUCT_LENGTH = 128
-        const val HEX_CHARS_PER_BYTE = 2
-        const val HEX_RADIX = 16
-        const val HEX_NIBBLE_BITS = 4
-        const val MAX_UNLOCK_HEX_CHARS = 16 * 1024 * 1024
         const val FETCH = "fetch:"
         const val DIAGNOSTIC_CATEGORY = "fastboot"
 
