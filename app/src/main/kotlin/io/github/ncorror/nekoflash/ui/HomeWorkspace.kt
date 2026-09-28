@@ -29,7 +29,6 @@ internal fun HomeWorkspace(
     onRescanUsb: () -> Unit,
     onNavigate: (WorkspaceDestination) -> Unit,
 ) {
-    SectionHeading(stringResource(R.string.nav_home), style = MaterialTheme.typography.headlineMedium)
     if (session == null) {
         EmptyHome(onRescanUsb)
     } else {

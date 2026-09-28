@@ -271,9 +271,6 @@ private fun Workspace(
             WorkspaceDestination.DEVICE,
             WorkspaceDestination.ADB,
             WorkspaceDestination.FASTBOOT -> {
-                if (destination == WorkspaceDestination.DEVICE) {
-                    SectionHeading(stringResource(destination.label), style = MaterialTheme.typography.headlineMedium)
-                }
                 SessionList(
                     selected = selected,
                     destination = destination,

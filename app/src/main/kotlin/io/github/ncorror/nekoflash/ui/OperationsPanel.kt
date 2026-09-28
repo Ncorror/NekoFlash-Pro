@@ -30,9 +30,6 @@ data class OperationsPanel(
  */
 @Composable
 internal fun OperationsSection(panel: OperationsPanel) {
-    SectionHeading(
-        text = stringResource(R.string.operations_title),
-    )
     if (panel.live.isEmpty() && panel.history.isEmpty()) {
         // Раздел, не нарисовавший ничего, читается как поломка приложения.
         // Пустая история — это ответ, и он говорится словами: здесь ещё
