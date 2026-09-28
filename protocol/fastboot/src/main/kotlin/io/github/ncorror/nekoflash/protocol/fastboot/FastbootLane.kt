@@ -233,6 +233,51 @@ public class FastbootLane(
         }
     }
 
+    /**
+     * Почему [expectedBytes] байт файла [payloadFd] не отправить нативным путём
+     * транспорта; `null` — можно (D077).
+     *
+     * Спрашивается **до** `download:`, как `FastbootDataTransfer.resolveMode` у
+     * A2: пока устройство не ждёт данных, отказ предпроверки означает обычную
+     * передачу [sendData], а не ошибку. Посреди фазы данных путь не меняется.
+     */
+    public fun fileSendUnavailable(payloadFd: Int, expectedBytes: Long): String? {
+        val sender = transport.fileSender ?: return NO_FILE_SENDER
+        return sender.unavailable(payloadFd, expectedBytes)
+    }
+
+    /**
+     * Передаёт [expectedBytes] байт файла [payloadFd] в открытую фазу данных
+     * нативным путём транспорта (D077).
+     *
+     * Правила исхода — те же, что у [sendData], и взяты у A2
+     * `transferNativeUsbfs`: неуспех backend или подтверждённый объём, не равный
+     * объявленному, — `Interrupted` и [FastbootLaneState.STALLED]. Засчитываются
+     * только байты, чьи URB устройство подтвердило.
+     */
+    public fun sendFile(
+        payloadFd: Int,
+        expectedBytes: Long,
+        inactivityMillis: Long = DEFAULT_INACTIVITY_MS,
+    ): FastbootDataOutcome {
+        require(expectedBytes >= 0L) { "объявленный размер не может быть отрицательным" }
+        val sender = transport.fileSender
+        return when {
+            currentState != FastbootLaneState.AWAITING_DATA -> FastbootDataOutcome.NotReady(currentState)
+            sender == null -> finish(0L, expectedBytes, NO_FILE_SENDER, inactivityMillis)
+            else -> {
+                val result = sender.send(payloadFd, expectedBytes)
+                val failure = when {
+                    !result.success -> "нативная передача не состоялась: ${result.detail}"
+                    result.confirmedBytes != expectedBytes ->
+                        "нативная передача подтвердила ${result.confirmedBytes} из $expectedBytes"
+                    else -> null
+                }
+                finish(result.confirmedBytes, expectedBytes, failure, inactivityMillis)
+            }
+        }
+    }
+
     private fun pump(
         source: java.io.InputStream,
         expectedBytes: Long,
@@ -649,7 +694,7 @@ public class FastbootLane(
          *
          * 16 КиБ — то же, что у A2 в `SYNC_BULK` и у Legacy в
          * `bulkWriteFully`. Больший блок принадлежит нативному пути
-         * (`usb:native`, 256 КиБ с конвейером), которого здесь нет.
+         * ([sendFile], `:usb:native`, 256 КиБ с конвейером).
          */
         public const val DATA_BLOCK_BYTES: Int = 16 * 1024
 
@@ -695,5 +740,7 @@ public class FastbootLane(
          * вхолостую, изображая ожидание.
          */
         internal const val EMPTY_READ_PAUSE_MS: Long = 100L
+
+        internal const val NO_FILE_SENDER: String = "транспорт не несёт нативной передачи файла"
     }
 }

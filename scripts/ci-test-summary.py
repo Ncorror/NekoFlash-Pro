@@ -11,7 +11,7 @@ OUTPUT = ROOT / "build" / "verification" / "test-summary.md"
 TEST_MODULES = (
     "app", "engine",
     "core/model", "core/diagnostics", "core/operation", "core/artifact",
-    "usb/api", "usb/android", "protocol/adb", "protocol/fastboot",
+    "usb/api", "usb/android", "usb/native", "protocol/adb", "protocol/fastboot",
     "vendor/xiaomi",
 )
 

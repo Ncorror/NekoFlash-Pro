@@ -1,6 +1,8 @@
 package io.github.ncorror.nekoflash.artifact
 
 import io.github.ncorror.nekoflash.core.artifact.ArtifactAccess
+import io.github.ncorror.nekoflash.core.artifact.ArtifactDescriptor
+import io.github.ncorror.nekoflash.core.artifact.ArtifactDescriptorSource
 import io.github.ncorror.nekoflash.core.artifact.ArtifactIdentity
 import io.github.ncorror.nekoflash.core.artifact.ArtifactRandomAccess
 import io.github.ncorror.nekoflash.core.artifact.ArtifactSource
@@ -10,6 +12,7 @@ import java.io.IOException
 import java.io.InputStream
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
 import org.junit.Test
 
@@ -44,6 +47,22 @@ class VbmetaFlagsSourceTest {
     fun aForeignImageIsRefusedBeforeAnyByte() {
         val boot = ByteArray(4096).also { "ANDROID!".toByteArray().copyInto(it) }
         assertThrows(IOException::class.java) { VbmetaFlagsSource(BytesSource(boot), 1).open() }
+    }
+
+    /**
+     * Дескриптор исходного файла не проходит сквозь обёртку: нативный путь
+     * отправил бы файл без флагов (D077). Поэтому он отдельный интерфейс, а не
+     * метод [ArtifactSource], который `by inner` унаследовал бы.
+     */
+    @Test
+    fun thePatchedSourceHidesTheOriginalDescriptor() {
+        val inner = object : ArtifactSource by BytesSource(image()), ArtifactDescriptorSource {
+            override fun openReadDescriptor(): ArtifactDescriptor? = null
+        }
+
+        val patched: Any = VbmetaFlagsSource(inner, VbmetaFlagsSource.DISABLE_VERITY)
+
+        assertFalse(patched is ArtifactDescriptorSource)
     }
 
     private class BytesSource(private val bytes: ByteArray) : ArtifactSource {

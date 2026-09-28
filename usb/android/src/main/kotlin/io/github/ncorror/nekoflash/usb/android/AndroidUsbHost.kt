@@ -14,6 +14,7 @@ import android.hardware.usb.UsbManager
 import android.os.Build
 import io.github.ncorror.nekoflash.usb.api.UsbDeviceDescriptor
 import io.github.ncorror.nekoflash.usb.api.UsbClaimFailure
+import io.github.ncorror.nekoflash.usb.api.UsbFileSender
 import io.github.ncorror.nekoflash.usb.api.UsbClaimResult
 import io.github.ncorror.nekoflash.usb.api.UsbHost
 import io.github.ncorror.nekoflash.usb.api.UsbInterfaceCandidate
@@ -22,6 +23,8 @@ import io.github.ncorror.nekoflash.usb.api.UsbTransferArguments
 import io.github.ncorror.nekoflash.usb.api.UsbTransferFailure
 import io.github.ncorror.nekoflash.usb.api.UsbTransferResult
 import io.github.ncorror.nekoflash.usb.api.UsbTransportHandle
+import io.github.ncorror.nekoflash.usb.usbfs.NativeUsbfsFileSender
+import io.github.ncorror.nekoflash.usb.usbfs.NativeUsbfsShutdown
 
 /**
  * Владение USB на стороне Android: перечисление устройств, приёмники
@@ -151,10 +154,13 @@ public class AndroidUsbHost(
      */
     override fun claim(candidate: UsbInterfaceCandidate): UsbClaimResult {
         val device = findDevice(candidate.device)
-        return if (device == null) {
-            UsbClaimResult.Failed(UsbClaimFailure.DEVICE_GONE)
-        } else {
-            claimDevice(candidate, device)
+        return when {
+            // Нативная передача не доказала дочитывание URB: соединение не
+            // закрыто, и новое открывать нельзя до перезапуска (A2
+            // `connectAndQualify`, D077).
+            NativeUsbfsShutdown.blocked -> UsbClaimResult.Failed(UsbClaimFailure.TRANSPORT_BLOCKED)
+            device == null -> UsbClaimResult.Failed(UsbClaimFailure.DEVICE_GONE)
+            else -> claimDevice(candidate, device)
         }
     }
 
@@ -238,6 +244,12 @@ public class AndroidUsbHost(
         override val held: Boolean
             get() = !released
 
+        /** Нативный DATA OUT по дескриптору этого соединения (D077). */
+        private val nativeSender = NativeUsbfsFileSender(connection, endpointOut)
+
+        override val fileSender: UsbFileSender
+            get() = nativeSender
+
         override fun receive(
             destination: ByteArray,
             offset: Int,
@@ -319,11 +331,19 @@ public class AndroidUsbHost(
             }
         }
 
+        /**
+         * Закрывает соединение fail-closed вокруг нативной передачи (A2
+         * `FastbootUsbTransport.close`): идущая передача отменяется и
+         * дочитывается; не дочиталась — соединение остаётся открытым, а
+         * процесс больше не открывает новых ([NativeUsbfsShutdown]).
+         */
         override fun close() {
             if (released) return
             released = true
-            runCatching { connection.releaseInterface(usbInterface) }
-            runCatching { connection.close() }
+            if (NativeUsbfsShutdown.prepareClose(nativeSender)) {
+                runCatching { connection.releaseInterface(usbInterface) }
+                runCatching { connection.close() }
+            }
         }
 
         private companion object {

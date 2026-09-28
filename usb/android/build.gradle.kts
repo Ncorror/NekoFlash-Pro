@@ -26,5 +26,6 @@ kotlin {
 
 dependencies {
     api(project(":usb:api"))
+    implementation(project(":usb:native"))
     testImplementation(libs.junit4)
 }

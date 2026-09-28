@@ -1,5 +1,6 @@
 package io.github.ncorror.nekoflash.fastboot
 
+import io.github.ncorror.nekoflash.protocol.fastboot.FastbootDataRoute
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootLaneState
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootMutationOutcome
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootReply
@@ -75,6 +76,9 @@ public sealed interface FastbootConsoleState {
      * можно **только** при отказе до фазы данных; во всех остальных случаях
      * буфер загрузки содержит неизвестно что, и прошивать из него нельзя
      * (`03` §3).
+     *
+     * [route] — каким путём шли байты и почему (D077); `null` — до данных не
+     * дошло.
      */
     public data class Downloaded(
         val declaredBytes: Long,
@@ -83,6 +87,7 @@ public sealed interface FastbootConsoleState {
         val detail: String,
         val untouched: Boolean,
         override val lane: FastbootLaneState,
+        val route: FastbootDataRoute? = null,
     ) : FastbootConsoleState
 
     /**

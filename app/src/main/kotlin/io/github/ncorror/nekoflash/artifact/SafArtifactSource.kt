@@ -4,6 +4,8 @@ import android.content.ContentResolver
 import android.net.Uri
 import android.provider.DocumentsContract
 import android.provider.OpenableColumns
+import io.github.ncorror.nekoflash.core.artifact.ArtifactDescriptor
+import io.github.ncorror.nekoflash.core.artifact.ArtifactDescriptorSource
 import io.github.ncorror.nekoflash.core.artifact.ArtifactIdentity
 import io.github.ncorror.nekoflash.core.artifact.ArtifactRandomAccess
 import io.github.ncorror.nekoflash.core.artifact.ArtifactSource
@@ -28,7 +30,7 @@ import java.nio.ByteBuffer
 internal class SafArtifactSource(
     private val resolver: ContentResolver,
     private val uri: Uri,
-) : ArtifactSource {
+) : ArtifactSource, ArtifactDescriptorSource {
     private val facts: SafDocumentFacts = read()
 
     override val identity: ArtifactIdentity = SafArtifactFacts.identity(facts, fallbackName())
@@ -56,6 +58,20 @@ internal class SafArtifactSource(
             PositionedReads(descriptor)
         }
     }
+
+    /**
+     * Дескриптор документа для нативного DATA OUT (D077). Обычный ли это файл
+     * и совпала ли длина, проверяет сам нативный путь перед `download:`; труба
+     * его не пройдёт, и данные уйдут обычной передачей.
+     */
+    override fun openReadDescriptor(): ArtifactDescriptor? =
+        runCatching { resolver.openFileDescriptor(uri, "r") }.getOrNull()?.let { descriptor ->
+            object : ArtifactDescriptor {
+                override val fd: Int = descriptor.fd
+
+                override fun close() = descriptor.close()
+            }
+        }
 
     private fun fallbackName(): String = uri.lastPathSegment?.substringAfterLast('/') ?: "artifact"
 

@@ -3,6 +3,7 @@ package io.github.ncorror.nekoflash.protocol.fastboot
 import io.github.ncorror.nekoflash.usb.api.UsbDeviceDescriptor
 import io.github.ncorror.nekoflash.usb.api.UsbEndpointDescriptor
 import io.github.ncorror.nekoflash.usb.api.UsbEndpointDirection
+import io.github.ncorror.nekoflash.usb.api.UsbFileSender
 import io.github.ncorror.nekoflash.usb.api.UsbInterfaceCandidate
 import io.github.ncorror.nekoflash.usb.api.UsbInterfaceKind
 import io.github.ncorror.nekoflash.usb.api.UsbMatchConfidence
@@ -73,6 +74,11 @@ internal class FakeFastbootTransport(
 
     /** Ронять только записи данных, оставив команду проходящей. */
     var failDataWrite: Boolean = false
+
+    /** Нативная передача файла; `null` — транспорт её не несёт, как у всех, кроме Android USB. */
+    var nativeSender: UsbFileSender? = null
+
+    override val fileSender: UsbFileSender? get() = nativeSender
 
     /** Сколько приёмов было запрошено — по нему видно, что ожидание дробится. */
     var receiveCalls: Int = 0

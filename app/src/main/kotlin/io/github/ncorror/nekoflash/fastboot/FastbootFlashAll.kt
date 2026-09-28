@@ -5,7 +5,6 @@ import com.ncorror.nekoflash.pro.engine.SET_ACTIVE_DEFAULT
 import io.github.ncorror.nekoflash.artifact.VbmetaFlagsSource
 import io.github.ncorror.nekoflash.core.artifact.ArtifactSource
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootAndroidInfo
-import io.github.ncorror.nekoflash.protocol.fastboot.FastbootDownload
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootDownloadOutcome
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootGetVar
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootLane
@@ -285,7 +284,7 @@ internal class FastbootFlashAll(
     private fun download(source: ArtifactSource) {
         val size = source.identity.sizeBytes ?: throw FlashAllStop("${source.identity.name}: size unknown")
         commands += downloadStep(size)
-        val outcome = source.open().use { input -> FastbootDownload(lane).send(input, size) }
+        val outcome = source.open().use { input -> downloadFile(lane, source, size, input) }
         val accepted = outcome is FastbootDownloadOutcome.Answered &&
             outcome.reply == FastbootReply.OKAY && outcome.bytesSent == size
         if (!accepted) throw FlashAllStop(describeDownload(outcome), commands.size - 1)

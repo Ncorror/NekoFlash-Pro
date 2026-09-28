@@ -115,6 +115,7 @@ internal fun downloaded(
         // Про «не изменилось» речи нет: буфер наполнен.
         untouched = false,
         lane = lane,
+        route = outcome.route,
     )
 
     // Единственный исход, про который можно честно сказать, что состояние
@@ -135,6 +136,7 @@ internal fun downloaded(
         detail = outcome.detail,
         untouched = false,
         lane = lane,
+        route = outcome.route,
     )
 
     // Обмен не начался: команда не ушла, устройство её не видело.
@@ -200,6 +202,7 @@ internal fun describeDownload(outcome: FastbootDownloadOutcome): String = when (
         "download: ${outcome.reply.name} ${outcome.payload}, передано ${outcome.bytesSent} байт".trim()
     is FastbootDownloadOutcome.Refused -> "download: устройство отказало до передачи: ${outcome.detail}"
     is FastbootDownloadOutcome.Unknown ->
-        "download: передача оборвана на ${outcome.bytesSent} из ${outcome.expectedBytes} байт, буфер неизвестен"
+        "download: передача оборвана на ${outcome.bytesSent} из ${outcome.expectedBytes} байт " +
+            "(${outcome.route.path}), буфер неизвестен: ${outcome.detail}"
     is FastbootDownloadOutcome.NotStarted -> "download: не начат: ${outcome.detail}"
 }

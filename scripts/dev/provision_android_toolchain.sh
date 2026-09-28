@@ -16,11 +16,14 @@ set -euo pipefail
 ANDROID_SDK_DIR="${ANDROID_SDK_DIR:-/opt/android-sdk}"
 
 # Версии держим ровно те, что требует дерево. Расходиться им нельзя: toolchain
-# в Gradle закреплён на 17, `compileSdk` — на 37.
+# в Gradle закреплён на 17, `compileSdk` — на 37, NDK и CMake — в
+# `usb/native/build.gradle.kts` (D077).
 JDK_PACKAGE='openjdk-17-jdk-headless'
 CMDLINE_TOOLS='commandlinetools-linux-16111833_latest.zip'
 SDK_PLATFORM='platforms;android-37.0'
 SDK_BUILD_TOOLS='build-tools;37.0.0'
+SDK_NDK='ndk;28.2.13676358'
+SDK_CMAKE='cmake;3.22.1'
 
 say() { printf 'provision: %s\n' "$1"; }
 
@@ -61,14 +64,16 @@ export PATH="$ANDROID_SDK_DIR/cmdline-tools/latest/bin:$PATH"
 # наборе тратит секунды, а хук при старте сессии должен стоить около нуля.
 platform_dir="$ANDROID_SDK_DIR/platforms/${SDK_PLATFORM#*;}"
 build_tools_dir="$ANDROID_SDK_DIR/build-tools/${SDK_BUILD_TOOLS#*;}"
-if [[ -d "$platform_dir" && -d "$build_tools_dir" ]]; then
-  say 'платформа и build-tools уже на месте'
+ndk_dir="$ANDROID_SDK_DIR/ndk/${SDK_NDK#*;}"
+cmake_dir="$ANDROID_SDK_DIR/cmake/${SDK_CMAKE#*;}"
+if [[ -d "$platform_dir" && -d "$build_tools_dir" && -d "$ndk_dir" && -d "$cmake_dir" ]]; then
+  say 'платформа, build-tools, NDK и CMake уже на месте'
 else
   say 'принимаю лицензии SDK'
   yes 2>/dev/null | sdkmanager --licenses >/dev/null 2>&1 || true
 
-  say 'ставлю платформу и build-tools'
-  sdkmanager --install 'platform-tools' "$SDK_PLATFORM" "$SDK_BUILD_TOOLS" >/dev/null
+  say 'ставлю платформу, build-tools, NDK и CMake'
+  sdkmanager --install 'platform-tools' "$SDK_PLATFORM" "$SDK_BUILD_TOOLS" "$SDK_NDK" "$SDK_CMAKE" >/dev/null
 fi
 
 # --- Зеркало Maven Central (только локально) ----------------------------------

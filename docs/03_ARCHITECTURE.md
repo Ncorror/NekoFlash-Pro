@@ -73,7 +73,7 @@ ArtifactSink:   временное место, точный счёт, commit т�
 | `:core:artifact` | `ArtifactSource`/`Sink`, отпечатки, стажирование, SHA-256, запись с проверкой счёта |
 | `:usb:api` | контракты USB без Android: дескрипторы, классификация, личность цели, сессии и поколения, политика разрешений, bulk-передача |
 | `:usb:android` | Android USB Host: перечисление, приёмники подключения, запрос разрешения, захват, bulk-ввод-вывод |
-| `:usb:native` | нативный backend USBFS для скорости Fastboot DATA (по результату измерения) |
+| `:usb:native` | нативный backend USBFS для Fastboot DATA OUT: URB в ядро по два по 256 КиБ, закрытие соединения только после дочитанных URB |
 | `:protocol:adb` | всё ADB, включая Sync, Sideload и Recovery-корреляцию |
 | `:protocol:fastboot` | полоса, `getvar`, DATA OUT/IN, мутации, планы, lock state, разделы |
 | `:engine` | разбор команд настольных `adb`/`fastboot` в типизированные намерения и план с Preview (имя модуля может смениться при переносе) |
@@ -92,7 +92,8 @@ ArtifactSink:   временное место, точный счёт, commit т�
 - `:core:operation` — из архива.
 - `:core:artifact` — из архива.
 - `:usb:api` — из архива.
-- `:usb:android` — из архива.
+- `:usb:android` — из архива; держит `:usb:native` и отдаёт его как `UsbTransportHandle.fileSender`.
+- `:usb:native` — A2 `NativeUsbfsBackend`, `native_usbfs.cpp`, `UsbTransportShutdownPolicy` дословно, плюс `NativeUsbfsFileSender` и `NativeUsbfsShutdown` (D077).
 - `:protocol:adb` — из архива.
 - `:protocol:fastboot` — из архива.
 - `:vendor:xiaomi` — сетевой клиент и политика доменов Xiaomi из legacy; токен устройства и `download`/`oem unlock` идут через общий `:protocol:fastboot`.
@@ -104,7 +105,8 @@ ArtifactSink:   временное место, точный счёт, commit т�
 | --- | --- | --- |
 | `core:*` | друг от друга внутри `core:*` | `usb:*`, `protocol:*`, `feature:*`, `vendor:*`, `:app`, Android |
 | `usb:api` | `core:*` | `usb:android`, `usb:native`, `protocol:*`, `feature:*` |
-| `usb:android`, `usb:native` | `usb:api`, `core:*` | `protocol:*`, `feature:*`, `vendor:*` |
+| `usb:android` | `usb:api`, `usb:native`, `core:*` | `protocol:*`, `feature:*`, `vendor:*` |
+| `usb:native` | `usb:api`, `core:*` | `usb:android`, `protocol:*`, `feature:*`, `vendor:*` |
 | `protocol:*` | `usb:api`, `core:*` | друг друга напрямую, `feature:*`, `vendor:*` |
 | `:engine` | `core:*` | Android, `usb:*` |
 | `vendor:*` | `protocol:*`, `core:*` | `feature:*` |

@@ -42,9 +42,12 @@ fi
 
 failures=0
 
+# Из :usb:native — только своё: `NativeUsbfsBackend` и
+# `UsbTransportShutdownPolicy` перенесены из A2 дословно (06, D077), как и
+# :protocol:fastboot, и проверяются границами, а не стилем.
 echo "== style and complexity =="
 if java -jar "$DETEKT_JAR" \
-    --input app/src/main,core/model/src/main,core/diagnostics/src/main,core/operation/src/main,core/artifact/src/main,usb/api/src/main,usb/android/src/main,protocol/adb/src/main \
+    --input app/src/main,core/model/src/main,core/diagnostics/src/main,core/operation/src/main,core/artifact/src/main,usb/api/src/main,usb/android/src/main,usb/native/src/main/kotlin/io/github/ncorror/nekoflash/usb/usbfs,protocol/adb/src/main \
     --config config/detekt/detekt.yml \
     --build-upon-default-config; then
     echo "style: PASS"
@@ -85,6 +88,7 @@ check_boundary() {
 check_boundary "core" "core" "config/detekt/core-boundaries.yml"
 check_boundary "usb:api" "usb/api" "config/detekt/usb-api-boundaries.yml"
 check_boundary "usb:android" "usb/android" "config/detekt/usb-android-boundaries.yml"
+check_boundary "usb:native" "usb/native" "config/detekt/usb-native-boundaries.yml"
 check_boundary "protocol:adb" "protocol/adb" "config/detekt/protocol-adb-boundaries.yml"
 check_boundary "protocol:fastboot" "protocol/fastboot" "config/detekt/protocol-fastboot-boundaries.yml"
 check_boundary "engine" "engine" "config/detekt/engine-boundaries.yml"

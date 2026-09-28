@@ -649,6 +649,10 @@ public class FastbootLinkController(
                 // состояние устройства не изменилось.
                 "untouched" to state.untouched.toString(),
                 "lane" to state.lane.name,
+                // Путь байтов и почему он (D077): по нему замер шага M1
+                // отличает нативную передачу от потоковой.
+                "dataPath" to (state.route?.path?.name ?: "none"),
+                "dataPathReason" to (state.route?.reason ?: ""),
             )
 
             // Класс мутации и утверждение о состоянии пишутся всегда, включая

@@ -1,5 +1,6 @@
 package io.github.ncorror.nekoflash.fastboot
 
+import io.github.ncorror.nekoflash.core.artifact.ArtifactDescriptorSource
 import io.github.ncorror.nekoflash.core.artifact.ArtifactSource
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootDownload
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootDownloadOutcome
@@ -13,6 +14,7 @@ import io.github.ncorror.nekoflash.protocol.fastboot.FastbootSparse
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootVariable
 import io.github.ncorror.nekoflash.protocol.fastboot.SparseDataReader
 import io.github.ncorror.nekoflash.protocol.fastboot.SparseImage
+import java.io.InputStream
 
 /**
  * Выбранный файл в буфер устройства и [commands] следом — целиком или кусками.
@@ -44,7 +46,7 @@ private fun downloadWhole(
     size: Long,
     commands: List<String>,
 ): FastbootConsoleState {
-    val outcome = source.open().use { stream -> FastbootDownload(lane).send(stream, size) }
+    val outcome = source.open().use { stream -> downloadFile(lane, source, size, stream) }
     return when {
         commands.isEmpty() -> downloaded(size, outcome, lane.state)
         accepted(outcome, size) -> downloadedThen(size, commands, lane)
@@ -56,6 +58,23 @@ private fun downloadWhole(
             lane = lane.state,
         )
     }
+}
+
+/**
+ * Файл [source] целиком одним `download:`; [stream] — он же, открытый
+ * вызывающим.
+ *
+ * Если источник отдаёт дескриптор, байты могут пойти нативным путём (D077):
+ * решает предпроверка до `download:`, её отказ — тот же [stream]. Куски
+ * sparse и правленый vbmeta дескриптора не отдают: их байты не равны файлу.
+ */
+internal fun downloadFile(
+    lane: FastbootLane,
+    source: ArtifactSource,
+    size: Long,
+    stream: InputStream,
+): FastbootDownloadOutcome = (source as? ArtifactDescriptorSource)?.openReadDescriptor().use { descriptor ->
+    FastbootDownload(lane).send(stream, size, payloadFd = descriptor?.fd)
 }
 
 /** Что прошивается: файл, его размер и `-S`. */
@@ -90,7 +109,11 @@ private fun flashEach(
             val reader = SparseDataReader(input)
             pieces.withIndex().firstNotNullOfOrNull { (index, piece) ->
                 val at = 2 * (target * pieces.size + index)
-                val outcome = FastbootDownload(lane).send(piece?.stream(reader) ?: input, lengths[index])
+                val outcome = if (piece == null) {
+                    downloadFile(lane, load.source, load.size, input)
+                } else {
+                    FastbootDownload(lane).send(piece.stream(reader), lengths[index])
+                }
                 if (accepted(outcome, lengths[index])) {
                     flashed(lane, flash)?.let { detail -> stoppedAt(steps, at + 1, detail, lane) }
                 } else {
