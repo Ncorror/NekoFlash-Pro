@@ -7,6 +7,7 @@ import java.net.ConnectException
 import java.net.HttpURLConnection
 import java.net.NoRouteToHostException
 import java.net.SocketTimeoutException
+import java.net.URI
 import java.net.URLEncoder
 import java.net.UnknownHostException
 import java.security.MessageDigest
