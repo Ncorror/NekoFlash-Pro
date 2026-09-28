@@ -3,14 +3,12 @@ package io.github.ncorror.nekoflash.ui
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -23,7 +21,7 @@ import androidx.compose.ui.unit.dp
 import io.github.ncorror.nekoflash.R
 import io.github.ncorror.nekoflash.usb.api.UsbSession
 
-/** Keep the current target and every major tool visible on the home screen. */
+/** Home shows the target and command search; navigation stays in the bottom bar. */
 @Composable
 internal fun HomeWorkspace(
     session: UsbSession?,
@@ -37,7 +35,6 @@ internal fun HomeWorkspace(
     } else {
         CurrentTarget(session, onNavigate)
     }
-    HomeQuickActions(onNavigate)
     CommandPalette(actions = paletteActions)
 }
 
@@ -99,32 +96,3 @@ private fun HomeOutline(content: @Composable () -> Unit) {
     }
 }
 
-@Composable
-private fun HomeQuickActions(onNavigate: (WorkspaceDestination) -> Unit) {
-    SectionHeading(stringResource(R.string.home_tools), style = MaterialTheme.typography.titleLarge)
-    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        HomeAction(R.string.nav_adb, WorkspaceDestination.ADB, false, onNavigate, Modifier.weight(1f))
-        HomeAction(R.string.nav_fastboot, WorkspaceDestination.FASTBOOT, false, onNavigate, Modifier.weight(1f))
-    }
-    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        HomeAction(R.string.nav_recovery, WorkspaceDestination.RECOVERY, true, onNavigate, Modifier.weight(1f))
-        HomeAction(R.string.nav_terminal, WorkspaceDestination.TERMINAL, false, onNavigate, Modifier.weight(1f))
-    }
-    HomeAction(R.string.nav_mi_unlock, WorkspaceDestination.MI_UNLOCK, false, onNavigate)
-}
-
-@Composable
-private fun HomeAction(
-    label: Int,
-    destination: WorkspaceDestination,
-    prominent: Boolean,
-    onNavigate: (WorkspaceDestination) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val onClick = { onNavigate(destination) }
-    if (prominent) {
-        Button(onClick = onClick, modifier = modifier) { Text(stringResource(label), maxLines = 2) }
-    } else {
-        OutlinedButton(onClick = onClick, modifier = modifier) { Text(stringResource(label), maxLines = 2) }
-    }
-}

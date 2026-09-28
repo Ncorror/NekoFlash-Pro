@@ -1,21 +1,30 @@
 package io.github.ncorror.nekoflash.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.PrimaryScrollableTabRow
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -52,10 +61,13 @@ private enum class PrimaryDestination(val label: Int, val icon: Int, val destina
     OPERATIONS(R.string.nav_operations, R.drawable.nav_operations, WorkspaceDestination.OPERATIONS),
 }
 
-/** Four destinations remain visible on a phone; tools keep their own named tabs. */
+/** Scaffold already consumes the system inset; avoid padding the bottom bar twice. */
 @Composable
 internal fun DestinationBottomBar(current: WorkspaceDestination, onSelect: (WorkspaceDestination) -> Unit) {
-    NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainer) {
+    NavigationBar(
+        containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        windowInsets = WindowInsets(0, 0, 0, 0),
+    ) {
         PrimaryDestination.entries.forEach { item ->
             NavigationBarItem(
                 selected = when (item) {
@@ -70,17 +82,35 @@ internal fun DestinationBottomBar(current: WorkspaceDestination, onSelect: (Work
     }
 }
 
-/** Tools on a phone; the same destinations appear directly on the wide rail. */
+/** A single selector replaces the clipped horizontal strip of six tabs. */
 @Composable
-internal fun DestinationToolTabs(current: WorkspaceDestination, onSelect: (WorkspaceDestination) -> Unit) {
+internal fun DestinationToolPicker(current: WorkspaceDestination, onSelect: (WorkspaceDestination) -> Unit) {
     if (current !in tools) return
-    PrimaryScrollableTabRow(selectedTabIndex = tools.indexOf(current), edgePadding = 0.dp) {
-        tools.forEach { destination ->
-            Tab(
-                selected = destination == current,
-                onClick = { onSelect(destination) },
-                text = { Text(stringResource(destination.label)) },
-            )
+    var expanded by remember { mutableStateOf(false) }
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = stringResource(current.label),
+            style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier.weight(1f),
+        )
+        Box {
+            TextButton(onClick = { expanded = true }) {
+                Text(stringResource(R.string.tool_picker_open))
+            }
+            DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                tools.forEach { destination ->
+                    DropdownMenuItem(
+                        text = { Text(stringResource(destination.label)) },
+                        onClick = {
+                            expanded = false
+                            onSelect(destination)
+                        },
+                    )
+                }
+            }
         }
     }
 }

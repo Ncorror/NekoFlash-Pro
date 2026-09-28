@@ -48,11 +48,6 @@ fun FastbootLinkSection(
         modifier = modifier.fillMaxWidth().padding(top = 8.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Text(
-            text = stringResource(R.string.fastboot_section_title),
-            style = MaterialTheme.typography.titleSmall,
-        )
-
         when (val state = fastboot.state) {
             is FastbootLinkState.Idle -> Button(onClick = fastboot.onProbe) {
                 Text(stringResource(R.string.fastboot_probe))

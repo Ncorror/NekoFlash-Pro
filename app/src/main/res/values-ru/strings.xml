@@ -5,6 +5,7 @@
     <string name="nav_workspace">Рабочая область</string>
     <string name="nav_home">Главная</string>
     <string name="nav_tools">Инструменты</string>
+    <string name="tool_picker_open">Сменить раздел</string>
     <string name="nav_adb">ADB</string>
     <string name="nav_fastboot">Fastboot</string>
     <string name="nav_recovery">Sideload</string>
@@ -324,6 +325,7 @@
     <string name="diagnostics_recent_note">Последние %1$d строк, свежие сверху. Полный отчёт — это выгрузка выше; панель здесь для того, чтобы прямо на прогоне видеть, пишется ли вообще то, ради чего прогон затеян.</string>
     <string name="target_bar_label">Работаем с</string>
     <string name="target_bar_state">%1$s · %2$s</string>
+    <string name="target_bar_no_device">Устройство не подключено</string>
     <string name="target_bar_others">Сменить устройство (ещё %1$d)</string>
     <string name="operations_empty">В этой установке операций ещё не было. Длительная передача — sideload, чтение или запись файла — появится здесь, пока идёт, и останется после конца, в том числе если кончилась неизвестностью.</string>
     <string name="command_title">Команда adb или fastboot</string>

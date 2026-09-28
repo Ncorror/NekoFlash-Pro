@@ -46,7 +46,6 @@ fun MiUnlockSection(panel: MiUnlockPanel) {
     val connected = panel.fastboot as? FastbootLinkState.Connected
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(stringResource(R.string.mi_unlock_title), style = MaterialTheme.typography.titleLarge)
             Text(stringResource(R.string.mi_unlock_warning), color = MaterialTheme.colorScheme.error)
             MiAccountSection(panel)
             when {

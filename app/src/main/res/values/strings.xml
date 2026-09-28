@@ -6,6 +6,7 @@
     <string name="nav_workspace">Workspace</string>
     <string name="nav_home">Home</string>
     <string name="nav_tools">Tools</string>
+    <string name="tool_picker_open">Change tool</string>
     <string name="nav_adb">ADB</string>
     <string name="nav_fastboot">Fastboot</string>
     <string name="nav_recovery">Sideload</string>
@@ -323,6 +324,7 @@
     <string name="diagnostics_recent_note">The last %1$d lines, newest first. The full report is the export above — this pane is here so you can see during a run whether the thing you are testing is being recorded at all.</string>
     <string name="target_bar_label">Working with</string>
     <string name="target_bar_state">%1$s · %2$s</string>
+    <string name="target_bar_no_device">No device connected</string>
     <string name="target_bar_others">Switch device (%1$d more)</string>
     <string name="operations_empty">No operations yet in this install. A long transfer — sideload, a file read or written — appears here while it runs and stays here after it ends, including when it ended with nothing known.</string>
     <string name="command_title">Command for adb or fastboot</string>

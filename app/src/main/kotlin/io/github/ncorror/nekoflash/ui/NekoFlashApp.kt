@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
@@ -14,13 +15,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -40,24 +38,6 @@ import io.github.ncorror.nekoflash.fastboot.FastbootLinkState
 import io.github.ncorror.nekoflash.usb.api.UsbInterfaceKind
 import io.github.ncorror.nekoflash.usb.api.UsbSession
 import io.github.ncorror.nekoflash.usb.api.UsbSessionState
-
-@OptIn(ExperimentalMaterial3Api::class)
-/** Название и подзаголовок приложения: своя вещь, и в теле экрана ей тесно. */
-@Composable
-private fun NekoFlashTopBar() {
-    TopAppBar(
-        colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-        title = {
-            Column {
-                Text(stringResource(R.string.app_name))
-                Text(
-                    text = stringResource(R.string.app_tagline),
-                    style = MaterialTheme.typography.labelMedium,
-                )
-            }
-        },
-    )
-}
 
 @Composable
 fun NekoFlashApp(
@@ -170,10 +150,7 @@ private fun WorkspaceScaffold(
     // и это правильно: после перезапуска оператор смотрит на устройство.
     Scaffold(topBar = {
         if (!focused || destination != WorkspaceDestination.TERMINAL) {
-            Column {
-                NekoFlashTopBar()
-                TargetBar(sessions = sessions, selected = selected, onSelect = onSelectSession)
-            }
+            TargetBar(sessions = sessions, selected = selected, onSelect = onSelectSession)
         }
     }) { innerPadding ->
         val baseModifier = Modifier.fillMaxSize().padding(innerPadding)
@@ -221,7 +198,7 @@ private fun WorkspaceLayout(
             }
         } else {
             Column(modifier = Modifier.fillMaxSize()) {
-                DestinationToolTabs(current = destination, onSelect = onSelect)
+                DestinationToolPicker(current = destination, onSelect = onSelect)
                 workspace(Modifier.weight(1f), destination)
                 DestinationBottomBar(current = destination, onSelect = onSelect)
             }
@@ -294,7 +271,9 @@ private fun Workspace(
             WorkspaceDestination.DEVICE,
             WorkspaceDestination.ADB,
             WorkspaceDestination.FASTBOOT -> {
-                SectionHeading(stringResource(destination.label), style = MaterialTheme.typography.headlineMedium)
+                if (destination == WorkspaceDestination.DEVICE) {
+                    SectionHeading(stringResource(destination.label), style = MaterialTheme.typography.headlineMedium)
+                }
                 SessionList(
                     selected = selected,
                     destination = destination,
@@ -334,7 +313,6 @@ private fun Workspace(
 
 @Composable
 private fun SideloadWorkspace(selected: UsbSession?, sideload: SideloadPanel) {
-    SectionHeading(stringResource(R.string.nav_recovery), style = MaterialTheme.typography.headlineMedium)
     Text(
         text = when {
             selected == null -> stringResource(R.string.sideload_device_hint)
@@ -368,13 +346,17 @@ private fun TerminalWorkspace(
 ) {
     Column(modifier = modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(
-                text = target ?: stringResource(R.string.nav_terminal),
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.weight(1f).padding(top = 12.dp),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            if (focused) {
+                Text(
+                    text = target ?: stringResource(R.string.nav_terminal),
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.weight(1f).padding(top = 12.dp),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            } else {
+                Spacer(Modifier.weight(1f))
+            }
             TextButton(onClick = onToggleCommands) {
                 Text(stringResource(if (showCommands) R.string.terminal_shell else R.string.terminal_commands))
             }
@@ -407,10 +389,6 @@ private fun DiagnosticsWorkspace(
     onRescanUsb: () -> Unit,
     onExportDiagnostics: () -> Unit,
 ) {
-    SectionHeading(
-        text = stringResource(R.string.nav_diagnostics),
-        style = MaterialTheme.typography.headlineMedium,
-    )
     ActionsCard(
         exportStatus = exportStatus,
         onRescanUsb = onRescanUsb,
