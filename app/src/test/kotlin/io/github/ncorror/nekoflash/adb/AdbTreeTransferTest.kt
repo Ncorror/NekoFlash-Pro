@@ -109,6 +109,23 @@ class AdbTreeTransferTest {
     }
 
     @Test
+    fun dryRunSendsEveryFileAsAProbeAndWritesNothing() {
+        device.dirs += "/sdcard"
+        device.needsMkdir = true
+        val photos = Folder("photos", "a.jpg" to "AAA", "sub/b.jpg" to "BB")
+
+        val report = AdbTreePush(device, sync = false, dryRun = true)
+            .push(listOf(PushSource.Folder("photos", photos)), "/sdcard")
+
+        assertTrue(report.success)
+        assertEquals(2, report.files)
+        assertEquals(listOf("/sdcard/photos/a.jpg", "/sdcard/photos/sub/b.jpg"), device.rehearsed)
+        assertEquals(emptyMap<String, String>(), device.files)
+        // Обход `mkdir` в `copy_local_dir_remote` от `-n` не зависит.
+        assertTrue(device.mkdirs.isNotEmpty())
+    }
+
+    @Test
     fun aRemoteDirectoryIsPulledRecursivelyUnderItsName() {
         device.dirs += listOf("/sdcard/DCIM", "/sdcard/DCIM/Camera", "/sdcard/DCIM/empty")
         device.files["/sdcard/DCIM/a.jpg"] = "A"
@@ -206,8 +223,15 @@ class AdbTreeTransferTest {
             )
         }
 
-        override fun send(path: String, modifiedAtSeconds: Int, source: ArtifactSource): Moved {
+        val rehearsed = mutableListOf<String>()
+
+        override fun send(path: String, modifiedAtSeconds: Int, source: ArtifactSource, dryRun: Boolean): Moved {
             val text = source.open().readBytes().decodeToString()
+            if (dryRun) {
+                // Проба: устройство прочитало всё и ничего не записало.
+                rehearsed += path
+                return Moved.Done(text.length.toLong())
+            }
             files[path] = text
             times[path] = modifiedAtSeconds
             return Moved.Done(text.length.toLong())

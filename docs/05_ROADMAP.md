@@ -2,7 +2,7 @@
 
 **Единственный источник статуса проекта.** Другие документы описывают цель и правила; что сделано — только здесь. Статус меняется тем же коммитом, что и код.
 
-Версия APK: `0.41.0-dev`
+Версия APK: `0.42.0-dev`
 
 Текущий этап: **Этап 3 — Команды настольных `adb`/`fastboot` поверх нового ядра**
 
@@ -88,7 +88,7 @@
 | Команды `adb devices [-l]`, `get-state`, `status`, `fastboot devices [-l]`, `status`; `adb shell -x`/`-T` без команды | `в репо` | `LocalReports`: строки Platform-Tools из состояния связи приложения, устройству ничего не уходит; `-T` — живая оболочка `shell,v2,raw:`, `-x` — `shell:`, при занятой вкладке — в новой (D054, D061) |
 | Команды ADB: `install`, `install-multiple` с флагами `package` | `в репо` | `AdbInstallController`: `exec:cmd package install -S`, сессия `install-create`/`install-write`/`install-commit`, при сбое — `install-abandon` |
 | Общая проверка на телефоне | `проверено` | шаги A–I на 0.30.0, [журнал 07](07_BUILD_AND_TESTING.md#журнал-проверок-этого-apk) |
-| Проверка на телефоне: установка APK, `devices`/`get-state`, режимы оболочки, слоты, флаги vbmeta, `flash -S`, `push`/`pull` каталогов, цвета и `top` в терминале, TalkBack | `нет` | [07](07_BUILD_AND_TESTING.md#ручная-проверка-на-телефоне), план этапа 3, часть 2 |
+| Проверка на телефоне: установка APK, `devices`/`get-state`, режимы оболочки, слоты, флаги vbmeta, `flash -S`, `push`/`pull` каталогов, `push -n`, цвета и `top` в терминале, TalkBack | `нет` | [07](07_BUILD_AND_TESTING.md#ручная-проверка-на-телефоне), план этапа 3, часть 2 |
 
 ## Этап 4 — Fastboot до конца
 
@@ -122,7 +122,8 @@
 | Центр операций, исход `Неизвестно` с подсказкой проверки | `в репо` | раздел «Операции» (`OperationsPanel`) |
 | push/pull в выбранное место | `в репо` | кнопки — `AdbSyncController.readTo`/`writeFrom`; `adb push`/`pull` — строкой ниже |
 | `adb push`/`pull` нескольких файлов и каталогов, `--sync`, `-q`, `-Z`; `adb sync [-l]` | `в репо` | `AdbTreePush`/`AdbTreePull` по `do_sync_push`/`do_sync_pull`/`do_sync_sync` (AOSP android11), `LIST` в `AdbSyncList`, папка — через `OpenDocumentTree`, для `sync` она — каталог сборки; D059 |
-| `pull -a`, `-z`, `push -n`, `sync -n` | `нет` | `-a` — время и режим, которых SAF не выставляет; `-z`/`-n` — `sync` второй версии; D059 |
+| `push -n`, `sync -n`: проба без записи | `в репо` | `SEND_V2` с `kSyncFlagDryRun`, как Android 14 `SendSend2`; без `sendrecv_v2_dry_run_send` у устройства — `dry-run not supported by the device`; D062 |
+| `pull -a`, `-z` | `нет` | `-a` — время и режим, которых SAF не выставляет; `-z` — кодеки brotli/lz4/zstd `sync` второй версии; D059 |
 | `install`/`install-multiple` | `в репо` | из поля команды (этап 3); отдельной кнопки нет |
 
 ## Этап 7 — Интерфейс целиком
@@ -139,9 +140,9 @@
 
 | Пункт | Статус | Где |
 | --- | --- | --- |
-| Разбор протокола и сети legacy | `нет` | legacy `MiUnlockClient.kt`, `MiAccountClient.kt` |
-| `vendor:xiaomi` поверх общего ядра | `нет` | |
-| Сценарий и экран Mi Unlock | `нет` | |
+| Разбор протокола и сети legacy | `нет` | legacy `MiUnlockClient.kt`, `MiAccountClient.kt`; перенос отложен (D062) |
+| `vendor:xiaomi` поверх общего ядра | `нет` | D062 |
+| Сценарий и экран Mi Unlock | `нет` | D062 |
 
 ## Этап 9 — Надёжность и релиз
 

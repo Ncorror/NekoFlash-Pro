@@ -304,6 +304,8 @@ public class AdbSyncController(
             ) { buffer -> input.read(buffer).coerceAtLeast(0) }
             when (outcome) {
                 is AdbSyncSendOutcome.Committed -> AdbFileState.Written(path, outcome.bytesSent, outcome.sha256)
+                // Проба `-n` здесь не запрашивается.
+                is AdbSyncSendOutcome.Rehearsed -> error("dry run was not requested")
                 is AdbSyncSendOutcome.Failed -> AdbFileState.WriteFailed(
                     path = path,
                     reason = "${outcome.reason.name}: ${outcome.detail}",
@@ -404,6 +406,9 @@ public class AdbSyncController(
                     bytes = outcome.bytesSent,
                     sha256 = outcome.sha256,
                 )
+
+                // Проба `-n` здесь не запрашивается.
+                is AdbSyncSendOutcome.Rehearsed -> error("dry run was not requested")
 
                 is AdbSyncSendOutcome.Failed -> AdbFileState.WriteFailed(
                     path = target,

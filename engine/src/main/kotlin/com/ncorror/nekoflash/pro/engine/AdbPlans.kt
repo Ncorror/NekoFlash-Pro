@@ -30,7 +30,7 @@ internal object AdbPlans {
             ),
         )
         is AdbCommand.Sync -> transferBlocker("sync", command.options)?.let(::notImplemented)
-            ?: single(TerminalPlanStep.AdbSync(command.partition ?: "all", command.listOnly))
+            ?: single(TerminalPlanStep.AdbSync(command.partition ?: "all", command.listOnly, command.options.dryRun))
         is AdbCommand.Install -> install(listOf(command.packagePath), command.options, several = false)
         is AdbCommand.InstallMultiple -> install(command.packages, command.options, several = true)
         AdbCommand.LocalStatus -> report(LocalReportKind.STATUS)
@@ -92,13 +92,13 @@ internal object AdbPlans {
 
     /**
      * `-q` и `-Z` исполняются как есть: вывода прогресса нет, сжатия тоже.
-     * `-a` — время и режим файла, которых папка Android выставить не даёт;
-     * `-z` и `-n` — возможности `sync` второй версии, которой здесь нет.
+     * `-n` — проба `SEND_V2` (D062). `-a` — время и режим файла, которых
+     * папка Android выставить не даёт; `-z` — сжатие `sync` второй версии,
+     * кодеков которого здесь нет.
      */
     private fun transferBlocker(op: String, options: FileTransferOptions): String? = when {
         options.preserveAttributes -> "adb $op -a"
         options.compression != null -> "adb $op -z"
-        options.dryRun -> "adb $op -n"
         else -> null
     }
 
@@ -114,7 +114,14 @@ internal object AdbPlans {
     /** Имена на устройстве строит исполнитель: каталог ли назначение, знает только устройство. */
     private fun push(command: AdbCommand.Push): TerminalPlanResult =
         transferBlocker("push", command.options)?.let(::notImplemented)
-            ?: single(TerminalPlanStep.AdbPush(command.sources, command.destination, command.options.syncOnly))
+            ?: single(
+                TerminalPlanStep.AdbPush(
+                    command.sources,
+                    command.destination,
+                    command.options.syncOnly,
+                    command.options.dryRun,
+                ),
+            )
 
     private const val REBOOT = "reboot:"
     private const val NO_TTY = "-T"

@@ -32,6 +32,40 @@ class AdbSyncSendTest {
         assertEquals("/sdcard/a.bin,420", spec.payload.toString(Charsets.UTF_8))
     }
 
+    /** `-n`: `SEND_V2` с путём, следом `SND2`, режим и `kSyncFlagDryRun` — одной записью, как `SendSend2`. */
+    @Test
+    fun dryRunGoesAsSendV2WithTheDryRunFlag() {
+        val device = Device(okay(), verdict(AdbSyncProtocol.ID_OKAY))
+
+        val outcome = device.opened().send("/sdcard/a.bin", 7, mode = 0x1A4, dryRun = true, source = once(byteArrayOf(5)))
+
+        assertTrue(outcome is AdbSyncSendOutcome.Rehearsed)
+        assertEquals(AdbSyncDestination.UNTOUCHED, outcome.destination)
+        val request = device.syncFrames().first()
+        assertEquals(AdbSyncProtocol.ID_SEND_V2, request.id)
+        assertEquals("/sdcard/a.bin".length, request.value)
+        val setup = java.nio.ByteBuffer.wrap(request.payload, request.value, 12).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+        assertEquals("/sdcard/a.bin", String(request.payload, 0, request.value, Charsets.UTF_8))
+        assertEquals(AdbSyncProtocol.header(AdbSyncProtocol.ID_SEND_V2, 0).copyOf(4).toList(), ByteArray(4).also { setup.get(it) }.toList())
+        assertEquals(0x1A4, setup.getInt())
+        assertEquals(0x8000_0000.toInt(), setup.getInt())
+        assertEquals(listOf(5.toByte()), device.syncFrames().single { it.id == AdbSyncProtocol.ID_DATA }.payload.toList())
+    }
+
+    /** Проба не трогает файл: `adbd` его не удаляет и не открывает, даже если потом откажет. */
+    @Test
+    fun aRefusedDryRunLeavesTheDestinationUntouched() {
+        val device = Device(
+            okay(),
+            data(AdbSyncProtocol.message(AdbSyncProtocol.ID_FAIL, "unknown flags".toByteArray())),
+        )
+
+        val outcome = device.opened()
+            .send("/sdcard/a.bin", 1, dryRun = true, source = once(byteArrayOf(1))) as AdbSyncSendOutcome.Failed
+
+        assertEquals(AdbSyncDestination.UNTOUCHED, outcome.destination)
+    }
+
     /** Имена файлов бывают любые, поэтому путь идёт в UTF-8. */
     @Test
     fun requestPathIsEncodedAsUtf8() {

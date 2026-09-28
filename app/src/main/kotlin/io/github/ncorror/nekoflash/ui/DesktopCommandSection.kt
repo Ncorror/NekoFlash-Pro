@@ -311,12 +311,12 @@ private fun baseStepText(step: TerminalPlanStep): String = when (step) {
     is TerminalPlanStep.AdbSync -> stringResource(
         if (step.listOnly) R.string.command_step_adb_sync_list else R.string.command_step_adb_sync,
         step.partition,
-    )
+    ) + dryRunNote(step.dryRun)
     is TerminalPlanStep.AdbPush -> stringResource(
         if (step.sync) R.string.command_step_adb_push_sync else R.string.command_step_adb_push,
         step.localNames.joinToString(" "),
         step.remotePath,
-    )
+    ) + dryRunNote(step.dryRun)
     is TerminalPlanStep.AdbSideload -> stringResource(R.string.command_step_adb_sideload, step.archiveName)
     is TerminalPlanStep.AdbInstall -> stringResource(
         if (step.several) R.string.command_step_adb_install_multiple else R.string.command_step_adb_install,
@@ -405,3 +405,8 @@ private fun CommandLine(text: String) {
 
 /** Слово подтверждения из ADR-0002 — то же, что у группы «Запись». */
 private const val CONFIRM_WORD = "yes"
+
+/** `-n`: проба `SEND_V2`, устройство читает данные и ничего не пишет. */
+@Composable
+private fun dryRunNote(dryRun: Boolean): String =
+    if (dryRun) stringResource(R.string.command_step_adb_dry_run) else ""

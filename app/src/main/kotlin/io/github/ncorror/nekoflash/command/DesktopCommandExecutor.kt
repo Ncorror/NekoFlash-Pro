@@ -31,8 +31,8 @@ interface DesktopCommandTargets {
     fun adbService(service: String)
     fun adbReboot(target: String)
     fun adbPull(remotePaths: List<String>, localName: String?, folder: () -> LocalFolder)
-    fun adbPush(localNames: List<String>, picked: PickedFile, remotePath: String, sync: Boolean)
-    fun adbSync(partition: String, listOnly: Boolean, productOut: () -> LocalFolder)
+    fun adbPush(localNames: List<String>, picked: PickedFile, remotePath: String, sync: Boolean, dryRun: Boolean)
+    fun adbSync(partition: String, listOnly: Boolean, dryRun: Boolean, productOut: () -> LocalFolder)
     fun adbSideload(origin: () -> ArtifactSource)
     fun adbInstall(origins: List<() -> ArtifactSource>, options: List<String>, several: Boolean)
 
@@ -147,10 +147,10 @@ class DesktopCommandExecutor(private val targets: DesktopCommandTargets) {
             targets.adbPull(step.remotePaths, step.localName, (file as PickedFile.Folder).folder)
         }
         is TerminalPlanStep.AdbSync -> DesktopCommandArea.ADB_TRANSFER.also {
-            targets.adbSync(step.partition, step.listOnly, (file as PickedFile.Folder).folder)
+            targets.adbSync(step.partition, step.listOnly, step.dryRun, (file as PickedFile.Folder).folder)
         }
         is TerminalPlanStep.AdbPush -> DesktopCommandArea.ADB_TRANSFER.also {
-            targets.adbPush(step.localNames, checkNotNull(file), step.remotePath, step.sync)
+            targets.adbPush(step.localNames, checkNotNull(file), step.remotePath, step.sync, step.dryRun)
         }
         is TerminalPlanStep.AdbSideload -> DesktopCommandArea.ADB_SIDELOAD.also { targets.adbSideload(file.open()) }
         is TerminalPlanStep.AdbInstall -> DesktopCommandArea.ADB_INSTALL.also {

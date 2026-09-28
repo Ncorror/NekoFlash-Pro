@@ -18,8 +18,8 @@ internal interface AdbTransferPort {
     fun stat(path: String): AdbSyncOutcome<AdbSyncStat>
     fun list(path: String): AdbSyncOutcome<List<AdbSyncEntry>>
 
-    /** Пишет файл; исход — сколько байт принято или почему нет. */
-    fun send(path: String, modifiedAtSeconds: Int, source: ArtifactSource): Moved
+    /** Пишет файл; исход — сколько байт принято или почему нет. [dryRun] — проба `-n`, без записи. */
+    fun send(path: String, modifiedAtSeconds: Int, source: ArtifactSource, dryRun: Boolean): Moved
 
     /** Читает файл в [sink]; неудачная запись убирает недописанное. */
     fun receive(path: String, sink: ArtifactSink): Moved

@@ -98,6 +98,18 @@ public sealed interface AdbSyncSendOutcome {
     }
 
     /**
+     * Проба `-n` принята: устройство прочитало всё и ничего не записало.
+     */
+    public data class Rehearsed(
+        override val bytesSent: Long,
+        /** SHA-256 того, что хост отдал в USB. */
+        public val sha256: String,
+    ) : AdbSyncSendOutcome {
+        override val destination: AdbSyncDestination
+            get() = AdbSyncDestination.UNTOUCHED
+    }
+
+    /**
      * Подтверждения нет.
      *
      * [reason] говорит, почему прервалась операция, [destination] — что из

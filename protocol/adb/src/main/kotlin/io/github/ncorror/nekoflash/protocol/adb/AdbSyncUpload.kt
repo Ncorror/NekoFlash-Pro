@@ -26,6 +26,30 @@ internal class AdbSyncUpload(private val exchange: AdbSyncExchange) {
         modifiedAtSeconds: Int,
         mode: Int,
         timeoutMillis: Int,
+        dryRun: Boolean,
+        source: (ByteArray) -> Int,
+    ): AdbSyncSendOutcome {
+        val outcome = attempt(path, modifiedAtSeconds, mode, timeoutMillis, dryRun, source)
+        return if (dryRun) rehearsed(outcome) else outcome
+    }
+
+    /**
+     * Проба не трогает назначение: `adbd` при `kSyncFlagDryRun` не удаляет и не
+     * открывает файл (`send_impl`, `handle_send_file`), поэтому любой исход
+     * оставляет его [AdbSyncDestination.UNTOUCHED].
+     */
+    private fun rehearsed(outcome: AdbSyncSendOutcome): AdbSyncSendOutcome = when (outcome) {
+        is AdbSyncSendOutcome.Committed -> AdbSyncSendOutcome.Rehearsed(outcome.bytesSent, outcome.sha256)
+        is AdbSyncSendOutcome.Failed -> outcome.copy(destination = AdbSyncDestination.UNTOUCHED)
+        is AdbSyncSendOutcome.Rehearsed -> outcome
+    }
+
+    private fun attempt(
+        path: String,
+        modifiedAtSeconds: Int,
+        mode: Int,
+        timeoutMillis: Int,
+        dryRun: Boolean,
         source: (ByteArray) -> Int,
     ): AdbSyncSendOutcome {
         if (!exchange.active) {
@@ -48,8 +72,11 @@ internal class AdbSyncUpload(private val exchange: AdbSyncExchange) {
             )
         }
         val deadline = exchange.deadlineFrom(timeoutMillis)
-        exchange.emit("sync_send_started", mapOf("path" to path, "mode" to mode.toString()))
-        return openDestination(path, mode) ?: transferBody(path, modifiedAtSeconds, deadline, source)
+        exchange.emit(
+            "sync_send_started",
+            mapOf("path" to path, "mode" to mode.toString(), "dryRun" to dryRun.toString()),
+        )
+        return openDestination(path, mode, dryRun) ?: transferBody(path, modifiedAtSeconds, deadline, source)
     }
 
     /**
@@ -59,11 +86,12 @@ internal class AdbSyncUpload(private val exchange: AdbSyncExchange) {
      * `UNTOUCHED`/`UNKNOWN` опирается на число фактически отданных в USB байт:
      * пока их ноль, устройство запроса не видело.
      */
-    private fun openDestination(path: String, mode: Int): AdbSyncSendOutcome.Failed? {
-        val frame = AdbSyncProtocol.message(
-            AdbSyncProtocol.ID_SEND,
-            AdbSyncProtocol.sendSpec(path, mode),
-        )
+    private fun openDestination(path: String, mode: Int, dryRun: Boolean): AdbSyncSendOutcome.Failed? {
+        val frame = if (dryRun) {
+            AdbSyncProtocol.sendV2(path, mode, AdbSyncProtocol.FLAG_DRY_RUN)
+        } else {
+            AdbSyncProtocol.message(AdbSyncProtocol.ID_SEND, AdbSyncProtocol.sendSpec(path, mode))
+        }
         return when (val outcome = exchange.writeFrame(frame)) {
             null -> failed(AdbSyncFailure.NOT_OPEN, "send $path", AdbSyncDestination.UNTOUCHED, 0L)
             AdbWriteOutcome.Sent -> null

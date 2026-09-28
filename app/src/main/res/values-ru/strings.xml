@@ -375,6 +375,7 @@
     <string name="transfer_done_with_errors">Закончено с ошибками: файлов %1$d, байт %2$d, пропущено %3$d.</string>
     <string name="command_step_adb_sync">adb: sync %1$s из папки, которую вы выберете как каталог сборки: на устройство уходят файлы с другим временем или размером</string>
     <string name="command_step_adb_sync_list">adb: перечислить, что sync %1$s отправил бы из выбранной папки, ничего не отправляя</string>
+    <string name="command_step_adb_dry_run">. Проба (-n): устройство читает каждый файл и ничего не записывает</string>
     <string name="terminal_type_no_enter">Отправить без Enter</string>
     <string name="terminal_new_tab">+ Вкладка</string>
     <string name="terminal_close_tab">×</string>

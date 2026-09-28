@@ -81,16 +81,20 @@ sealed interface TerminalPlanStep {
      * Файлы или папка, выбранные через Android, на устройство.
      *
      * [localNames] — как источники назвал оператор: по ним строятся имена на
-     * устройстве. [sync] — `--sync`.
+     * устройстве. [sync] — `--sync`, [dryRun] — `-n`: проба, устройство ничего не пишет.
      */
-    data class AdbPush(val localNames: List<String>, val remotePath: String, val sync: Boolean = false) :
-        TerminalPlanStep
+    data class AdbPush(
+        val localNames: List<String>,
+        val remotePath: String,
+        val sync: Boolean = false,
+        val dryRun: Boolean = false,
+    ) : TerminalPlanStep
 
     /**
      * `adb sync [-l] [РАЗДЕЛ]`: выбранная папка вместо `$ANDROID_PRODUCT_OUT`;
-     * [partition] `all` — все разделы, для которых там есть папка.
+     * [partition] `all` — все разделы, для которых там есть папка; [dryRun] — `-n`.
      */
-    data class AdbSync(val partition: String, val listOnly: Boolean) : TerminalPlanStep
+    data class AdbSync(val partition: String, val listOnly: Boolean, val dryRun: Boolean = false) : TerminalPlanStep
 
     /** Sideload выбранного архива. */
     data class AdbSideload(val archiveName: String) : TerminalPlanStep

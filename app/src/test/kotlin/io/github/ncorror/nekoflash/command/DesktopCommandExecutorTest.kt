@@ -194,11 +194,18 @@ class DesktopCommandExecutorTest {
         override fun adbPull(remotePaths: List<String>, localName: String?, folder: () -> LocalFolder) {
             calls += "pull ${remotePaths.joinToString(" ")} into=${localName ?: "."}"
         }
-        override fun adbSync(partition: String, listOnly: Boolean, productOut: () -> LocalFolder) {
-            calls += "sync $partition" + if (listOnly) " -l" else ""
+        override fun adbSync(partition: String, listOnly: Boolean, dryRun: Boolean, productOut: () -> LocalFolder) {
+            calls += "sync $partition" + (if (listOnly) " -l" else "") + if (dryRun) " -n" else ""
         }
-        override fun adbPush(localNames: List<String>, picked: PickedFile, remotePath: String, sync: Boolean) {
-            calls += "push ${localNames.joinToString(",")} -> $remotePath" + if (sync) " sync" else ""
+        override fun adbPush(
+            localNames: List<String>,
+            picked: PickedFile,
+            remotePath: String,
+            sync: Boolean,
+            dryRun: Boolean,
+        ) {
+            calls += "push ${localNames.joinToString(",")} -> $remotePath" + (if (sync) " sync" else "") +
+                if (dryRun) " -n" else ""
         }
         override fun adbSideload(origin: () -> ArtifactSource) { calls += "sideload" }
         override fun adbInstall(origins: List<() -> ArtifactSource>, options: List<String>, several: Boolean) {

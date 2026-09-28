@@ -318,15 +318,15 @@ public class AdbLinkController(
     public inner class StorageActions internal constructor() {
 
         /** `adb push`: файлы и папки, выбранные через Android, по правилам настольного клиента. */
-        internal fun push(sources: () -> List<PushSource>, destination: String, sync: Boolean) {
+        internal fun push(sources: () -> List<PushSource>, destination: String, sync: Boolean, dryRun: Boolean) {
             val live = connection ?: return
-            transfers.push(live, sources, destination, sync)
+            transfers.push(live, sources, destination, sync, dryRun)
         }
 
         /** `adb sync`: выбранная папка — каталог сборки. */
-        internal fun syncBuild(productOut: () -> LocalFolder, partition: String, listOnly: Boolean) {
+        internal fun syncBuild(productOut: () -> LocalFolder, partition: String, listOnly: Boolean, dryRun: Boolean) {
             val live = connection ?: return
-            transfers.syncBuild(live, productOut, partition, listOnly)
+            transfers.syncBuild(live, productOut, partition, listOnly, dryRun)
         }
 
         /** `adb pull`: пути устройства в папку, выбранную через Android. */

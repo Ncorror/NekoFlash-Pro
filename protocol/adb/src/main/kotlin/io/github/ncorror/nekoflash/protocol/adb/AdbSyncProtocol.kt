@@ -28,6 +28,17 @@ public object AdbSyncProtocol {
     /** Блок данных. */
     public const val ID_DATA: String = "DATA"
 
+    /**
+     * Запись второй версии: `SND2` с путём, следом `SND2`, режим и флаги.
+     *
+     * Здесь — только ради `kSyncFlagDryRun` (`adb push -n`, `adb sync -n`), как
+     * `SendSend2` в AOSP `client/file_sync_client.cpp` (Android 14).
+     */
+    public const val ID_SEND_V2: String = "SND2"
+
+    /** `kSyncFlagDryRun`: устройство принимает данные, ничего не записывая. */
+    public const val FLAG_DRY_RUN: Int = Int.MIN_VALUE
+
     /** Конец передачи; `value` — время изменения файла. */
     public const val ID_DONE: String = "DONE"
 
@@ -113,6 +124,15 @@ public object AdbSyncProtocol {
      */
     public fun sendSpec(path: String, mode: Int): ByteArray =
         "$path,$mode".toByteArray(Charsets.UTF_8)
+
+    /**
+     * Запрос `SEND_V2`: `SyncRequest` с путём, затем `sync_send_v2`
+     * (`SND2`, режим, флаги) — одной записью, как `SendSend2`.
+     */
+    public fun sendV2(path: String, mode: Int, flags: Int): ByteArray =
+        message(ID_SEND_V2, path.toByteArray(Charsets.UTF_8)) +
+            header(ID_SEND_V2, mode) +
+            ByteArray(Int.SIZE_BYTES).also { writeIntLe(it, 0, flags) }
 
     /**
      * Собирает блок `DATA` из первых [length] байт буфера.

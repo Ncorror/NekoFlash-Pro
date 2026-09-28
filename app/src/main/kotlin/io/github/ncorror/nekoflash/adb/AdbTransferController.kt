@@ -47,8 +47,16 @@ public class AdbTransferController(
     public val active: Boolean
         get() = mutableState.value is AdbTransferState.Running
 
-    internal fun push(connection: AdbConnection, sources: () -> List<PushSource>, destination: String, sync: Boolean) {
-        run(connection, "push → $destination") { port -> AdbTreePush(port, sync).push(sources(), destination) }
+    internal fun push(
+        connection: AdbConnection,
+        sources: () -> List<PushSource>,
+        destination: String,
+        sync: Boolean,
+        dryRun: Boolean,
+    ) {
+        run(connection, "push → $destination") { port ->
+            AdbTreePush(port, sync, dryRun = dryRun).push(sources(), destination)
+        }
     }
 
     internal fun syncBuild(
@@ -56,9 +64,10 @@ public class AdbTransferController(
         productOut: () -> LocalFolder,
         partition: String,
         listOnly: Boolean,
+        dryRun: Boolean,
     ) {
         run(connection, "sync $partition") { port ->
-            AdbTreePush(port, sync = true, listOnly = listOnly).syncBuild(productOut(), partition)
+            AdbTreePush(port, sync = true, listOnly = listOnly, dryRun = dryRun).syncBuild(productOut(), partition)
         }
     }
 
@@ -89,14 +98,25 @@ public class AdbTransferController(
 
         override fun list(path: String): AdbSyncOutcome<List<AdbSyncEntry>> = session.list(path)
 
-        override fun send(path: String, modifiedAtSeconds: Int, source: ArtifactSource): Moved =
-            source.open().use { input ->
-                val sent = session.send(path, modifiedAtSeconds) { buffer -> input.read(buffer).coerceAtLeast(0) }
-                when (sent) {
-                    is AdbSyncSendOutcome.Committed -> Moved.Done(sent.bytesSent)
-                    is AdbSyncSendOutcome.Failed -> Moved.Failed("${sent.reason.name}: ${sent.detail}")
-                }
+        override fun send(path: String, modifiedAtSeconds: Int, source: ArtifactSource, dryRun: Boolean): Moved =
+            if (dryRun && DRY_RUN_SEND !in connection.peerFeatures) {
+                // Как `SendLargeFile` настольного клиента: без возможности у
+                // устройства проба не отправляется вовсе.
+                Moved.Failed("dry-run not supported by the device")
+            } else {
+                source.open().use { input -> sent(path, modifiedAtSeconds, dryRun, input) }
             }
+
+        private fun sent(path: String, modifiedAtSeconds: Int, dryRun: Boolean, input: java.io.InputStream): Moved {
+            val sent = session.send(path, modifiedAtSeconds, dryRun = dryRun) { buffer ->
+                input.read(buffer).coerceAtLeast(0)
+            }
+            return when (sent) {
+                is AdbSyncSendOutcome.Committed -> Moved.Done(sent.bytesSent)
+                is AdbSyncSendOutcome.Rehearsed -> Moved.Done(sent.bytesSent)
+                is AdbSyncSendOutcome.Failed -> Moved.Failed("${sent.reason.name}: ${sent.detail}")
+            }
+        }
 
         override fun receive(path: String, sink: ArtifactSink): Moved {
             val writer = ArtifactWriter(sink)
@@ -123,6 +143,9 @@ public class AdbTransferController(
 
     internal companion object {
         const val FIXED_PUSH_MKDIR = "fixed_push_mkdir"
+
+        /** `kFeatureSendRecv2DryRunSend`: устройство понимает `SEND_V2` с `kSyncFlagDryRun`. */
+        const val DRY_RUN_SEND = "sendrecv_v2_dry_run_send"
         private const val MKDIR = "mkdir"
         private const val MAX_COMMAND = 32_768
 

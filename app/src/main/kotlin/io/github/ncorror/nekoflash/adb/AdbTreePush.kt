@@ -33,6 +33,8 @@ internal class AdbTreePush(
     private val port: AdbTransferPort,
     private val sync: Boolean,
     private val listOnly: Boolean = false,
+    /** `-n`: каждый файл уходит пробой `SEND_V2` (Android 14 `sync_send`), устройство ничего не пишет. */
+    private val dryRun: Boolean = false,
     private val nowSeconds: () -> Int = { (System.currentTimeMillis() / MILLIS).toInt() },
 ) {
     private val ledger = TransferLedger()
@@ -173,7 +175,7 @@ internal class AdbTreePush(
 
     private fun send(path: String, modifiedAtMillis: Long?, open: () -> ArtifactSource): Boolean {
         val time = modifiedAtMillis?.let { (it / MILLIS).toInt() } ?: nowSeconds()
-        return ledger.moved(port.send(path, time, open()), path)
+        return ledger.moved(port.send(path, time, open(), dryRun), path)
     }
 
     private companion object {

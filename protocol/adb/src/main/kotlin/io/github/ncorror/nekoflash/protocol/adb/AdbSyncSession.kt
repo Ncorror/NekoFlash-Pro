@@ -198,14 +198,18 @@ public class AdbSyncSession(
      *
      * @param modifiedAtSeconds время изменения файла в секундах эпохи; уходит
      *   в `DONE`, как в Legacy `pushFile`.
+     * @param dryRun `SEND_V2` с `kSyncFlagDryRun`: устройство читает данные и
+     *   отвечает, ничего не записывая (`adb push -n`). Наличие у устройства
+     *   `sendrecv_v2_dry_run_send` проверяет вызывающий, как настольный клиент.
      */
     public fun send(
         path: String,
         modifiedAtSeconds: Int,
         mode: Int = AdbSyncProtocol.DEFAULT_FILE_MODE,
         timeoutMillis: Int = TRANSFER_TIMEOUT_MS,
+        dryRun: Boolean = false,
         source: (ByteArray) -> Int,
-    ): AdbSyncSendOutcome = upload.send(path, modifiedAtSeconds, mode, timeoutMillis, source)
+    ): AdbSyncSendOutcome = upload.send(path, modifiedAtSeconds, mode, timeoutMillis, dryRun, source)
 
     private fun readStatResponse(
         path: String,
