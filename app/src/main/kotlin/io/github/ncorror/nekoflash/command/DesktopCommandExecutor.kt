@@ -25,7 +25,11 @@ interface DesktopCommandTargets {
     /** `getvar ИМЯ`; `null` — `getvar all`: всё, что устройство готово рассказать. */
     fun fastbootVariable(name: String?)
     fun fastbootDownloadThen(then: List<String>, slot: String?, sparseLimit: Long?, origin: () -> ArtifactSource)
-    fun fastbootFetch(partition: String, slot: String?, destination: () -> ArtifactSink)
+    /**
+     * DATA IN в выбранный файл: [TerminalPlanStep.FastbootFetch] (`fetch:РАЗДЕЛ`)
+     * или [TerminalPlanStep.FastbootGetStaged] (`upload` — буфер устройства).
+     */
+    fun fastbootReceive(step: TerminalPlanStep, destination: () -> ArtifactSink)
 
     /** `flashall` — [picked] папка; `update` — выбранный архив. */
     fun fastbootFlashAll(step: TerminalPlanStep.FastbootFlashAll, picked: PickedFile)
@@ -160,7 +164,10 @@ class DesktopCommandExecutor(private val targets: DesktopCommandTargets) {
             )
             is TerminalPlanStep.FastbootBootImage ->
                 targets.fastbootDownloadThen(listOf("boot") + wires, null, null, file.open())
-            is TerminalPlanStep.FastbootFetch -> targets.fastbootFetch(first.partition, first.slot, file.create())
+            is TerminalPlanStep.FastbootFetch, is TerminalPlanStep.FastbootGetStaged ->
+                targets.fastbootReceive(first, file.create())
+            // `stage`: тот же `download:`, что под `flash`, только без команды следом.
+            is TerminalPlanStep.FastbootStage -> targets.fastbootDownloadThen(emptyList(), null, null, file.open())
             is TerminalPlanStep.FastbootGetvar -> targets.fastbootVariable(first.variable)
             TerminalPlanStep.FastbootGetvarAll -> targets.fastbootVariable(null)
             is TerminalPlanStep.FastbootFlashAll -> targets.fastbootFlashAll(first, checkNotNull(file))
@@ -214,6 +221,8 @@ fun TerminalPlanStep.isFastboot(): Boolean = when (this) {
     is TerminalPlanStep.FastbootFlashImage,
     is TerminalPlanStep.FastbootBootImage,
     is TerminalPlanStep.FastbootFetch,
+    is TerminalPlanStep.FastbootStage,
+    is TerminalPlanStep.FastbootGetStaged,
     is TerminalPlanStep.FastbootFlashAll,
     is TerminalPlanStep.FastbootWipeSuper,
     is TerminalPlanStep.FastbootFlashVendorRamdisk,

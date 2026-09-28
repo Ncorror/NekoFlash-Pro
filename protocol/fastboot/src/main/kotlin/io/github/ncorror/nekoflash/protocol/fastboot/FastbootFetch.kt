@@ -91,9 +91,29 @@ public class FastbootFetch(
         }
     }
 
+    /**
+     * `fastboot get_staged`: команда `upload` отдаёт буфер устройства одним
+     * обменом, объём называет устройство (`FastBootDriver::Upload`). Пустой
+     * буфер — отказ, как у `RunAndReadBuffer`: «device reports 0 bytes
+     * available».
+     */
+    public fun upload(sink: OutputStream): FastbootFetchOutcome =
+        when (val outcome = single(UPLOAD, sink, UPLOAD)) {
+            is FastbootFetchOutcome.Completed -> if (outcome.bytesReceived > 0L) {
+                outcome
+            } else {
+                FastbootFetchOutcome.Refused(UPLOAD, "$UPLOAD request failed, device reports 0 bytes available")
+            }
+            else -> outcome
+        }
+
     /** Один обмен: объём называет само устройство в кадре `DATA`. */
-    private fun single(partition: String, sink: OutputStream): FastbootFetchOutcome =
-        when (val chunk = readChunk(command(partition), sink)) {
+    private fun single(
+        partition: String,
+        sink: OutputStream,
+        request: String = command(partition),
+    ): FastbootFetchOutcome =
+        when (val chunk = readChunk(request, sink)) {
             is ChunkOutcome.Read -> FastbootFetchOutcome.Completed(partition, chunk.bytes, 1)
             is ChunkOutcome.Refused -> FastbootFetchOutcome.Refused(partition, chunk.detail)
             is ChunkOutcome.Broken ->
@@ -223,6 +243,7 @@ public class FastbootFetch(
         const val OPENING_FRAME_MS = 10_000L
 
         const val PREFIX = "fetch:"
+        const val UPLOAD = "upload"
         const val PARTITION_SIZE = "partition-size:"
         const val MAX_FETCH_SIZE = "max-fetch-size"
     }

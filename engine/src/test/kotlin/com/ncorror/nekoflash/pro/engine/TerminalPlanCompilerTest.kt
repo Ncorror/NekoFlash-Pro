@@ -226,6 +226,16 @@ class TerminalPlanCompilerTest {
         assertEquals(listOf(TerminalPlanStep.FastbootFetch("boot", "boot.img", "b")), steps("fastboot --slot b fetch boot boot.img"))
     }
 
+    /** `stage` — файл в буфер без команды следом; `-S` у настольного клиента лишь решает отказ (D075). */
+    @Test
+    fun stageAndGetStagedMoveTheDeviceBuffer() {
+        assertEquals(listOf(TerminalPlanStep.FastbootStage("payload.bin")), steps("fastboot stage payload.bin"))
+        assertEquals(listOf(TerminalPlanStep.FastbootStage("payload.bin")), steps("fastboot -S 16M stage payload.bin"))
+        assertEquals(TerminalFileNeed.OPEN, steps("fastboot stage payload.bin").single().fileNeed)
+        assertEquals(listOf(TerminalPlanStep.FastbootGetStaged("out.bin")), steps("fastboot get_staged out.bin"))
+        assertEquals(TerminalFileNeed.CREATE, steps("fastboot get_staged out.bin").single().fileNeed)
+    }
+
     @Test
     fun shellWithoutACommandOpensTheModeItNames() {
         assertEquals(listOf(TerminalPlanStep.AdbInteractiveShell(mode = ShellMode.LEGACY)), steps("adb shell -x"))

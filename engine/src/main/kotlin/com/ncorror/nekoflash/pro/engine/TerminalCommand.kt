@@ -50,6 +50,12 @@ sealed interface FastbootCommand {
     data object FlashAll : FastbootCommand
     data class UpdateSuper(val image: String, val wipe: Boolean) : FastbootCommand
     data class Fetch(val partition: String, val destination: String) : FastbootCommand
+
+    /** `stage ФАЙЛ`: файл в буфер устройства, без команды следом. */
+    data class Stage(val file: String) : FastbootCommand
+
+    /** `get_staged ФАЙЛ`: буфер устройства (`upload`) в файл. */
+    data class GetStaged(val destination: String) : FastbootCommand
     data class SetActive(val slot: String?) : FastbootCommand
     data class DeviceQuery(val query: String, val argument: String?) : FastbootCommand
     /** A desktop getvar request, distinct from an explicitly supplied raw wire request. */

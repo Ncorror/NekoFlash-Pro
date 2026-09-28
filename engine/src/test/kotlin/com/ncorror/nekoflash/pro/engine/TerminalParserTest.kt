@@ -157,7 +157,8 @@ class TerminalParserTest {
             fastboot("fastboot oem custom --vendor-flag").command)
         assertEquals(FastbootCommand.Wire("vendor-command --vendor-flag"),
             fastboot("fastboot vendor-command --vendor-flag").command)
-        assertIs<TerminalParseResult.Unsupported>(parser.parse("fastboot stage payload.bin"))
+        assertEquals(FastbootCommand.Stage("payload.bin"), fastboot("fastboot stage payload.bin").command)
+        assertEquals(FastbootCommand.GetStaged("out.bin"), fastboot("fastboot get_staged out.bin").command)
     }
 
     @Test

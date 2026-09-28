@@ -45,8 +45,11 @@ internal class ControllerCommandTargets(
         sparseLimit: Long?,
         origin: () -> ArtifactSource,
     ) = fastboot.downloadFrom(then, slot, sparseLimit, origin)
-    override fun fastbootFetch(partition: String, slot: String?, destination: () -> ArtifactSink) =
-        fastboot.fetchPartitionTo(partition, slot, destination)
+    override fun fastbootReceive(step: TerminalPlanStep, destination: () -> ArtifactSink) = when (step) {
+        is TerminalPlanStep.FastbootFetch -> fastboot.fetchPartitionTo(step.partition, step.slot, destination)
+        is TerminalPlanStep.FastbootGetStaged -> fastboot.buffer.uploadTo(destination)
+        else -> error("Not a DATA IN step: $step")
+    }
 
     override fun fastbootVendorRamdisk(
         ramdisk: String,

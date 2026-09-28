@@ -518,6 +518,20 @@ public class FastbootLinkController(
         }
     }
 
+    /** Буфер устройства: `fastboot get_staged`. Отдельная грань, как [scenarios]. */
+    internal val buffer: StagedBuffer = StagedBuffer()
+
+    internal inner class StagedBuffer internal constructor() {
+        /** `upload` — содержимое буфера устройства в место, выбранное пользователем. */
+        internal fun uploadTo(destination: () -> ArtifactSink) {
+            busy("fastboot_upload_file", "get_staged") { lane, _ ->
+                val writer = ArtifactWriter(destination())
+                val outcome = FastbootFetch(lane, FastbootGetVar(lane)).upload(WriterStream(writer))
+                saved(UPLOAD, writer, outcome, lane.state)
+            }
+        }
+    }
+
     /** Читает раздел в место, выбранное пользователем. */
     public fun fetchPartitionTo(partition: String, slot: String? = null, destination: () -> ArtifactSink) {
         busy("fastboot_fetch_file", partition) { lane, typed ->
@@ -831,6 +845,7 @@ public class FastbootLinkController(
     private companion object {
         const val MAX_PRODUCT_LENGTH = 128
         const val FETCH = "fetch:"
+        const val UPLOAD = "upload"
 
         /** Сколько ждать возвращения цели после её перезагрузки посреди сценария. */
         const val REJOIN_BUDGET_MS = 180_000L

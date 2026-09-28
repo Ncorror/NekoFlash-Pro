@@ -2,7 +2,7 @@
 
 **Единственный источник статуса проекта.** Другие документы описывают цель и правила; что сделано — только здесь. Статус меняется тем же коммитом, что и код.
 
-Версия APK: `0.53.0-dev`
+Версия APK: `0.54.0-dev`
 
 Текущий этап: **Этап 3 — Команды настольных `adb`/`fastboot` поверх нового ядра**
 
@@ -104,6 +104,7 @@
 | `format`, `-w`: пустая ext4 на хосте, как `mke2fs` у `generate_ext4_image` | `в репо` | `FastbootExt4` (`protocol/fastboot`), сверен с `mke2fs` 1.47.0 байт в байт на 18 размерах и ключах; зовёт `FastbootFormat`; D068 |
 | `format`, `-w`: пустая f2fs на хосте, как `make_f2fs` у `generate_f2fs_image` | `в репо` | `FastbootF2fs` (`protocol/fastboot`), сверен с `make_f2fs` 1.16.0 в сборке AOSP байт в байт на 11 размерах и ключах; зовёт `FastbootFormat`; D070 |
 | `format[:тип[:размер]]`, `-w`, `--fs-options`, `erase` и `if-wipe` из `fastboot-info.txt`: `fb_perform_format` и `WipeTask` в приложении | `в репо` | `FastbootFormat`; `-w` — сам по себе, с `reboot` и с `flashall`/`update`; с командой, которая исполняется при разборе строки (`erase`, `getvar`…), — «не реализовано»; D069 |
+| `stage`, `get_staged` | `в репо` | `stage` — `download:` выбранного файла без команды следом, как кнопка «Буфер»; объём больше `max-download-size` уходит устройству на решение (D075); `get_staged` — `upload` (`FastbootFetch.upload`) в выбранный файл, пустой буфер — отказ, как `RunAndReadBuffer`; на телефоне — шаг M1 |
 | `wipe-super` | `в репо` | `FastbootSuperImage` по `liblp` `ImageBuilder`: пустой `super` из метаданных выбранного `super_empty.img`, sparse; каждое устройство `super` под слот, у retrofit — `oem allow-flash-super`; D064 |
 | `vendor_boot:RAMDISK`: перепаковка | `в репо` | `FastbootVendorBoot` по `vendor_boot_img_utils.cpp`: `default` — весь рамдиск одной записью, иное имя — фрагмент таблицы v4; раздел читается `fetch` во временный файл, новый образ собирается из него потоком и прошивается обратно; D065 |
 | Длина Fastboot-команды: 64 или 4096 байт | `в репо` | `FastbootLane.MAX_COMMAND_BYTES` = 4096 по AOSP `FB_COMMAND_SZ` (D057); на `vayu` — шаг F2 плана проверки [07](07_BUILD_AND_TESTING.md#ручная-проверка-на-телефоне) |
@@ -154,7 +155,7 @@
 
 | Пункт | Статус | Где |
 | --- | --- | --- |
-| Нативный backend USBFS — после измерения Java-пути на настоящем образе | `нет` | legacy/A2 `native_usbfs.cpp` |
+| Нативный backend USBFS — после измерения Java-пути на настоящем образе | `нет` | legacy/A2 `native_usbfs.cpp`; решает замер `fastboot stage` (07, шаг M1): от 25 МиБ/с не нужен, ниже — следующий в этом этапе (D076) |
 | Матрица устройств, длительные передачи, стресс жизненного цикла | `нет` | |
 | Проверка приватности диагностики | `в репо` | все события и секции отчёта пройдены по правилу 07 «Диагностика в APK»; найдены и закрыты отпечаток ключа хоста и ответ `getvar:serialno` — `ExportIdentifiers`; D073 |
 | Подпись релизов и воспроизводимая сборка | `в репо` | `scripts/ci/release_apk.sh` и `.github/workflows/release.yml`: две сборки release одного коммита совпадают побайтно (без `version-control-info`), подпись `apksigner` ключом из секрета; ключ создаёт владелец (07 «Выпуск»); D074 |

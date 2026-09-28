@@ -56,6 +56,8 @@ class DesktopCommandExecutorTest {
         executor.execute(plan("fastboot fetch vendor_boot out.img"), saved)
         executor.execute(plan("fastboot --slot a format userdata"), null)
         executor.execute(plan("fastboot -w reboot"), null)
+        executor.execute(plan("fastboot stage payload.bin"), picked)
+        executor.execute(plan("fastboot get_staged out.bin"), saved)
 
         assertEquals(
             listOf(
@@ -66,6 +68,8 @@ class DesktopCommandExecutorTest {
                 "fetch vendor_boot slot=",
                 "format userdata slot=a",
                 "wipe then=reboot",
+                "downloadThen ",
+                "get_staged",
             ),
             calls,
         )
@@ -201,8 +205,11 @@ class DesktopCommandExecutorTest {
             calls += "downloadThen ${then.joinToString(",")}" + (slot?.let { " slot=$it" } ?: "") +
                 (sparseLimit?.let { " S=$it" } ?: "")
         }
-        override fun fastbootFetch(partition: String, slot: String?, destination: () -> ArtifactSink) {
-            calls += "fetch $partition" + (slot?.let { " slot=$it" } ?: "")
+        override fun fastbootReceive(step: TerminalPlanStep, destination: () -> ArtifactSink) {
+            calls += when (step) {
+                is TerminalPlanStep.FastbootFetch -> "fetch ${step.partition}" + (step.slot?.let { " slot=$it" } ?: "")
+                else -> "get_staged"
+            }
         }
         override fun fastbootVendorRamdisk(ramdisk: String, slot: String, sparseLimit: Long?, origin: () -> ArtifactSource) {
             calls += "vendor_boot:$ramdisk slot=$slot"

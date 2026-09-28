@@ -355,6 +355,8 @@
     <string name="command_step_fastboot_getvar_all">fastboot: getvar:all, the whole list</string>
     <string name="command_step_fastboot_flash">fastboot: download of the picked file (%2$s), then flash:%1$s — one operation</string>
     <string name="command_step_fastboot_boot">fastboot: download of the picked file (%1$s), then boot</string>
+    <string name="command_step_fastboot_stage">fastboot: download: of the chosen file (%1$s) into the device buffer, nothing after it</string>
+    <string name="command_step_fastboot_get_staged">fastboot: upload — the device buffer into a file you choose (%1$s)</string>
     <string name="command_step_fastboot_fetch">fastboot: fetch:%1$s into a file you choose (%2$s)</string>
     <string name="command_step_adb_shell">adb: shell %1$s</string>
     <string name="command_step_adb_interactive_line">adb: the interactive shell below, then %1$s</string>

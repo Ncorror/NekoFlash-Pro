@@ -291,6 +291,9 @@ private fun baseStepText(step: TerminalPlanStep): String = when (step) {
     is TerminalPlanStep.FastbootBootImage -> stringResource(R.string.command_step_fastboot_boot, step.imageName)
     is TerminalPlanStep.FastbootFetch ->
         stringResource(R.string.command_step_fastboot_fetch, step.partition, step.destinationName)
+    is TerminalPlanStep.FastbootStage -> stringResource(R.string.command_step_fastboot_stage, step.fileName)
+    is TerminalPlanStep.FastbootGetStaged ->
+        stringResource(R.string.command_step_fastboot_get_staged, step.destinationName)
     is TerminalPlanStep.AdbShellCommand -> stringResource(R.string.command_step_adb_shell, step.command)
     is TerminalPlanStep.AdbInteractiveShell -> when (step.mode) {
         ShellMode.RAW -> stringResource(R.string.command_step_adb_shell_raw)

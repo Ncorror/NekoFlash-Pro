@@ -358,6 +358,8 @@
     <string name="command_step_fastboot_getvar_all">fastboot: getvar:all, весь список</string>
     <string name="command_step_fastboot_flash">fastboot: download выбранного файла (%2$s), затем flash:%1$s — одной операцией</string>
     <string name="command_step_fastboot_boot">fastboot: download выбранного файла (%1$s), затем boot</string>
+    <string name="command_step_fastboot_stage">fastboot: download: выбранного файла (%1$s) в буфер устройства, без команды следом</string>
+    <string name="command_step_fastboot_get_staged">fastboot: upload — буфер устройства в файл, который вы выберете (%1$s)</string>
     <string name="command_step_fastboot_fetch">fastboot: fetch:%1$s в файл, который вы выберете (%2$s)</string>
     <string name="command_step_adb_shell">adb: shell %1$s</string>
     <string name="command_step_adb_interactive_line">adb: интерактивная оболочка ниже, в ней %1$s</string>

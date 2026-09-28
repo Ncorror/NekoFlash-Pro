@@ -73,6 +73,36 @@ class FastbootFetchTest {
         )
     }
 
+    /** `get_staged`: `upload` без переменных, объём называет устройство (`FastBootDriver::Upload`). */
+    @Test
+    fun uploadReadsTheStagedBufferInOneExchange() {
+        val payload = ByteArray(12) { (it * 3).toByte() }
+        val transport = FakeFastbootTransport()
+            .willReply("DATA0000000c")
+            .willSendData(payload)
+            .willReply("OKAY")
+        val sink = ByteArrayOutputStream()
+
+        val outcome = fetch(transport).upload(sink)
+
+        assertEquals(FastbootFetchOutcome.Completed("upload", 12L, 1), outcome)
+        assertTrue(payload.contentEquals(sink.toByteArray()))
+        assertEquals(listOf("upload"), transport.sent)
+    }
+
+    /** Пустой буфер — отказ, как у `RunAndReadBuffer`, а не пустой файл, выданный за прочитанный. */
+    @Test
+    fun anEmptyStagedBufferIsRefused() {
+        val transport = FakeFastbootTransport().willReply("DATA00000000").willReply("OKAY")
+
+        val outcome = fetch(transport).upload(ByteArrayOutputStream())
+
+        assertEquals(
+            FastbootFetchOutcome.Refused("upload", "upload request failed, device reports 0 bytes available"),
+            outcome,
+        )
+    }
+
     /** Размер приходит и шестнадцатеричным — так пишет часть загрузчиков. */
     @Test
     fun aHexadecimalSizeIsUnderstood() {

@@ -40,6 +40,16 @@ sealed interface TerminalPlanStep {
     /** `download` выбранного файла и `boot`. */
     data class FastbootBootImage(val imageName: String) : TerminalPlanStep
 
+    /**
+     * `fastboot stage ФАЙЛ`: выбранный файл одним `download:`, без команды
+     * следом. Примет ли устройство объём больше `max-download-size`, решает
+     * оно само (D075).
+     */
+    data class FastbootStage(val fileName: String) : TerminalPlanStep
+
+    /** `fastboot get_staged ФАЙЛ`: `upload` — буфер устройства в место, выбранное через Android. */
+    data class FastbootGetStaged(val destinationName: String) : TerminalPlanStep
+
     /** `fetch:PARTITION` в место, выбранное через Android; [slot] — как у [FastbootWire]. */
     data class FastbootFetch(val partition: String, val destinationName: String, val slot: String? = null) :
         TerminalPlanStep
@@ -232,9 +242,10 @@ val TerminalPlanStep.fileNeed: TerminalFileNeed
         is TerminalPlanStep.FastbootWipeSuper,
         is TerminalPlanStep.FastbootFlashVendorRamdisk,
         is TerminalPlanStep.AdbSideload,
+        is TerminalPlanStep.FastbootStage,
         -> TerminalFileNeed.OPEN
 
-        is TerminalPlanStep.FastbootFetch -> TerminalFileNeed.CREATE
+        is TerminalPlanStep.FastbootFetch, is TerminalPlanStep.FastbootGetStaged -> TerminalFileNeed.CREATE
         is TerminalPlanStep.AdbPull, is TerminalPlanStep.AdbSync -> TerminalFileNeed.FOLDER
         is TerminalPlanStep.AdbPush ->
             if (localNames.size == 1) TerminalFileNeed.OPEN_OR_FOLDER else TerminalFileNeed.OPEN_MANY

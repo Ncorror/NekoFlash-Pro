@@ -105,12 +105,16 @@ internal object FastbootPlans {
         else -> false
     }
 
-    /** `-S` режет образ для `flash`; у прочих команд ему не к чему применяться. */
+    /**
+     * `-S` режет образ для `flash`; у прочих команд ему не к чему применяться.
+     * У `stage` настольный клиент им только решает, отказать ли файлу больше
+     * предела; здесь это решает устройство (D075), и `-S` ничего не меняет.
+     */
     private fun sparseBlocker(command: FastbootCommand, options: FastbootOptions): String? =
         "fastboot -S".takeIf {
             options.sparseLimit != null && command !is FastbootCommand.Flash && !command.flashesAll() &&
                 command !is FastbootCommand.WipeSuper && command !is FastbootCommand.FlashVendorBootRamdisk &&
-                command !is FastbootCommand.Format && !options.wipe
+                command !is FastbootCommand.Format && command !is FastbootCommand.Stage && !options.wipe
         }
 
     /**
@@ -185,6 +189,8 @@ internal object FastbootPlans {
         is FastbootCommand.Boot -> command.takeIf { it.ramdisk == null && it.second == null }
             ?.let { listOf(TerminalPlanStep.FastbootBootImage(it.kernel)) }
         is FastbootCommand.Fetch -> listOf(TerminalPlanStep.FastbootFetch(command.partition, command.destination))
+        is FastbootCommand.Stage -> listOf(TerminalPlanStep.FastbootStage(command.file))
+        is FastbootCommand.GetStaged -> listOf(TerminalPlanStep.FastbootGetStaged(command.destination))
         is FastbootCommand.SetActive -> listOf(TerminalPlanStep.FastbootWire("set_active:${command.slot.orEmpty()}"))
         is FastbootCommand.Getvar -> listOf(
             if (command.variable == ALL) {

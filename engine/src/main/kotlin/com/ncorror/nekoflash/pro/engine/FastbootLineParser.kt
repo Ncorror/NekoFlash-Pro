@@ -172,6 +172,8 @@ internal class FastbootLineParser(private val tokens: List<TerminalToken>) {
                     ?.let { FastbootCommand.UpdateSuper(it[0], it.size == 2) }
             },
             "fetch" to Rule(PAIR) { _, operands, _ -> FastbootCommand.Fetch(operands[0], operands[1]) },
+            "stage" to Rule(ONE) { _, operands, _ -> FastbootCommand.Stage(operands[0]) },
+            "get_staged" to Rule(ONE) { _, operands, _ -> FastbootCommand.GetStaged(operands[0]) },
             "set_active" to Rule(ONE) { _, operands, _ -> setActive(operands[0]) },
             "set-active" to Rule(ONE) { _, operands, _ -> setActive(operands[0]) },
             "getvar" to Rule(OPTIONAL) { _, operands, _ -> FastbootCommand.Getvar(operands.firstOrNull() ?: "all") },
@@ -195,7 +197,7 @@ internal class FastbootLineParser(private val tokens: List<TerminalToken>) {
             "delete-logical-partition" to Rule(ONE) { op, operands, _ -> logical(op, operands) },
         )
 
-        val KNOWN_HOST_COMMANDS = RULES.keys + setOf("format", "stage", "get_staged", "raw", "service")
+        val KNOWN_HOST_COMMANDS = RULES.keys + setOf("format", "raw", "service")
 
         /** Пустой слот `set_active` — не слот: `verify_slot` отказал бы ему. */
         fun setActive(slot: String): FastbootCommand? = slot.ifEmpty { null }?.let(FastbootCommand::SetActive)
