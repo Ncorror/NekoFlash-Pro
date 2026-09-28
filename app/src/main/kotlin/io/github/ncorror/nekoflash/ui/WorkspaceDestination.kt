@@ -4,62 +4,78 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.PrimaryScrollableTabRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
-import androidx.compose.material3.PrimaryScrollableTabRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import io.github.ncorror.nekoflash.R
 
-/**
- * Разделы рабочего места.
- *
- * Четыре, и это не выдумка: ровно эти четыре названия уже лежали в строках с
- * Phase 1 (`nav_device`, `nav_terminal`, `nav_operations`, `nav_diagnostics`) —
- * они были нарисованы как неподвижный список, потому что переключать было
- * нечего. Теперь есть.
- *
- * Порядок — по тому, как часто в раздел заходят, а не по алфавиту: устройство
- * открыто почти всегда, диагностика нужна в конце прогона.
- */
+/** One destination is shared by the phone navigation and the wide workspace. */
 internal enum class WorkspaceDestination(val label: Int) {
+    HOME(R.string.nav_home),
     DEVICE(R.string.nav_device),
+    ADB(R.string.nav_adb),
+    FASTBOOT(R.string.nav_fastboot),
+    RECOVERY(R.string.nav_recovery),
     TERMINAL(R.string.nav_terminal),
+    MI_UNLOCK(R.string.nav_mi_unlock),
     OPERATIONS(R.string.nav_operations),
     DIAGNOSTICS(R.string.nav_diagnostics),
 }
 
-/**
- * Переключатель разделов для узкого экрана.
- *
- * Вкладки, а не нижняя панель: панель требует значка у каждого пункта, значков
- * в сборке нет, и рисовать их сейчас значило бы решать задачу оформления вместо
- * задачи навигации. Вкладки обходятся словами, а слова здесь точнее любого
- * значка — «Операции» и «Диагностика» пиктограммой не различить.
- *
- * **Прокручиваемые, а не равной ширины**, и это исправление первого же взгляда
- * на экран: четыре слова в четверть ширины телефона не помещаются, и Compose
- * переносил их посреди слова — «Устройст / во». Прокрутка отдаёт каждой вкладке
- * столько, сколько занимает слово; за краем остаётся край, а не обрубок.
- */
+private val tools = listOf(
+    WorkspaceDestination.ADB,
+    WorkspaceDestination.FASTBOOT,
+    WorkspaceDestination.RECOVERY,
+    WorkspaceDestination.TERMINAL,
+    WorkspaceDestination.MI_UNLOCK,
+    WorkspaceDestination.DIAGNOSTICS,
+)
+
+private enum class PrimaryDestination(val label: Int, val icon: Int, val destination: WorkspaceDestination) {
+    HOME(R.string.nav_home, R.drawable.nav_home, WorkspaceDestination.HOME),
+    DEVICE(R.string.nav_device, R.drawable.nav_device, WorkspaceDestination.DEVICE),
+    TOOLS(R.string.nav_tools, R.drawable.nav_tools, WorkspaceDestination.ADB),
+    OPERATIONS(R.string.nav_operations, R.drawable.nav_operations, WorkspaceDestination.OPERATIONS),
+}
+
+/** Four destinations remain visible on a phone; tools keep their own named tabs. */
 @Composable
-internal fun DestinationTabs(
-    current: WorkspaceDestination,
-    onSelect: (WorkspaceDestination) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    PrimaryScrollableTabRow(
-        selectedTabIndex = current.ordinal,
-        modifier = modifier,
-        edgePadding = 0.dp,
-    ) {
-        WorkspaceDestination.entries.forEach { destination ->
+internal fun DestinationBottomBar(current: WorkspaceDestination, onSelect: (WorkspaceDestination) -> Unit) {
+    NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainer) {
+        PrimaryDestination.entries.forEach { item ->
+            NavigationBarItem(
+                selected = when (item) {
+                    PrimaryDestination.TOOLS -> current in tools
+                    else -> current == item.destination
+                },
+                onClick = { onSelect(item.destination) },
+                icon = { Icon(painterResource(item.icon), contentDescription = null) },
+                label = { Text(stringResource(item.label)) },
+            )
+        }
+    }
+}
+
+/** Tools on a phone; the same destinations appear directly on the wide rail. */
+@Composable
+internal fun DestinationToolTabs(current: WorkspaceDestination, onSelect: (WorkspaceDestination) -> Unit) {
+    if (current !in tools) return
+    PrimaryScrollableTabRow(selectedTabIndex = tools.indexOf(current), edgePadding = 0.dp) {
+        tools.forEach { destination ->
             Tab(
                 selected = destination == current,
                 onClick = { onSelect(destination) },
@@ -69,12 +85,6 @@ internal fun DestinationTabs(
     }
 }
 
-/**
- * Тот же переключатель для широкого экрана.
- *
- * Сбоку, а не сверху: на планшете и в раскладке с клавиатурой вертикальный
- * список не отъедает высоту у самой работы, ради которой экран и открыт.
- */
 @Composable
 internal fun DestinationRail(
     current: WorkspaceDestination,
@@ -83,8 +93,8 @@ internal fun DestinationRail(
 ) {
     Surface(modifier = modifier) {
         Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.verticalScroll(rememberScrollState()).padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             Text(
                 text = stringResource(R.string.nav_workspace),
@@ -98,34 +108,17 @@ internal fun DestinationRail(
     }
 }
 
-/**
- * Пункт бокового списка.
- *
- * Выбранный отличается **и** цветом фона, **и** цветом текста: одного цвета
- * фона мало — в тёмной схеме разница между двумя соседними поверхностями на
- * ярком свету почти не видна.
- */
 @Composable
 private fun RailItem(destination: WorkspaceDestination, selected: Boolean, onClick: () -> Unit) {
     Surface(
-        color = if (selected) {
-            MaterialTheme.colorScheme.secondaryContainer
-        } else {
-            MaterialTheme.colorScheme.surface
-        },
-        modifier = Modifier
-            .fillMaxWidth()
-            .selectable(selected = selected, role = Role.Tab, onClick = onClick),
+        color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
+        modifier = Modifier.fillMaxWidth().selectable(selected = selected, role = Role.Tab, onClick = onClick),
     ) {
         Text(
             text = stringResource(destination.label),
             style = MaterialTheme.typography.bodyLarge,
-            color = if (selected) {
-                MaterialTheme.colorScheme.onSecondaryContainer
-            } else {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            },
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
         )
     }
 }

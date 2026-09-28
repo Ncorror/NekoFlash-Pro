@@ -10,5 +10,5 @@
         читается как сбой. Значения — те же surface из опорной палитры
         (05_FINAL_UI_UX_AND_BRAND_RU.md §2), а не подобранные заново.
     -->
-    <color name="window_background">#F6F8FB</color>
+    <color name="window_background">#080D13</color>
 </resources>

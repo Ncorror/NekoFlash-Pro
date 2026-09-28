@@ -15,7 +15,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -86,12 +85,16 @@ fun NekoFlashApp(
     desktopCommand: DesktopCommandPanel = DesktopCommandPanel(),
     onExportDiagnostics: () -> Unit = {},
 ) {
+    var destination by rememberSaveable { mutableStateOf(WorkspaceDestination.HOME) }
+    var chosenGeneration by rememberSaveable { mutableStateOf<Long?>(null) }
+    val selected = sessions.firstOrNull { it.generation.value == chosenGeneration } ?: sessions.firstOrNull()
+    val selectSession: (UsbSession) -> Unit = { chosenGeneration = it.generation.value }
+
     // Рабочая область одинакова в обеих раскладках и отличается только тем,
     // как занимает место. Список аргументов длинный, и два его экземпляра уже
     // однажды разъехались, поэтому он существует в одном месте.
     val workspace: @Composable (Modifier, WorkspaceDestination) -> Unit = { modifier, shown ->
         Workspace(
-            sessions = sessions,
             scan = scan,
             usbHostSupported = usbHostSupported,
             exportStatus = exportStatus,
@@ -120,6 +123,8 @@ fun NekoFlashApp(
             fastbootConsole = fastbootConsole,
             desktopCommand = desktopCommand,
             onExportDiagnostics = onExportDiagnostics,
+            selected = selected,
+            onNavigate = { destination = it },
             destination = shown,
             modifier = modifier,
         )
@@ -128,9 +133,12 @@ fun NekoFlashApp(
     // Выбранный раздел живёт здесь, а не в контроллере: это состояние взгляда,
     // а не состояние устройства. Поворот экрана его сохраняет, перезапуск — нет,
     // и это правильно: после перезапуска оператор смотрит на устройство.
-    var destination by rememberSaveable { mutableStateOf(WorkspaceDestination.DEVICE) }
-
-    Scaffold(topBar = { NekoFlashTopBar() }) { innerPadding ->
+    Scaffold(topBar = {
+        Column {
+            NekoFlashTopBar()
+            TargetBar(sessions = sessions, selected = selected, onSelect = selectSession)
+        }
+    }) { innerPadding ->
         WorkspaceLayout(
             destination = destination,
             onSelect = { chosen -> destination = chosen },
@@ -143,10 +151,9 @@ fun NekoFlashApp(
 }
 
 /**
- * Раскладка: навигация сбоку на широком экране и сверху на узком.
+ * Раскладка: боковая навигация на широком экране и нижняя на телефоне.
  *
- * Порог один и тот же для обоих: на 840 dp вертикальный список перестаёт
- * отъедать заметную долю ширины, а до него он съедал бы её у самой работы.
+ * От 600 dp используем прямой список разделов на широком экране.
  */
 @Composable
 private fun WorkspaceLayout(
@@ -169,21 +176,21 @@ private fun WorkspaceLayout(
             }
         } else {
             Column(modifier = Modifier.fillMaxSize()) {
-                DestinationTabs(current = destination, onSelect = onSelect)
+                DestinationToolTabs(current = destination, onSelect = onSelect)
                 workspace(Modifier.weight(1f), destination)
+                DestinationBottomBar(current = destination, onSelect = onSelect)
             }
         }
     }
 }
 
-/** С этой ширины навигация переезжает вбок: сверху она отъедала бы высоту у работы. */
-private val WIDE_SCREEN = 840.dp
+/** Ширина для боковой навигации в альбомной ориентации и на планшете. */
+private val WIDE_SCREEN = 600.dp
 
-private val RAIL_WIDTH = 240.dp
+private val RAIL_WIDTH = 196.dp
 
 @Composable
 private fun Workspace(
-    sessions: List<UsbSession>,
     scan: UsbScanSummary,
     usbHostSupported: Boolean,
     exportStatus: String?,
@@ -212,6 +219,8 @@ private fun Workspace(
     fastbootConsole: FastbootConsolePanel,
     desktopCommand: DesktopCommandPanel,
     onExportDiagnostics: () -> Unit,
+    selected: UsbSession?,
+    onNavigate: (WorkspaceDestination) -> Unit,
     destination: WorkspaceDestination,
     modifier: Modifier = Modifier,
 ) {
@@ -222,17 +231,40 @@ private fun Workspace(
         verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
         when (destination) {
-            WorkspaceDestination.DEVICE -> {
+            WorkspaceDestination.HOME -> HomeWorkspace(selected, paletteActions, onRescanUsb, onNavigate)
+            WorkspaceDestination.DEVICE,
+            WorkspaceDestination.ADB,
+            WorkspaceDestination.FASTBOOT,
+            WorkspaceDestination.RECOVERY -> {
                 SectionHeading(
-                    text = stringResource(R.string.sessions_title),
+                    text = stringResource(destination.label),
                     style = MaterialTheme.typography.headlineMedium,
                 )
-                // Палитра стоит над списком, а не под ним: она существует
-                // ровно затем, чтобы до знакомого действия не листать.
-                CommandPalette(actions = paletteActions)
+                SessionList(
+                    selected = selected,
+                    destination = destination,
+                    scan = scan,
+                    usbHostSupported = usbHostSupported,
+                    adbLink = adbLink,
+                    adbCommand = adbCommand,
+                    files = files,
+                    fileActions = fileActions,
+                    onClaim = onClaim,
+                    onRelease = onRelease,
+                    onAdbConnect = onAdbConnect,
+                    onAdbDisconnect = onAdbDisconnect,
+                    onRunCommand = onRunCommand,
+                    reboot = reboot,
+                    rawService = rawService,
+                    forward = forward,
+                    reverse = reverse,
+                    sideload = sideload,
+                    fastboot = fastboot,
+                    fastbootConsole = fastbootConsole,
+                )
             }
-
             WorkspaceDestination.TERMINAL -> TerminalWorkspace(adbLink, terminal, terminalActions, desktopCommand)
+            WorkspaceDestination.MI_UNLOCK -> MiUnlockSection(miUnlock)
             WorkspaceDestination.OPERATIONS -> OperationsSection(panel = operations)
             WorkspaceDestination.DIAGNOSTICS -> DiagnosticsWorkspace(
                 exportStatus = exportStatus,
@@ -241,35 +273,11 @@ private fun Workspace(
                 onExportDiagnostics = onExportDiagnostics,
             )
         }
-        if (destination != WorkspaceDestination.DEVICE) return@Column
-
-        SessionList(
-            sessions = sessions,
-            scan = scan,
-            usbHostSupported = usbHostSupported,
-            adbLink = adbLink,
-            adbCommand = adbCommand,
-            files = files,
-            fileActions = fileActions,
-            onClaim = onClaim,
-            onRelease = onRelease,
-            onAdbConnect = onAdbConnect,
-            onAdbDisconnect = onAdbDisconnect,
-            onRunCommand = onRunCommand,
-            reboot = reboot,
-            rawService = rawService,
-            forward = forward,
-            reverse = reverse,
-            sideload = sideload,
-            fastboot = fastboot,
-            fastbootConsole = fastbootConsole,
-        )
-        MiUnlockSection(miUnlock)
     }
 }
 
 /**
- * Терминал отдельным разделом.
+ * Терминал как отдельный инструмент.
  *
  * Он переехал из карточки устройства не ради симметрии: оболочка живёт дольше
  * одной команды, и листать до неё через все протокольные секции приходилось
@@ -325,7 +333,8 @@ private fun DiagnosticsWorkspace(
 
 @Composable
 private fun SessionList(
-    sessions: List<UsbSession>,
+    selected: UsbSession?,
+    destination: WorkspaceDestination,
     scan: UsbScanSummary,
     usbHostSupported: Boolean,
     adbLink: AdbLinkState,
@@ -345,7 +354,7 @@ private fun SessionList(
     fastboot: FastbootPanel,
     fastbootConsole: FastbootConsolePanel,
 ) {
-    if (sessions.isEmpty()) {
+    if (selected == null) {
         Text(
             text = stringResource(R.string.sessions_empty),
             style = MaterialTheme.typography.bodyLarge,
@@ -359,29 +368,17 @@ private fun SessionList(
         )
         return
     }
-    // Рабочее место принадлежит одному устройству: соединение ADB одно, полоса
-    // Fastboot одна, и операция ведётся с одной целью. Показывать рядом то, что
-    // относится к разным целям, значило бы заставлять соотносить их глазами.
-    val chosen = rememberSaveable { mutableStateOf(sessions.first().generation.value) }
-    // Выбранное устройство могли отключить: тогда берём то, что есть, а не
-    // показываем пустоту на месте существующей цели.
-    val session = sessions.firstOrNull { it.generation.value == chosen.value } ?: sessions.first()
-
-    TargetBar(
-        sessions = sessions,
-        selected = session,
-        onSelect = { other -> chosen.value = other.generation.value },
-    )
     SessionCard(
-        session = session,
+        session = selected,
+        destination = destination,
         adbLink = adbLink,
         adbCommand = adbCommand,
         files = files,
         fileActions = fileActions,
-        onClaim = { onClaim(session) },
-        onRelease = { onRelease(session) },
-        onAdbConnect = { onAdbConnect(session) },
-        onAdbDisconnect = { onAdbDisconnect(session) },
+        onClaim = { onClaim(selected) },
+        onRelease = { onRelease(selected) },
+        onAdbConnect = { onAdbConnect(selected) },
+        onAdbDisconnect = { onAdbDisconnect(selected) },
         onRunCommand = onRunCommand,
         reboot = reboot,
         rawService = rawService,
@@ -391,10 +388,9 @@ private fun SessionList(
         fastboot = fastboot,
         fastbootConsole = fastbootConsole,
     )
-    Text(
-        text = stringResource(R.string.mode_requires_handshake),
-        style = MaterialTheme.typography.bodySmall,
-    )
+    if (destination == WorkspaceDestination.DEVICE) {
+        Text(stringResource(R.string.mode_requires_handshake), style = MaterialTheme.typography.bodySmall)
+    }
 }
 
 @Composable
@@ -477,6 +473,7 @@ private fun SessionIdentity(session: UsbSession) {
 @Composable
 private fun SessionCard(
     session: UsbSession,
+    destination: WorkspaceDestination,
     adbLink: AdbLinkState,
     adbCommand: AdbCommandState,
     files: AdbFileState,
@@ -502,57 +499,53 @@ private fun SessionCard(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            SessionIdentity(session = session)
+            if (destination == WorkspaceDestination.DEVICE) SessionIdentity(session = session)
 
             if (session.state == UsbSessionState.READY || session.state == UsbSessionState.CLAIMED) {
-                // У интерфейса ADB владение одно: подключение захватывает
-                // интерфейс, отключение отпускает. Отдельная кнопка захвата
-                // была вторым органом управления тем же ресурсом, и прогон
-                // 2026-09-03 показал, к чему это приводит: интерфейс отпущен,
-                // а экран продолжает утверждать, что ADB подключён.
-                // Захват без протокольного обмена ничего не даёт, поэтому
-                // терять здесь нечего.
-                if (session.candidate.kind == UsbInterfaceKind.ADB) {
-                    AdbLinkSection(
-                        session = session,
-                        adbLink = adbLink,
-                        adbCommand = adbCommand,
-                        files = files,
-                        fileActions = fileActions,
-                        onAdbConnect = onAdbConnect,
-                        onAdbDisconnect = onAdbDisconnect,
-                        onRunCommand = onRunCommand,
-                        reboot = reboot,
-                        rawService = rawService,
-                        forward = forward,
-                        reverse = reverse,
-                        sideload = sideload,
-                    )
-                } else if (session.candidate.kind == UsbInterfaceKind.FASTBOOT) {
-                    FastbootLinkSection(fastboot = fastboot)
-                    val link = fastboot.state
-                    if (link is FastbootLinkState.Connected) {
-                        // Разрушающая группа получает замок **этой** generation:
-                        // форму подтверждения задаёт он, и известен он здесь.
-                        FastbootConsoleSection(console = fastbootConsole, lock = link.lock, onPlan = fastboot.onPlan)
-                    }
-                    Text(
-                        text = stringResource(R.string.fastboot_note),
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                } else {
-                    Button(onClick = if (claimed) onRelease else onClaim) {
-                        Text(
-                            stringResource(
-                                if (claimed) R.string.usb_release else R.string.usb_claim,
-                            ),
+                when (destination) {
+                    WorkspaceDestination.ADB -> if (session.candidate.kind == UsbInterfaceKind.ADB) {
+                        AdbLinkSection(
+                            session = session,
+                            adbLink = adbLink,
+                            adbCommand = adbCommand,
+                            files = files,
+                            fileActions = fileActions,
+                            onAdbConnect = onAdbConnect,
+                            onAdbDisconnect = onAdbDisconnect,
+                            onRunCommand = onRunCommand,
+                            reboot = reboot,
+                            rawService = rawService,
+                            forward = forward,
+                            reverse = reverse,
+                            sideload = sideload,
                         )
+                    } else Text(stringResource(R.string.tools_need_adb))
+                    WorkspaceDestination.FASTBOOT -> if (session.candidate.kind == UsbInterfaceKind.FASTBOOT) {
+                        FastbootLinkSection(fastboot = fastboot)
+                        val link = fastboot.state
+                        if (link is FastbootLinkState.Connected) {
+                            FastbootConsoleSection(
+                                console = fastbootConsole,
+                                lock = link.lock,
+                                onPlan = fastboot.onPlan,
+                            )
+                        }
+                        Text(stringResource(R.string.fastboot_note), style = MaterialTheme.typography.bodySmall)
+                    } else Text(stringResource(R.string.tools_need_fastboot))
+                    WorkspaceDestination.RECOVERY -> if (session.candidate.kind == UsbInterfaceKind.ADB) {
+                        SideloadSection(sideload)
+                    } else Text(stringResource(R.string.tools_need_recovery))
+                    WorkspaceDestination.DEVICE -> if (session.candidate.kind != UsbInterfaceKind.ADB &&
+                        session.candidate.kind != UsbInterfaceKind.FASTBOOT) {
+                        Button(onClick = if (claimed) onRelease else onClaim) {
+                            Text(stringResource(if (claimed) R.string.usb_release else R.string.usb_claim))
+                        }
+                        Text(stringResource(R.string.usb_claim_hint), style = MaterialTheme.typography.bodySmall)
                     }
-                    Text(
-                        text = stringResource(R.string.usb_claim_hint),
-                        style = MaterialTheme.typography.bodySmall,
-                    )
+                    else -> Unit
                 }
+            } else if (destination != WorkspaceDestination.DEVICE) {
+                Text(stringResource(R.string.mode_requires_handshake))
             }
         }
     }

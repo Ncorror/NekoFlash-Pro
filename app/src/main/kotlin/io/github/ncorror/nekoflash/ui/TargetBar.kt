@@ -1,14 +1,21 @@
 package io.github.ncorror.nekoflash.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Card
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -31,14 +38,19 @@ import io.github.ncorror.nekoflash.usb.api.UsbSession
 @Composable
 internal fun TargetBar(
     sessions: List<UsbSession>,
-    selected: UsbSession,
+    selected: UsbSession?,
     onSelect: (UsbSession) -> Unit,
 ) {
+    var expanded by remember { mutableStateOf(false) }
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
+            if (selected == null) {
+                Text(stringResource(R.string.home_connect_device))
+                return@Column
+            }
             LabelledValue(
                 label = stringResource(R.string.target_bar_label),
                 value = selected.targetId.value,
@@ -52,13 +64,20 @@ internal fun TargetBar(
                 style = MaterialTheme.typography.bodySmall,
             )
             if (sessions.size > 1) {
-                Text(
-                    text = stringResource(R.string.target_bar_others, sessions.size - 1),
-                    style = MaterialTheme.typography.labelMedium,
-                )
-                sessions.filter { it.generation != selected.generation }.forEach { other ->
-                    TextButton(onClick = { onSelect(other) }) {
-                        Text(other.targetId.value)
+                Box {
+                    TextButton(onClick = { expanded = true }) {
+                        Text(stringResource(R.string.target_bar_others, sessions.size - 1))
+                    }
+                    DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                        sessions.filter { it.generation != selected.generation }.forEach { other ->
+                            DropdownMenuItem(
+                                text = { Text(other.targetId.value) },
+                                onClick = {
+                                    expanded = false
+                                    onSelect(other)
+                                },
+                            )
+                        }
                     }
                 }
             }

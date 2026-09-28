@@ -3,6 +3,18 @@
     <string name="app_tagline">Профессиональный инструментарий Android-хоста</string>
 
     <string name="nav_workspace">Рабочая область</string>
+    <string name="nav_home">Главная</string>
+    <string name="nav_tools">Инструменты</string>
+    <string name="nav_adb">ADB</string>
+    <string name="nav_fastboot">Fastboot</string>
+    <string name="nav_recovery">Recovery</string>
+    <string name="nav_mi_unlock">Mi Unlock</string>
+    <string name="home_connect_device">Подключите Android-устройство по USB, чтобы начать работу.</string>
+    <string name="home_current_target">Текущее устройство</string>
+    <string name="home_device_details">Сведения об устройстве</string>
+    <string name="tools_need_adb">Подключите устройство в режиме ADB для работы с этими инструментами.</string>
+    <string name="tools_need_fastboot">Подключите устройство в режиме Fastboot для работы с этими инструментами.</string>
+    <string name="tools_need_recovery">Подключите устройство в режиме Recovery или ADB Sideload для работы с этими инструментами.</string>
     <string name="nav_device">Устройство</string>
     <string name="nav_terminal">Терминал</string>
     <string name="nav_operations">Операции</string>
@@ -328,7 +340,7 @@
     <string name="diagnostics_recent_note">Последние %1$d строк, свежие сверху. Полный отчёт — это выгрузка выше; панель здесь для того, чтобы прямо на прогоне видеть, пишется ли вообще то, ради чего прогон затеян.</string>
     <string name="target_bar_label">Работаем с</string>
     <string name="target_bar_state">%1$s · %2$s</string>
-    <string name="target_bar_others">Подключено ещё устройств: %1$d. Всё ниже относится к тому, что названо выше, — выберите другое, чтобы работать с ним.</string>
+    <string name="target_bar_others">Сменить устройство (ещё %1$d)</string>
     <string name="operations_empty">В этой установке операций ещё не было. Длительная передача — sideload, чтение или запись файла — появится здесь, пока идёт, и останется после конца, в том числе если кончилась неизвестностью.</string>
     <string name="command_title">Команда adb или fastboot</string>
     <string name="command_label">adb … или fastboot … (префикс можно не писать)</string>
