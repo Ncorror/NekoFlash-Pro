@@ -117,20 +117,7 @@ class MainActivity : ComponentActivity() {
         val fileState by adbLink.files.collectAsState()
         val fastbootState by fastbootLink.state.collectAsState()
         val fastbootConsole by fastbootLink.console.collectAsState()
-        val miAccount by application.miAccount.state.collectAsState()
-        val miUnlock by fastbootLink.miUnlock.collectAsState()
         var exportStatus by remember { mutableStateOf<String?>(null) }
-
-        val miLogin = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-            if (result.resultCode == Activity.RESULT_OK) {
-                val token = result.data?.getStringExtra(MiLoginActivity.EXTRA_PASS_TOKEN)
-                val user = result.data?.getStringExtra(MiLoginActivity.EXTRA_USER_ID)
-                val device = result.data?.getStringExtra(MiLoginActivity.EXTRA_DEVICE_ID)
-                if (!token.isNullOrBlank() && !user.isNullOrBlank() && !device.isNullOrBlank()) {
-                    application.miAccount.signIn(token, user, device)
-                }
-            }
-        }
 
         val savedTemplate = stringResource(R.string.diagnostics_export_done)
         val failedTemplate = stringResource(R.string.diagnostics_export_failed)
@@ -190,22 +177,43 @@ class MainActivity : ComponentActivity() {
             ),
             recentEvents = RecentEvents { application.recentDiagnostics() },
             fastboot = fastbootPanel(fastbootLink, fastbootState, sessions),
-            miUnlock = MiUnlockPanel(
-                account = miAccount,
-                operation = miUnlock,
-                fastboot = fastbootState,
-                onSignIn = { miLogin.launch(Intent(this@MainActivity, MiLoginActivity::class.java)) },
-                onSignOut = {
-                    application.miAccount.signOut()
-                    CookieManager.getInstance().removeAllCookies(null)
-                    CookieManager.getInstance().flush()
-                },
-                onChangeZone = application.miAccount::changeZone,
-                onUnlock = { application.miAccount.unlock(fastbootLink) },
-            ),
+            miUnlock = miUnlockPanel(application, fastbootLink, fastbootState),
             fastbootConsole = fastbootConsolePanel(fastbootLink, fastbootConsole, fastbootState, sessions),
             desktopCommand = desktopCommandPanel(adbLink, fastbootLink, coordinator),
             onExportDiagnostics = { saveLauncher.launch(application.suggestedDiagnosticsFileName()) },
+        )
+    }
+
+    @Composable
+    private fun miUnlockPanel(
+        application: NekoFlashApplication,
+        link: FastbootLinkController,
+        fastboot: FastbootLinkState,
+    ): MiUnlockPanel {
+        val account by application.miAccount.state.collectAsState()
+        val operation by link.miUnlock.collectAsState()
+        val login = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            if (result.resultCode == Activity.RESULT_OK) {
+                val token = result.data?.getStringExtra(MiLoginActivity.EXTRA_PASS_TOKEN)
+                val user = result.data?.getStringExtra(MiLoginActivity.EXTRA_USER_ID)
+                val device = result.data?.getStringExtra(MiLoginActivity.EXTRA_DEVICE_ID)
+                if (!token.isNullOrBlank() && !user.isNullOrBlank() && !device.isNullOrBlank()) {
+                    application.miAccount.signIn(token, user, device)
+                }
+            }
+        }
+        return MiUnlockPanel(
+            account = account,
+            operation = operation,
+            fastboot = fastboot,
+            onSignIn = { login.launch(Intent(this, MiLoginActivity::class.java)) },
+            onSignOut = {
+                application.miAccount.signOut()
+                CookieManager.getInstance().removeAllCookies(null)
+                CookieManager.getInstance().flush()
+            },
+            onChangeZone = application.miAccount::changeZone,
+            onUnlock = { application.miAccount.unlock(link) },
         )
     }
 }

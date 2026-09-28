@@ -293,7 +293,7 @@ public class FastbootLinkController(
         unlockStage(MiUnlockStatus.Stage.DEVICE)
         val product = (FastbootGetVar(active).read("product") as? FastbootVariable.Present)?.value
             ?.filterNot(Char::isWhitespace)
-            ?.takeIf { it.length in 1..128 && it.matches(Regex("[A-Za-z0-9_.-]+")) }
+            ?.takeIf { it.length in 1..MAX_PRODUCT_LENGTH && it.matches(Regex("[A-Za-z0-9_.-]+")) }
             ?: return unlockFailure(active, MiUnlockStatus.Reason.DEVICE)
         val serial = (FastbootGetVar(active).read("serialno") as? FastbootVariable.Present)?.value
             ?.trim()?.takeIf { it.isNotBlank() }
@@ -325,7 +325,10 @@ public class FastbootLinkController(
                 pendingUnlock = PendingUnlock(connected.generation, product, serial)
                 mutableMiUnlock.value = MiUnlockStatus.AwaitingReconnect
                 emit("mi_unlock_command_accepted", mapOf("verification" to "pending"))
-                FastbootConsoleState.Answered("Mi Unlock", FastbootReply.OKAY, "ожидается проверка после переподключения", emptyList(), active.state)
+                FastbootConsoleState.Answered(
+                    "Mi Unlock", FastbootReply.OKAY,
+                    "ожидается проверка после переподключения", emptyList(), active.state,
+                )
             }
             is XiaomiUnlockOutcome.Refused -> unlockFailure(active, MiUnlockStatus.Reason.REJECTED)
             is XiaomiUnlockOutcome.Unknown -> unlockFailure(active, MiUnlockStatus.Reason.UNKNOWN)
@@ -333,10 +336,15 @@ public class FastbootLinkController(
         }
     }
 
-    private fun unlockFailure(active: FastbootLane, reason: MiUnlockStatus.Reason, code: Int? = null): FastbootConsoleState {
+    private fun unlockFailure(
+        active: FastbootLane,
+        reason: MiUnlockStatus.Reason,
+        code: Int? = null,
+    ): FastbootConsoleState {
         mutableMiUnlock.value = MiUnlockStatus.Failed(reason, code)
         emit("mi_unlock_failed", mapOf("reason" to reason.name, "code" to (code?.toString() ?: "none")))
-        return FastbootConsoleState.NotAnswered("Mi Unlock", "${reason.name}${code?.let { " ($it)" }.orEmpty()}", active.state)
+        val detail = reason.name + (code?.let { " ($it)" } ?: "")
+        return FastbootConsoleState.NotAnswered("Mi Unlock", detail, active.state)
     }
 
     private fun unlockStage(stage: MiUnlockStatus.Stage) {
@@ -345,13 +353,14 @@ public class FastbootLinkController(
     }
 
     private fun parseUnlockData(hex: String): ByteArray? {
-        if (hex.length !in 2..(16 * 1024 * 1024) || hex.length % 2 != 0) return null
-        val bytes = ByteArray(hex.length / 2)
+        if (hex.length !in HEX_CHARS_PER_BYTE..MAX_UNLOCK_HEX_CHARS ||
+            hex.length % HEX_CHARS_PER_BYTE != 0) return null
+        val bytes = ByteArray(hex.length / HEX_CHARS_PER_BYTE)
         for (index in bytes.indices) {
-            val high = Character.digit(hex[index * 2], 16)
-            val low = Character.digit(hex[index * 2 + 1], 16)
+            val high = Character.digit(hex[index * HEX_CHARS_PER_BYTE], HEX_RADIX)
+            val low = Character.digit(hex[index * HEX_CHARS_PER_BYTE + 1], HEX_RADIX)
             if (high < 0 || low < 0) return null
-            bytes[index] = ((high shl 4) or low).toByte()
+            bytes[index] = ((high shl HEX_NIBBLE_BITS) or low).toByte()
         }
         return bytes
     }
@@ -773,6 +782,11 @@ public class FastbootLinkController(
     }
 
     private companion object {
+        const val MAX_PRODUCT_LENGTH = 128
+        const val HEX_CHARS_PER_BYTE = 2
+        const val HEX_RADIX = 16
+        const val HEX_NIBBLE_BITS = 4
+        const val MAX_UNLOCK_HEX_CHARS = 16 * 1024 * 1024
         const val FETCH = "fetch:"
         const val DIAGNOSTIC_CATEGORY = "fastboot"
 
