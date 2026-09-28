@@ -2,7 +2,7 @@
 
 **Единственный источник статуса проекта.** Другие документы описывают цель и правила; что сделано — только здесь. Статус меняется тем же коммитом, что и код.
 
-Версия APK: `0.44.0-dev`
+Версия APK: `0.45.0-dev`
 
 Текущий этап: **Этап 3 — Команды настольных `adb`/`fastboot` поверх нового ядра**
 
@@ -103,7 +103,7 @@
 | `flashall`/`update` из загрузчика, когда набору нужен fastbootd (`super_empty.img`, `reboot fastboot`) | `нет` | переход в fastbootd посреди работы и продолжение на новом подключении; до него — отказ до первой команды с советом `fastboot reboot fastboot`; D063 |
 | `format`, `-w`: создание файловой системы на хосте | `нет` | D053; `erase` в `fastboot-info.txt` отвергается до первой команды по той же причине (D063) |
 | `wipe-super` | `в репо` | `FastbootSuperImage` по `liblp` `ImageBuilder`: пустой `super` из метаданных выбранного `super_empty.img`, sparse; каждое устройство `super` под слот, у retrofit — `oem allow-flash-super`; D064 |
-| `vendor_boot:RAMDISK`: перепаковка | `нет` | D053 |
+| `vendor_boot:RAMDISK`: перепаковка | `в репо` | `FastbootVendorBoot` по `vendor_boot_img_utils.cpp`: `default` — весь рамдиск одной записью, иное имя — фрагмент таблицы v4; раздел читается `fetch` во временный файл, новый образ собирается из него потоком и прошивается обратно; D065 |
 | Длина Fastboot-команды: 64 или 4096 байт | `в репо` | `FastbootLane.MAX_COMMAND_BYTES` = 4096 по AOSP `FB_COMMAND_SZ` (D057); на `vayu` — шаг F2 плана проверки [07](07_BUILD_AND_TESTING.md#ручная-проверка-на-телефоне) |
 
 ## Этап 5 — Recovery и Sideload

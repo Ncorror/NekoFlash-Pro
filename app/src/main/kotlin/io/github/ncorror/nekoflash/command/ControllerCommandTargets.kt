@@ -46,11 +46,18 @@ internal class ControllerCommandTargets(
     override fun fastbootFetch(partition: String, slot: String?, destination: () -> ArtifactSink) =
         fastboot.fetchPartitionTo(partition, slot, destination)
 
+    override fun fastbootVendorRamdisk(
+        ramdisk: String,
+        slot: String,
+        sparseLimit: Long?,
+        origin: () -> ArtifactSource,
+    ) = fastboot.scenarios.flashVendorRamdisk(ramdisk, slot, sparseLimit, stagingDirectory, origin)
+
     override fun fastbootWipeSuper(slot: String, sparseLimit: Long?, origin: () -> ArtifactSource) =
-        fastboot.wipeSuper(slot, sparseLimit, origin)
+        fastboot.scenarios.wipeSuper(slot, sparseLimit, origin)
 
     override fun fastbootFlashAll(step: TerminalPlanStep.FastbootFlashAll, picked: PickedFile) =
-        fastboot.flashAll(
+        fastboot.scenarios.flashAll(
             FlashAllRequest(
                 slot = step.slot,
                 force = step.force,

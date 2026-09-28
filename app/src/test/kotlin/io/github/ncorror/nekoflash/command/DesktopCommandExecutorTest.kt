@@ -186,6 +186,9 @@ class DesktopCommandExecutorTest {
         override fun fastbootFetch(partition: String, slot: String?, destination: () -> ArtifactSink) {
             calls += "fetch $partition" + (slot?.let { " slot=$it" } ?: "")
         }
+        override fun fastbootVendorRamdisk(ramdisk: String, slot: String, sparseLimit: Long?, origin: () -> ArtifactSource) {
+            calls += "vendor_boot:$ramdisk slot=$slot"
+        }
         override fun fastbootWipeSuper(slot: String, sparseLimit: Long?, origin: () -> ArtifactSource) {
             calls += "wipe-super slot=$slot"
         }

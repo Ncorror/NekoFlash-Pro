@@ -75,6 +75,7 @@ internal object FastbootPlans {
         this == FastbootCommand.FlashAll || this is FastbootCommand.Update
 
     private fun FastbootCommand.takesSlot(): Boolean = when (this) {
+        is FastbootCommand.FlashVendorBootRamdisk,
         is FastbootCommand.WipeSuper,
         FastbootCommand.FlashAll,
         is FastbootCommand.Update,
@@ -90,7 +91,7 @@ internal object FastbootPlans {
     private fun sparseBlocker(command: FastbootCommand, options: FastbootOptions): String? =
         "fastboot -S".takeIf {
             options.sparseLimit != null && command !is FastbootCommand.Flash && !command.flashesAll() &&
-                command !is FastbootCommand.WipeSuper
+                command !is FastbootCommand.WipeSuper && command !is FastbootCommand.FlashVendorBootRamdisk
         }
 
     /**
@@ -111,6 +112,7 @@ internal object FastbootPlans {
                     is TerminalPlanStep.FastbootFetch -> step.copy(slot = slot)
                     is TerminalPlanStep.FastbootFlashAll -> step.copy(slot = slot)
                     is TerminalPlanStep.FastbootWipeSuper -> step.copy(slot = slot)
+                    is TerminalPlanStep.FastbootFlashVendorRamdisk -> step.copy(slot = slot)
                     else -> step
                 }
             }
@@ -138,6 +140,7 @@ internal object FastbootPlans {
             when (step) {
                 is TerminalPlanStep.FastbootFlashImage -> step.copy(vbmetaFlags = flags, sparseLimit = sparse)
                 is TerminalPlanStep.FastbootWipeSuper -> step.copy(sparseLimit = sparse)
+                is TerminalPlanStep.FastbootFlashVendorRamdisk -> step.copy(sparseLimit = sparse)
                 is TerminalPlanStep.FastbootFlashAll -> step.copy(
                     vbmetaFlags = flags,
                     sparseLimit = sparse,
@@ -168,6 +171,8 @@ internal object FastbootPlans {
             ?.let { listOf(TerminalPlanStep.FastbootGetvar("$IS_LOGICAL:${it.argument}")) }
         is FastbootCommand.Wire -> listOf(TerminalPlanStep.FastbootWire(command.payload))
         FastbootCommand.FlashAll -> listOf(TerminalPlanStep.FastbootFlashAll(archiveName = null))
+        is FastbootCommand.FlashVendorBootRamdisk -> command.image
+            ?.let { listOf(TerminalPlanStep.FastbootFlashVendorRamdisk(command.ramdisk, it)) }
         is FastbootCommand.WipeSuper ->
             listOf(TerminalPlanStep.FastbootWipeSuper(command.emptySuperImage ?: SUPER_EMPTY))
         is FastbootCommand.Update -> listOf(TerminalPlanStep.FastbootFlashAll(archiveName = command.archive))

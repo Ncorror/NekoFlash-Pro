@@ -330,18 +330,41 @@ public class FastbootLinkController(
     }
 
     /**
-     * `fastboot flashall` и `fastboot update` — одной операцией полосы, как
-     * `FlashAllTool` настольного клиента ([FastbootFlashAll]).
+     * Сценарии хоста настольного клиента: `flashall`/`update`, `wipe-super`,
+     * `flash vendor_boot:ИМЯ`. Одна грань, чтобы не раздувать сам контроллер;
+     * полоса та же, через тот же [busy].
      */
-    internal fun flashAll(request: FlashAllRequest, images: () -> FastbootImageSet) {
-        busy("fastboot_flashall", if (request.flashAll) "flashall" else "update") { lane, _ ->
-            FastbootFlashAll(lane, images(), request).run()
-        }
-    }
+    internal val scenarios: HostScenarios = HostScenarios()
 
-    /** `fastboot wipe-super`: пустой `super` по выбранному `super_empty.img` ([wipeSuper]). */
-    internal fun wipeSuper(slot: String, sparseLimit: Long?, origin: () -> ArtifactSource) {
-        busy("fastboot_wipe_super", "wipe-super") { lane, _ -> wipeSuper(lane, origin(), slot, sparseLimit) }
+    /** Сценарии хоста — одной операцией полосы каждый. */
+    internal inner class HostScenarios internal constructor() {
+        /**
+         * `fastboot flashall` и `fastboot update` — одной операцией полосы, как
+         * `FlashAllTool` настольного клиента ([FastbootFlashAll]).
+         */
+        internal fun flashAll(request: FlashAllRequest, images: () -> FastbootImageSet) {
+            busy("fastboot_flashall", if (request.flashAll) "flashall" else "update") { lane, _ ->
+                FastbootFlashAll(lane, images(), request).run()
+            }
+        }
+
+        /** `fastboot flash vendor_boot:ИМЯ` ([flashVendorRamdisk]); копия раздела — в [staging]. */
+        internal fun flashVendorRamdisk(
+            ramdisk: String,
+            slot: String,
+            sparseLimit: Long?,
+            staging: java.io.File,
+            origin: () -> ArtifactSource,
+        ) {
+            busy("fastboot_vendor_ramdisk", "vendor_boot:$ramdisk") { lane, _ ->
+                flashVendorRamdisk(lane, origin(), ramdisk, slot, sparseLimit, staging)
+            }
+        }
+
+        /** `fastboot wipe-super`: пустой `super` по выбранному `super_empty.img` ([wipeSuper]). */
+        internal fun wipeSuper(slot: String, sparseLimit: Long?, origin: () -> ArtifactSource) {
+            busy("fastboot_wipe_super", "wipe-super") { lane, _ -> wipeSuper(lane, origin(), slot, sparseLimit) }
+        }
     }
 
     /** Читает раздел в место, выбранное пользователем. */

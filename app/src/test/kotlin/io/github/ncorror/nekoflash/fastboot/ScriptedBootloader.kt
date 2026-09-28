@@ -18,10 +18,12 @@ import io.github.ncorror.nekoflash.usb.api.UsbTransportHandle
 internal class ScriptedBootloader(
     private val variables: Map<String, String>,
     private val refused: Set<String> = emptySet(),
+    /** Разделы для `fetch:ИМЯ:СМЕЩЕНИЕ:РАЗМЕР`. */
+    private val partitions: Map<String, ByteArray> = emptyMap(),
 ) : UsbTransportHandle {
     val sent = mutableListOf<String>()
     val downloads = mutableListOf<ByteArray>()
-    private val replies = ArrayDeque<String>()
+    private val replies = ArrayDeque<ByteArray>()
     private var expected = 0
     private var buffer = ByteArray(0)
 
@@ -34,7 +36,7 @@ internal class ScriptedBootloader(
             expected -= length
             if (expected == 0) {
                 downloads += buffer
-                replies += "OKAY"
+                replies += "OKAY".toByteArray()
             }
         } else {
             command(String(source, offset, length, Charsets.US_ASCII))
@@ -44,6 +46,7 @@ internal class ScriptedBootloader(
 
     private fun command(text: String) {
         sent += text
+        if (text.startsWith("fetch:")) return fetch(text.removePrefix("fetch:").split(":"))
         replies += when {
             text.startsWith("download:") -> {
                 expected = text.removePrefix("download:").toInt(16)
@@ -54,14 +57,24 @@ internal class ScriptedBootloader(
             text in refused -> "FAILrefused"
             // `set_active` подтверждается перечитыванием `current-slot` — у фейка он неизменен.
             else -> "OKAY"
-        }
+        }.toByteArray(Charsets.US_ASCII)
+    }
+
+    private fun fetch(parts: List<String>) {
+        val partition = partitions[parts[0]] ?: return run { replies += "FAILno such partition".toByteArray() }
+        val offset = parts.getOrNull(1)?.toInt() ?: 0
+        val size = parts.getOrNull(2)?.toInt() ?: partition.size
+        replies += "DATA%08x".format(size).toByteArray()
+        replies += partition.copyOfRange(offset, offset + size)
+        replies += "OKAY".toByteArray()
     }
 
     override fun receive(destination: ByteArray, offset: Int, length: Int, timeoutMillis: Int): UsbTransferResult {
         val next = replies.removeFirstOrNull() ?: return UsbTransferResult.Failed(UsbTransferFailure.NOT_COMPLETED)
-        val bytes = next.toByteArray(Charsets.US_ASCII)
-        bytes.copyInto(destination, offset)
-        return UsbTransferResult.Completed(bytes.size)
+        val take = minOf(length, next.size)
+        next.copyInto(destination, offset, 0, take)
+        if (take < next.size) replies.addFirst(next.copyOfRange(take, next.size))
+        return UsbTransferResult.Completed(take)
     }
 
     override fun close() = Unit

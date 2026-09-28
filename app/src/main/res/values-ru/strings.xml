@@ -378,6 +378,7 @@
     <string name="command_step_adb_dry_run">. Проба (-n): устройство читает каждый файл и ничего не записывает</string>
     <string name="command_step_fastboot_flashall">fastboot: flashall из папки, которую вы выберете как каталог сборки: требования android-info.txt, set_active, загрузочные образы, затем системные, в конце перезагрузка. Опции: %1$s</string>
     <string name="command_step_fastboot_update">fastboot: update из %1$s (архив, который вы выберете): требования android-info.txt, set_active, загрузочные образы, затем системные, в конце перезагрузка. Опции: %2$s</string>
+    <string name="command_step_fastboot_vendor_ramdisk">fastboot: vendor_boot читается с устройства, рамдиск %1$s в нём заменяется на %2$s (файл, который вы выберете), и образ прошивается обратно; слот: %3$s</string>
     <string name="command_step_fastboot_wipe_super">fastboot: wipe-super по %1$s (файл, который вы выберете): пустой super по его метаданным прошивается на каждое устройство super; слот: %2$s</string>
     <string name="terminal_type_no_enter">Отправить без Enter</string>
     <string name="terminal_new_tab">+ Вкладка</string>

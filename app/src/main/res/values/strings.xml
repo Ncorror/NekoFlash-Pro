@@ -375,6 +375,7 @@
     <string name="command_step_adb_dry_run">. Dry run (-n): the device reads every file and writes nothing</string>
     <string name="command_step_fastboot_flashall">fastboot: flashall from the folder you pick as the build output: android-info.txt requirements, set_active, boot images, then system images, reboot at the end. Options: %1$s</string>
     <string name="command_step_fastboot_update">fastboot: update from %1$s (the archive you pick): android-info.txt requirements, set_active, boot images, then system images, reboot at the end. Options: %2$s</string>
+    <string name="command_step_fastboot_vendor_ramdisk">fastboot: vendor_boot is read from the device, its ramdisk %1$s is replaced by %2$s (the file you pick), and the image is flashed back; slot: %3$s</string>
     <string name="command_step_fastboot_wipe_super">fastboot: wipe-super from %1$s (the file you pick): an empty super built from its metadata is flashed to each super device; slot: %2$s</string>
     <string name="terminal_type_no_enter">Send without Enter</string>
     <string name="terminal_new_tab">+ Tab</string>

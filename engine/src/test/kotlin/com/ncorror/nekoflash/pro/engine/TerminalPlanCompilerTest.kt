@@ -58,7 +58,7 @@ class TerminalPlanCompilerTest {
             "fastboot -S 512M erase system",
             "fastboot format userdata",
             "fastboot -w flashall",
-            "fastboot flash vendor_boot:default ramdisk.img",
+            "fastboot flash vendor_boot:default",
             "fastboot boot kernel ramdisk",
             "adb install --no-streaming app.apk",
             "adb install --fastdeploy app.apk",
@@ -91,6 +91,10 @@ class TerminalPlanCompilerTest {
         assertEquals(
             listOf(TerminalPlanStep.FastbootWipeSuper("super_empty.img", slot = "a", sparseLimit = 4096L)),
             steps("fastboot --slot a -S 4K wipe-super"),
+        )
+        assertEquals(
+            listOf(TerminalPlanStep.FastbootFlashVendorRamdisk("dlkm", "ramdisk.img", slot = "b")),
+            steps("fastboot --slot b flash vendor_boot:dlkm ramdisk.img"),
         )
     }
 

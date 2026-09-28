@@ -318,6 +318,26 @@ private fun baseStepText(step: TerminalPlanStep): String = when (step) {
         step.remotePath,
     ) + dryRunNote(step.dryRun)
     is TerminalPlanStep.AdbSideload -> stringResource(R.string.command_step_adb_sideload, step.archiveName)
+    is TerminalPlanStep.FastbootFlashVendorRamdisk,
+    is TerminalPlanStep.FastbootWipeSuper,
+    is TerminalPlanStep.FastbootFlashAll,
+    -> hostScenarioText(step)
+    is TerminalPlanStep.AdbInstall -> stringResource(
+        if (step.several) R.string.command_step_adb_install_multiple else R.string.command_step_adb_install,
+        step.names.joinToString(", "),
+        step.options.joinToString(" ").ifEmpty { "—" },
+    )
+}
+
+/** Сценарии хоста `fastboot`: что соберёт приложение и что прошьёт. */
+@Composable
+private fun hostScenarioText(step: TerminalPlanStep): String = when (step) {
+    is TerminalPlanStep.FastbootFlashVendorRamdisk -> stringResource(
+        R.string.command_step_fastboot_vendor_ramdisk,
+        step.ramdisk,
+        step.imageName,
+        step.slot.ifEmpty { "—" },
+    )
     is TerminalPlanStep.FastbootWipeSuper -> stringResource(
         R.string.command_step_fastboot_wipe_super,
         step.imageName,
@@ -326,11 +346,7 @@ private fun baseStepText(step: TerminalPlanStep): String = when (step) {
     is TerminalPlanStep.FastbootFlashAll -> step.archiveName
         ?.let { stringResource(R.string.command_step_fastboot_update, it, flashAllOptions(step)) }
         ?: stringResource(R.string.command_step_fastboot_flashall, flashAllOptions(step))
-    is TerminalPlanStep.AdbInstall -> stringResource(
-        if (step.several) R.string.command_step_adb_install_multiple else R.string.command_step_adb_install,
-        step.names.joinToString(", "),
-        step.options.joinToString(" ").ifEmpty { "—" },
-    )
+    else -> step.toString()
 }
 
 /** Исход — в той части, которой коснулась команда, тем же текстом, что и у кнопок. */

@@ -100,6 +100,17 @@ sealed interface TerminalPlanStep {
     data class AdbSideload(val archiveName: String) : TerminalPlanStep
 
     /**
+     * `fastboot flash vendor_boot:ИМЯ РАМДИСК`: раздел читается с устройства,
+     * рамдиск [ramdisk] (`default` — весь) заменяется выбранным файлом.
+     */
+    data class FastbootFlashVendorRamdisk(
+        val ramdisk: String,
+        val imageName: String,
+        val slot: String = CURRENT_SLOT,
+        val sparseLimit: Long? = null,
+    ) : TerminalPlanStep
+
+    /**
      * `fastboot wipe-super [SUPER_EMPTY]`: пустой `super` по выбранному
      * `super_empty.img` ([imageName] — как его назвал оператор).
      */
@@ -172,6 +183,7 @@ val TerminalPlanStep.fileNeed: TerminalFileNeed
         is TerminalPlanStep.FastbootFlashImage,
         is TerminalPlanStep.FastbootBootImage,
         is TerminalPlanStep.FastbootWipeSuper,
+        is TerminalPlanStep.FastbootFlashVendorRamdisk,
         is TerminalPlanStep.AdbSideload,
         -> TerminalFileNeed.OPEN
 
@@ -199,6 +211,7 @@ val TerminalPlanStep.writesPartition: Boolean
         is TerminalPlanStep.FastbootFlashImage,
         is TerminalPlanStep.FastbootFlashAll,
         is TerminalPlanStep.FastbootWipeSuper,
+        is TerminalPlanStep.FastbootFlashVendorRamdisk,
         -> true
         is TerminalPlanStep.FastbootWire -> PARTITION_WRITES.any { command.startsWith(it) }
         else -> false
