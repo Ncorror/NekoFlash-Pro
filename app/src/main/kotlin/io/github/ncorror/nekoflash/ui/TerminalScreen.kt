@@ -1,6 +1,12 @@
 package io.github.ncorror.nekoflash.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.Alignment
+import androidx.compose.material3.minimumInteractiveComponentSize
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -114,18 +120,28 @@ internal fun TerminalTabsRow(panel: TerminalPanel, actions: TerminalActions) {
                 onClick = { actions.onSelectTab(index) },
                 label = { Text(tabTitle(index, tab)) },
                 trailingIcon = if (panel.tabs.size > 1) {
-                    {
-                        Text(
-                            stringResource(R.string.terminal_close_tab),
-                            modifier = Modifier.clickable { actions.onCloseTab(index) },
-                        )
-                    }
+                    { CloseTab(index, actions.onCloseTab) }
                 } else {
                     null
                 },
             )
         }
         OutlinedButton(onClick = actions.onAddTab) { Text(stringResource(R.string.terminal_new_tab)) }
+    }
+}
+
+/** «×» вкладки: цель не меньше 48 dp и название для TalkBack — «Закрыть вкладку N». */
+@Composable
+private fun CloseTab(index: Int, onClose: (Int) -> Unit) {
+    val label = stringResource(R.string.terminal_close_tab_label, index + 1)
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier
+            .minimumInteractiveComponentSize()
+            .clickable(role = Role.Button, onClickLabel = label) { onClose(index) }
+            .semantics { contentDescription = label },
+    ) {
+        Text(stringResource(R.string.terminal_close_tab))
     }
 }
 
@@ -148,7 +164,12 @@ internal fun TerminalKeys(enabled: Boolean, onKey: (TerminalKey) -> Unit, onType
     ) {
         OutlinedButton(onClick = onType, enabled = enabled) { Text(stringResource(R.string.terminal_type_no_enter)) }
         for ((key, label) in KEY_LABELS) {
-            OutlinedButton(onClick = { onKey(key) }, enabled = enabled) { Text(label) }
+            val spoken = stringResource(keySpoken(key))
+            OutlinedButton(
+                onClick = { onKey(key) },
+                enabled = enabled,
+                modifier = Modifier.semantics { contentDescription = spoken },
+            ) { Text(label) }
         }
     }
 }
@@ -206,6 +227,17 @@ private fun colorOf(value: Int): Color? = when {
         val gray = GRAY_BASE + (value - GRAY_START) * GRAY_STEP
         Color(OPAQUE or (gray shl RED_SHIFT) or (gray shl GREEN_SHIFT) or gray)
     }
+}
+
+/** Как клавишу назвать вслух: «↑» TalkBack читает по-разному, а то и никак. */
+private fun keySpoken(key: TerminalKey): Int = when (key) {
+    TerminalKey.ESCAPE -> R.string.terminal_key_escape
+    TerminalKey.TAB -> R.string.terminal_key_tab
+    TerminalKey.UP -> R.string.terminal_key_up
+    TerminalKey.DOWN -> R.string.terminal_key_down
+    TerminalKey.LEFT -> R.string.terminal_key_left
+    TerminalKey.RIGHT -> R.string.terminal_key_right
+    TerminalKey.CTRL_D -> R.string.terminal_key_ctrl_d
 }
 
 private val KEY_LABELS = listOf(

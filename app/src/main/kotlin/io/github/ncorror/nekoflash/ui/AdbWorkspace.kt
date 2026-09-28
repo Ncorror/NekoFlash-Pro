@@ -435,7 +435,7 @@ private fun TerminalInput(input: MutableState<String>, ready: Boolean, onSend: (
 internal fun TerminalSection(terminal: AdbTerminalState, actions: TerminalActions) {
     val input = remember { mutableStateOf("") }
 
-    Text(text = stringResource(R.string.terminal_label), style = MaterialTheme.typography.labelMedium)
+    SectionHeading(text = stringResource(R.string.terminal_label), style = MaterialTheme.typography.labelMedium)
     TerminalScreen(
         screen = terminal.screen,
         placeholder = when {

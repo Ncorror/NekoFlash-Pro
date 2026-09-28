@@ -142,8 +142,11 @@ internal fun FastbootOutcomePane(state: FastbootConsoleState) {
         shape = MaterialTheme.shapes.medium,
         modifier = Modifier.fillMaxWidth(),
     ) {
+        // Ожидание тикает каждую секунду и не объявляется; объявляется итог.
         Column(
-            modifier = Modifier.padding(12.dp),
+            modifier = Modifier
+                .padding(12.dp)
+                .then(if (state is FastbootConsoleState.Running) Modifier else Modifier.announcedOutcome()),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             FastbootConsoleOutcome(state)

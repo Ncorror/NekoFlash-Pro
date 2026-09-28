@@ -375,6 +375,14 @@
     <string name="terminal_type_no_enter">Send without Enter</string>
     <string name="terminal_new_tab">+ Tab</string>
     <string name="terminal_close_tab">×</string>
+    <string name="terminal_close_tab_label">Close tab %1$d</string>
+    <string name="terminal_key_escape">Escape</string>
+    <string name="terminal_key_tab">Tab</string>
+    <string name="terminal_key_up">Arrow up</string>
+    <string name="terminal_key_down">Arrow down</string>
+    <string name="terminal_key_left">Arrow left</string>
+    <string name="terminal_key_right">Arrow right</string>
+    <string name="terminal_key_ctrl_d">Control D, end of input</string>
     <string name="command_note">The same engines run this as the buttons and the raw console. A path in the command is never opened directly: the file is picked through Android and bound to the plan shown above. A command or option without an executor answers \"not implemented\" before anything is sent, instead of turning into a different command. `flash` of an image larger than the device\'s max-download-size goes in sparse pieces, as with desktop fastboot.</string>
     <string name="command_file_count">The command names %1$d files, and %2$d were picked. Nothing was sent.</string>
     <string name="command_run_open_many">Pick the files and run</string>

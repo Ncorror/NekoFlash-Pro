@@ -121,23 +121,43 @@ internal fun DesktopCommandSection(panel: DesktopCommandPanel) {
                 CommandLine(stringResource(R.string.command_not_implemented, result.what))
             is TerminalPlanResult.Ready -> PlanPreview(result.plan, panel)
         }
-        when (val problem = panel.fileProblem) {
-            is DesktopCommandStart.FileCount ->
-                CommandLine(stringResource(R.string.command_file_count, problem.expected, problem.picked))
-            null, is DesktopCommandStart.Started, is DesktopCommandStart.Answered -> Unit
-            DesktopCommandStart.FileMissing -> CommandLine(stringResource(R.string.command_file_missing))
+        // Объявляется устоявшийся итог; ожидание и счётчики байт — нет.
+        val announced = if (settled(panel.area, panel.outcomes)) Modifier.announcedOutcome() else Modifier
+        Column(modifier = announced, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            CommandResult(panel)
         }
-        panel.answer?.let { answer ->
-            SelectionContainer {
-                Text(
-                    text = answer.ifBlank { stringResource(R.string.command_answer_empty) },
-                    style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
-                )
-            }
-        }
-        CommandOutcome(panel.area, panel.outcomes)
         Text(text = stringResource(R.string.command_note), style = MaterialTheme.typography.bodySmall)
     }
+}
+
+/** Закончилась ли команда: идущую TalkBack не объявляет на каждое изменение. */
+private fun settled(area: DesktopCommandArea?, outcomes: DesktopCommandOutcomes): Boolean = when (area) {
+    DesktopCommandArea.FASTBOOT -> outcomes.fastboot !is FastbootConsoleState.Running
+    DesktopCommandArea.ADB_SHELL -> outcomes.shell !is AdbCommandState.Running
+    DesktopCommandArea.ADB_INSTALL -> outcomes.install !is AdbInstallState.Running
+    DesktopCommandArea.ADB_TRANSFER -> outcomes.transfer !is AdbTransferState.Running
+    DesktopCommandArea.ADB_SIDELOAD -> outcomes.sideload !is AdbSideloadState.Running
+    DesktopCommandArea.ADB_SERVICE, DesktopCommandArea.ADB_REBOOT, DesktopCommandArea.ADB_TERMINAL, null -> true
+}
+
+/** Итог последней команды: то, о чём спросили, и ответ устройства или приложения. */
+@Composable
+private fun CommandResult(panel: DesktopCommandPanel) {
+    when (val problem = panel.fileProblem) {
+        is DesktopCommandStart.FileCount ->
+            CommandLine(stringResource(R.string.command_file_count, problem.expected, problem.picked))
+        null, is DesktopCommandStart.Started, is DesktopCommandStart.Answered -> Unit
+        DesktopCommandStart.FileMissing -> CommandLine(stringResource(R.string.command_file_missing))
+    }
+    panel.answer?.let { answer ->
+        SelectionContainer {
+            Text(
+                text = answer.ifBlank { stringResource(R.string.command_answer_empty) },
+                style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
+            )
+        }
+    }
+    CommandOutcome(panel.area, panel.outcomes)
 }
 
 /**
@@ -153,7 +173,7 @@ private fun PlanPreview(plan: TerminalPlan, panel: DesktopCommandPanel) {
     val writes = plan.steps.any { it.writesPartition }
     val needsWord = writes && panel.lock?.typedConfirmation == true
 
-    Text(text = stringResource(R.string.command_preview_title), style = MaterialTheme.typography.titleSmall)
+    SectionHeading(text = stringResource(R.string.command_preview_title))
     plan.steps.forEachIndexed { index, step ->
         CommandLine(stringResource(R.string.command_step, index + 1, stepText(step)))
     }

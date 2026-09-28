@@ -5,7 +5,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.res.stringResource
@@ -98,3 +100,14 @@ internal fun localizedMatchConfidence(confidence: UsbMatchConfidence): String = 
         UsbMatchConfidence.GENERIC_VENDOR -> R.string.match_confidence_generic_vendor
     },
 )
+
+/**
+ * Итог, который TalkBack объявляет сам, когда он меняется: вежливая живая
+ * область, одна вещь вместо россыпи строк.
+ *
+ * Только для итогов. Ожидание, которое тикает каждую секунду, и счётчики
+ * байт сюда не кладутся: объявление на каждое изменение заглушило бы всё
+ * остальное.
+ */
+internal fun Modifier.announcedOutcome(): Modifier =
+    semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite }
