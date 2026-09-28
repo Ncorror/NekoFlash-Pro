@@ -142,9 +142,7 @@ fun NekoFlashApp(
         )
     }
 
-    BackHandler(enabled = terminalFocus && destination == WorkspaceDestination.TERMINAL) {
-        terminalFocus = false
-    }
+    BackHandler(enabled = terminalFocus && destination == WorkspaceDestination.TERMINAL) { terminalFocus = false }
     WorkspaceScaffold(
         destination = destination,
         focused = terminalFocus,
@@ -296,9 +294,7 @@ private fun Workspace(
             WorkspaceDestination.ADB,
             WorkspaceDestination.FASTBOOT,
             WorkspaceDestination.RECOVERY -> {
-                SectionHeading(
-                    text = stringResource(destination.label), style = MaterialTheme.typography.headlineMedium,
-                )
+                SectionHeading(stringResource(destination.label), style = MaterialTheme.typography.headlineMedium)
                 SessionList(
                     selected = selected,
                     destination = destination,
