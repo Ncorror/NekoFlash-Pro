@@ -460,4 +460,9 @@
     <string name="mi_unlock_fail_unknown">Device outcome is unknown. Check its lock status before trying again.</string>
     <string name="mi_unlock_fail_not_started">Fastboot command was not sent.</string>
     <string name="mi_unlock_server_code">Xiaomi code: %1$d</string>
+    <string name="terminal_commands">Commands</string>
+    <string name="terminal_shell">Shell</string>
+    <string name="terminal_fullscreen">Full screen</string>
+    <string name="terminal_exit_fullscreen">Exit full screen</string>
+    <string name="target_bar_switch">Switch</string>
 </resources>

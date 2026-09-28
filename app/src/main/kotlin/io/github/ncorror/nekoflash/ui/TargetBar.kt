@@ -1,14 +1,20 @@
 package io.github.ncorror.nekoflash.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Card
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -16,71 +22,109 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.ncorror.nekoflash.R
 import io.github.ncorror.nekoflash.usb.api.UsbSession
 
-/**
- * Какое устройство сейчас на столе.
- *
- * Рабочее место принадлежит **одному** устройству, и это не оформление:
- * соединение ADB одно, полоса Fastboot одна, и операция ведётся с одной целью.
- * Пока все подключённые устройства лежали одним списком, экран показывал то, что
- * относится к разным целям, вперемешку — и «подключено» приходилось соотносить
- * с карточкой глазами.
- *
- * Когда устройство одно — а так почти всегда, — полоса просто называет его.
- * Выбор появляется только когда есть из чего выбирать, и тогда он честный:
- * другие цели названы, а не спрятаны.
- */
+/** Постоянная цель работы: компактная строка остаётся над каждым разделом. */
 @Composable
 internal fun TargetBar(
     sessions: List<UsbSession>,
     selected: UsbSession?,
     onSelect: (UsbSession) -> Unit,
 ) {
-    var expanded by remember { mutableStateOf(false) }
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
+    Surface(color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxWidth()) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
         ) {
-            if (selected == null) {
-                Text(stringResource(R.string.home_connect_device))
-                return@Column
-            }
-            LabelledValue(
-                label = stringResource(R.string.target_bar_label),
-                value = selected.targetId.value,
+            Box(
+                modifier = Modifier
+                    .width(3.dp)
+                    .height(36.dp)
+                    .background(
+                        if (selected == null) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.primary,
+                        RoundedCornerShape(2.dp),
+                    ),
             )
-            Text(
-                text = stringResource(
+            Spacer(Modifier.width(12.dp))
+            TargetIdentity(selected, Modifier.weight(1f))
+            val others = sessions.filter { it.generation != selected?.generation }
+            if (others.isNotEmpty()) TargetSwitcher(others, onSelect)
+        }
+    }
+}
+
+@Composable
+private fun TargetIdentity(selected: UsbSession?, modifier: Modifier) {
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(
+            text = selected?.targetId?.value ?: stringResource(R.string.nav_device),
+            style = MaterialTheme.typography.titleSmall,
+            fontFamily = FontFamily.Monospace,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            text = if (selected == null) {
+                stringResource(R.string.home_connect_device)
+            } else {
+                stringResource(
                     R.string.target_bar_state,
                     localizedSessionState(selected.state),
                     localizedInterfaceKind(selected.candidate.kind),
-                ),
-                style = MaterialTheme.typography.bodySmall,
-            )
-            if (sessions.size > 1) {
-                Box {
-                    TextButton(onClick = { expanded = true }) {
-                        Text(stringResource(R.string.target_bar_others, sessions.size - 1))
-                    }
-                    DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-                        sessions.filter { it.generation != selected.generation }.forEach { other ->
-                            DropdownMenuItem(
-                                text = { Text(other.targetId.value) },
-                                onClick = {
-                                    expanded = false
-                                    onSelect(other)
-                                },
-                            )
-                        }
-                    }
-                }
+                )
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
+private fun TargetSwitcher(others: List<UsbSession>, onSelect: (UsbSession) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        val description = stringResource(R.string.target_bar_others, others.size)
+        TextButton(
+            onClick = { expanded = true },
+            modifier = Modifier.semantics { contentDescription = description },
+        ) { Text(stringResource(R.string.target_bar_switch)) }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            others.forEach { other ->
+                DropdownMenuItem(
+                    text = { TargetChoice(other) },
+                    onClick = {
+                        expanded = false
+                        onSelect(other)
+                    },
+                )
             }
         }
+    }
+}
+
+@Composable
+private fun TargetChoice(session: UsbSession) {
+    Column {
+        Text(session.targetId.value, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(
+            text = stringResource(
+                R.string.target_bar_state,
+                localizedSessionState(session.state),
+                localizedInterfaceKind(session.candidate.kind),
+            ),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }

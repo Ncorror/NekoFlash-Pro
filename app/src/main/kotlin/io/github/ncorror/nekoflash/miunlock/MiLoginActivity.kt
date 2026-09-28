@@ -3,7 +3,7 @@ package io.github.ncorror.nekoflash.miunlock
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Intent
-import android.graphics.Color
+import android.content.res.ColorStateList
 import android.net.Uri
 import android.net.http.SslError
 import android.os.Bundle
@@ -91,11 +91,11 @@ class MiLoginActivity : ComponentActivity() {
         val dp = { v: Int -> (v * resources.displayMetrics.density).toInt() }
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.parseColor("#090B0F"))
+            setBackgroundColor(getColor(R.color.window_background))
             setPadding(dp(ROOT_PADDING_DP), dp(ROOT_PADDING_DP), dp(ROOT_PADDING_DP), dp(ROOT_PADDING_DP))
         }
         loginMessage = TextView(this).apply {
-            setTextColor(Color.parseColor("#F5F5F7"))
+            setTextColor(getColor(R.color.brand_text_primary))
             textSize = MESSAGE_TEXT_SP
             typeface = android.graphics.Typeface.MONOSPACE
             visibility = View.GONE
@@ -106,16 +106,21 @@ class MiLoginActivity : ComponentActivity() {
         }
         progressBar = ProgressBar(this).apply {
             isIndeterminate = true
+            indeterminateTintList = ColorStateList.valueOf(getColor(R.color.brand_accent))
         }
         continueButton = Button(this).apply {
             text = getString(R.string.mi_login_continue)
             isAllCaps = false
+            backgroundTintList = ColorStateList.valueOf(getColor(R.color.brand_accent))
+            setTextColor(getColor(R.color.brand_on_accent))
             visibility = View.GONE
             setOnClickListener { returnResults() }
         }
         logoutButton = Button(this).apply {
             text = getString(R.string.mi_login_logout)
             isAllCaps = false
+            backgroundTintList = ColorStateList.valueOf(getColor(R.color.brand_accent))
+            setTextColor(getColor(R.color.brand_on_accent))
             visibility = View.GONE
             setOnClickListener { doLogout() }
         }

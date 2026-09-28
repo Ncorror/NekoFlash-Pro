@@ -3,12 +3,15 @@ package io.github.ncorror.nekoflash.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
@@ -25,6 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import io.github.ncorror.nekoflash.R
 import io.github.ncorror.nekoflash.adb.AdbCommandState
@@ -416,6 +420,13 @@ private fun TerminalInput(input: MutableState<String>, ready: Boolean, onSend: (
             onValueChange = { text -> input.value = text },
             label = { Text(stringResource(R.string.terminal_input_hint)) },
             singleLine = true,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+            keyboardActions = KeyboardActions(onSend = {
+                if (ready && input.value.isNotBlank()) {
+                    onSend(input.value)
+                    input.value = ""
+                }
+            }),
             enabled = ready,
             modifier = Modifier.weight(1f),
         )
@@ -432,51 +443,66 @@ private fun TerminalInput(input: MutableState<String>, ready: Boolean, onSend: (
 }
 
 @Composable
-internal fun TerminalSection(terminal: AdbTerminalState, actions: TerminalActions) {
+internal fun TerminalSection(
+    terminal: AdbTerminalState,
+    actions: TerminalActions,
+    connected: Boolean,
+    modifier: Modifier = Modifier,
+) {
     val input = remember { mutableStateOf("") }
-
-    SectionHeading(text = stringResource(R.string.terminal_label), style = MaterialTheme.typography.labelMedium)
-    TerminalScreen(
-        screen = terminal.screen,
-        placeholder = when {
-            terminal.ended != null -> stringResource(R.string.terminal_ended, terminal.ended)
-            terminal.closing -> stringResource(R.string.terminal_closing)
-            terminal.active && !terminal.ready -> stringResource(R.string.terminal_opening)
-            else -> stringResource(R.string.terminal_waiting)
-        },
-        showCursor = terminal.ready,
-        onResize = actions.onResize,
-    )
-    if (terminal.mode != AdbShellMode.PTY) {
-        Text(text = terminalModeText(terminal.mode), style = MaterialTheme.typography.bodySmall)
-    }
-    if (terminal.active) {
-        TerminalInput(input, terminal.ready, actions.onSend)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = actions.onInterrupt, enabled = terminal.ready) {
-                Text(stringResource(R.string.terminal_interrupt))
-            }
-            Button(onClick = actions.onStop, enabled = !terminal.closing) {
-                Text(stringResource(R.string.terminal_stop))
-            }
-        }
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        TerminalStatus(terminal, connected, actions)
+        TerminalScreen(
+            screen = terminal.screen,
+            placeholder = when {
+                terminal.ended != null -> stringResource(R.string.terminal_ended, terminal.ended)
+                terminal.closing -> stringResource(R.string.terminal_closing)
+                terminal.active && !terminal.ready -> stringResource(R.string.terminal_opening)
+                else -> stringResource(R.string.terminal_waiting)
+            },
+            showCursor = terminal.ready,
+            onResize = actions.onResize,
+            modifier = Modifier.weight(1f),
+        )
         TerminalKeys(
             enabled = terminal.ready,
             onKey = actions.onKey,
+            onInterrupt = actions.onInterrupt,
             onType = {
                 actions.onType(input.value)
                 input.value = ""
             },
         )
-    } else {
-        Button(onClick = actions.onStart) {
-            Text(stringResource(R.string.terminal_start))
+        TerminalInput(input, terminal.ready, actions.onSend)
+    }
+}
+
+@Composable
+private fun TerminalStatus(terminal: AdbTerminalState, connected: Boolean, actions: TerminalActions) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Text(
+            text = if (connected) {
+                terminalModeText(terminal.mode)
+            } else {
+                stringResource(R.string.terminal_needs_connection)
+            },
+            style = MaterialTheme.typography.labelSmall,
+            modifier = Modifier.weight(1f),
+        )
+        if (terminal.active) {
+            TextButton(onClick = actions.onStop, enabled = !terminal.closing) {
+                Text(stringResource(R.string.terminal_stop))
+            }
+        } else {
+            TextButton(onClick = actions.onStart, enabled = connected) {
+                Text(stringResource(R.string.terminal_start))
+            }
         }
     }
-    Text(
-        text = stringResource(R.string.terminal_note),
-        style = MaterialTheme.typography.bodySmall,
-    )
 }
 
 /**

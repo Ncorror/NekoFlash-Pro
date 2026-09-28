@@ -463,4 +463,9 @@
     <string name="mi_unlock_fail_unknown">Исход на устройстве неизвестен. Проверьте состояние замка перед повтором.</string>
     <string name="mi_unlock_fail_not_started">Команда Fastboot не была отправлена.</string>
     <string name="mi_unlock_server_code">Код Xiaomi: %1$d</string>
+    <string name="terminal_commands">Команды</string>
+    <string name="terminal_shell">Оболочка</string>
+    <string name="terminal_fullscreen">На весь экран</string>
+    <string name="terminal_exit_fullscreen">Свернуть</string>
+    <string name="target_bar_switch">Сменить</string>
 </resources>

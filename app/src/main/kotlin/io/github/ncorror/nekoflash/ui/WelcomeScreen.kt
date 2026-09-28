@@ -1,6 +1,9 @@
 package io.github.ncorror.nekoflash.ui
 
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -11,7 +14,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import io.github.ncorror.nekoflash.R
@@ -41,32 +49,52 @@ import io.github.ncorror.nekoflash.R
 @Composable
 internal fun WelcomeScreen(onContinue: () -> Unit, modifier: Modifier = Modifier) {
     Surface(modifier = modifier.fillMaxSize()) {
-        Column(
-            modifier = Modifier
-                .verticalScroll(rememberScrollState())
-                .padding(32.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            SectionHeading(
-                text = stringResource(R.string.app_name),
-                style = MaterialTheme.typography.headlineLarge,
+        Box(Modifier.fillMaxSize()) {
+            Image(
+                painter = painterResource(R.drawable.bg_welcome),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
             )
-            Text(
-                text = stringResource(R.string.app_tagline),
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.secondary,
+            Box(
+                Modifier.fillMaxSize().background(
+                    Brush.verticalGradient(
+                        listOf(
+                            Color.Transparent,
+                            MaterialTheme.colorScheme.background,
+                            MaterialTheme.colorScheme.background,
+                        ),
+                    ),
+                ),
             )
-            Text(
-                text = stringResource(R.string.welcome_capabilities),
-                style = MaterialTheme.typography.bodyLarge,
-            )
-            SectionHeading(text = stringResource(R.string.welcome_usb_title))
-            Text(
-                text = stringResource(R.string.welcome_usb_body),
-                style = MaterialTheme.typography.bodyMedium,
-            )
-            Button(onClick = onContinue) {
-                Text(stringResource(R.string.welcome_continue))
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .verticalScroll(rememberScrollState())
+                    .padding(32.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                SectionHeading(
+                    text = stringResource(R.string.app_name),
+                    style = MaterialTheme.typography.headlineLarge,
+                )
+                Text(
+                    text = stringResource(R.string.app_tagline),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.secondary,
+                )
+                Text(
+                    text = stringResource(R.string.welcome_capabilities),
+                    style = MaterialTheme.typography.bodyLarge,
+                )
+                SectionHeading(text = stringResource(R.string.welcome_usb_title))
+                Text(
+                    text = stringResource(R.string.welcome_usb_body),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Button(onClick = onContinue) {
+                    Text(stringResource(R.string.welcome_continue))
+                }
             }
         }
     }

@@ -1,11 +1,13 @@
 package io.github.ncorror.nekoflash.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -16,7 +18,9 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -24,6 +28,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.ncorror.nekoflash.R
 import io.github.ncorror.nekoflash.adb.AdbCommandState
@@ -41,6 +46,7 @@ import io.github.ncorror.nekoflash.usb.api.UsbSessionState
 @Composable
 private fun NekoFlashTopBar() {
     TopAppBar(
+        colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
         title = {
             Column {
                 Text(stringResource(R.string.app_name))
@@ -86,6 +92,8 @@ fun NekoFlashApp(
     onExportDiagnostics: () -> Unit = {},
 ) {
     var destination by rememberSaveable { mutableStateOf(WorkspaceDestination.HOME) }
+    var terminalFocus by rememberSaveable { mutableStateOf(false) }
+    var showTerminalCommands by rememberSaveable { mutableStateOf(false) }
     var chosenGeneration by rememberSaveable { mutableStateOf<Long?>(null) }
     val selected = sessions.firstOrNull { it.generation.value == chosenGeneration } ?: sessions.firstOrNull()
     val selectSession: (UsbSession) -> Unit = { chosenGeneration = it.generation.value }
@@ -124,29 +132,65 @@ fun NekoFlashApp(
             desktopCommand = desktopCommand,
             onExportDiagnostics = onExportDiagnostics,
             selected = selected,
-            onNavigate = { destination = it },
+            onNavigate = { destination = it; terminalFocus = false },
             destination = shown,
+            terminalFocus = terminalFocus,
+            onToggleTerminalFocus = { terminalFocus = !terminalFocus },
+            showTerminalCommands = showTerminalCommands,
+            onToggleTerminalCommands = { showTerminalCommands = !showTerminalCommands },
             modifier = modifier,
         )
     }
 
+    BackHandler(enabled = terminalFocus && destination == WorkspaceDestination.TERMINAL) { terminalFocus = false }
+    WorkspaceScaffold(
+        destination = destination,
+        focused = terminalFocus,
+        sessions = sessions,
+        selected = selected,
+        onSelectSession = selectSession,
+        onSelectDestination = { destination = it },
+        workspace = workspace,
+    )
+}
+
+@Composable
+private fun WorkspaceScaffold(
+    destination: WorkspaceDestination,
+    focused: Boolean,
+    sessions: List<UsbSession>,
+    selected: UsbSession?,
+    onSelectSession: (UsbSession) -> Unit,
+    onSelectDestination: (WorkspaceDestination) -> Unit,
+    workspace: @Composable (Modifier, WorkspaceDestination) -> Unit,
+) {
     // Выбранный раздел живёт здесь, а не в контроллере: это состояние взгляда,
     // а не состояние устройства. Поворот экрана его сохраняет, перезапуск — нет,
     // и это правильно: после перезапуска оператор смотрит на устройство.
     Scaffold(topBar = {
-        Column {
-            NekoFlashTopBar()
-            TargetBar(sessions = sessions, selected = selected, onSelect = selectSession)
+        if (!focused || destination != WorkspaceDestination.TERMINAL) {
+            Column {
+                NekoFlashTopBar()
+                TargetBar(sessions = sessions, selected = selected, onSelect = onSelectSession)
+            }
         }
     }) { innerPadding ->
-        WorkspaceLayout(
-            destination = destination,
-            onSelect = { chosen -> destination = chosen },
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding),
-            workspace = workspace,
-        )
+        val baseModifier = Modifier.fillMaxSize().padding(innerPadding)
+        val contentModifier = if (destination == WorkspaceDestination.TERMINAL) {
+            baseModifier.imePadding()
+        } else {
+            baseModifier
+        }
+        if (focused && destination == WorkspaceDestination.TERMINAL) {
+            workspace(contentModifier, destination)
+        } else {
+            WorkspaceLayout(
+                destination = destination,
+                onSelect = onSelectDestination,
+                modifier = contentModifier,
+                workspace = workspace,
+            )
+        }
     }
 }
 
@@ -222,8 +266,22 @@ private fun Workspace(
     selected: UsbSession?,
     onNavigate: (WorkspaceDestination) -> Unit,
     destination: WorkspaceDestination,
+    terminalFocus: Boolean,
+    onToggleTerminalFocus: () -> Unit,
+    showTerminalCommands: Boolean,
+    onToggleTerminalCommands: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    if (destination == WorkspaceDestination.TERMINAL) {
+        TerminalWorkspace(
+            adbLink = adbLink, terminal = terminal, actions = terminalActions,
+            desktopCommand = desktopCommand, target = selected?.targetId?.value,
+            focused = terminalFocus, onToggleFocus = onToggleTerminalFocus,
+            showCommands = showTerminalCommands, onToggleCommands = onToggleTerminalCommands,
+            modifier = modifier.fillMaxSize(),
+        )
+        return
+    }
     Column(
         modifier = modifier
             .verticalScroll(rememberScrollState())
@@ -236,10 +294,7 @@ private fun Workspace(
             WorkspaceDestination.ADB,
             WorkspaceDestination.FASTBOOT,
             WorkspaceDestination.RECOVERY -> {
-                SectionHeading(
-                    text = stringResource(destination.label),
-                    style = MaterialTheme.typography.headlineMedium,
-                )
+                SectionHeading(stringResource(destination.label), style = MaterialTheme.typography.headlineMedium)
                 SessionList(
                     selected = selected,
                     destination = destination,
@@ -263,7 +318,7 @@ private fun Workspace(
                     fastbootConsole = fastbootConsole,
                 )
             }
-            WorkspaceDestination.TERMINAL -> TerminalWorkspace(adbLink, terminal, terminalActions, desktopCommand)
+            WorkspaceDestination.TERMINAL -> Unit
             WorkspaceDestination.MI_UNLOCK -> MiUnlockSection(miUnlock)
             WorkspaceDestination.OPERATIONS -> OperationsSection(panel = operations)
             WorkspaceDestination.DIAGNOSTICS -> DiagnosticsWorkspace(
@@ -289,24 +344,43 @@ private fun TerminalWorkspace(
     terminal: TerminalPanel,
     actions: TerminalActions,
     desktopCommand: DesktopCommandPanel,
+    target: String?,
+    focused: Boolean,
+    onToggleFocus: () -> Unit,
+    showCommands: Boolean,
+    onToggleCommands: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    SectionHeading(
-        text = stringResource(R.string.nav_terminal),
-        style = MaterialTheme.typography.headlineMedium,
-    )
-    // Команды настольных клиентов стоят над оболочкой и не требуют ADB:
-    // половина из них — Fastboot, а у загрузчика ADB нет вовсе.
-    DesktopCommandSection(panel = desktopCommand)
-    if (adbLink is AdbLinkState.Connected) {
-        TerminalTabsRow(panel = terminal, actions = actions)
-        TerminalSection(terminal = terminal.current, actions = actions)
-    } else {
-        // Не «кнопка погасла», а сказано, чего не хватает: пустой экран без
-        // объяснения читается как поломка.
-        Text(
-            text = stringResource(R.string.terminal_needs_connection),
-            style = MaterialTheme.typography.bodyMedium,
-        )
+    Column(modifier = modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(
+                text = target ?: stringResource(R.string.nav_terminal),
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.weight(1f).padding(top = 12.dp),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            TextButton(onClick = onToggleCommands) {
+                Text(stringResource(if (showCommands) R.string.terminal_shell else R.string.terminal_commands))
+            }
+            TextButton(onClick = onToggleFocus) {
+                Text(stringResource(if (focused) R.string.terminal_exit_fullscreen else R.string.terminal_fullscreen))
+            }
+        }
+        if (showCommands) {
+            // Команды adb и fastboot не сжимают живой экран оболочки.
+            Column(modifier = Modifier.weight(1f).verticalScroll(rememberScrollState())) {
+                DesktopCommandSection(panel = desktopCommand)
+            }
+        } else {
+            TerminalTabsRow(panel = terminal, actions = actions)
+            TerminalSection(
+                terminal = terminal.current,
+                actions = actions,
+                connected = adbLink is AdbLinkState.Connected,
+                modifier = Modifier.weight(1f),
+            )
+        }
     }
 }
 

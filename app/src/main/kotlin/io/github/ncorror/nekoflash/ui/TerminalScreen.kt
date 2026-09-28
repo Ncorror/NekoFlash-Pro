@@ -13,16 +13,15 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
@@ -50,8 +49,8 @@ import io.github.ncorror.nekoflash.terminal.VtStyle
 /**
  * Экран терминала: строки эмулятора с цветами и курсором.
  *
- * Своей высоты и своей прокрутки: вывод живёт внутри окна, а не растягивает
- * экран. Окно само едет за последней строкой, пока его не пролистали вверх.
+ * Вывод занимает свободное пространство раздела и имеет собственную прокрутку.
+ * Экран едет за последней строкой, пока его не пролистали вверх.
  * Сколько столбцов и строк в него помещается, меряется моноширинным шрифтом и
  * уходит [onResize] — устройство узнаёт размер окна, как от настольного клиента.
  */
@@ -61,12 +60,13 @@ internal fun TerminalScreen(
     placeholder: String,
     showCursor: Boolean,
     onResize: (Int, Int) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val colors = TerminalColors(
-        foreground = MaterialTheme.colorScheme.onSurfaceVariant,
-        background = MaterialTheme.colorScheme.surfaceVariant,
+        foreground = MaterialTheme.colorScheme.onBackground,
+        background = MaterialTheme.colorScheme.background,
     )
-    val style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace, color = colors.foreground)
+    val style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace, color = colors.foreground)
     val measurer = rememberTextMeasurer()
     val density = LocalDensity.current
     val scroll = rememberScrollState()
@@ -78,15 +78,14 @@ internal fun TerminalScreen(
         if (following.value) scroll.scrollTo(scroll.maxValue)
     }
     BoxWithConstraints(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
-            .height(TERMINAL_HEIGHT)
-            .background(colors.background, RoundedCornerShape(8.dp)),
+            .background(colors.background),
     ) {
         val cell = remember(style) { measurer.measure("M", style).size }
         val inner = with(density) { (maxWidth - PADDING * 2).toPx() to (maxHeight - PADDING * 2).toPx() }
-        val columns = (inner.first / cell.width.coerceAtLeast(1)).toInt()
-        val rows = (inner.second / cell.height.coerceAtLeast(1)).toInt()
+        val columns = (inner.first / cell.width.coerceAtLeast(1)).toInt().coerceAtLeast(1)
+        val rows = (inner.second / cell.height.coerceAtLeast(1)).toInt().coerceAtLeast(1)
         LaunchedEffect(columns, rows) { onResize(columns, rows) }
         SelectionContainer(
             modifier = Modifier
@@ -112,7 +111,7 @@ internal fun TerminalScreen(
 internal fun TerminalTabsRow(panel: TerminalPanel, actions: TerminalActions) {
     Row(
         horizontalArrangement = Arrangement.spacedBy(4.dp),
-        modifier = Modifier.horizontalScroll(rememberScrollState()),
+        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
     ) {
         panel.tabs.forEachIndexed { index, tab ->
             FilterChip(
@@ -157,20 +156,30 @@ private fun tabTitle(index: Int, tab: AdbTerminalState): String {
 
 /** Клавиши, которых нет в строке ввода, и ввод без Enter — для `top`, `less`, `vi`. */
 @Composable
-internal fun TerminalKeys(enabled: Boolean, onKey: (TerminalKey) -> Unit, onType: () -> Unit) {
+internal fun TerminalKeys(
+    enabled: Boolean,
+    onKey: (TerminalKey) -> Unit,
+    onInterrupt: () -> Unit,
+    onType: () -> Unit,
+) {
     Row(
         horizontalArrangement = Arrangement.spacedBy(4.dp),
-        modifier = Modifier.horizontalScroll(rememberScrollState()),
+        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
     ) {
-        OutlinedButton(onClick = onType, enabled = enabled) { Text(stringResource(R.string.terminal_type_no_enter)) }
         for ((key, label) in KEY_LABELS) {
             val spoken = stringResource(keySpoken(key))
-            OutlinedButton(
+            TextButton(
                 onClick = { onKey(key) },
                 enabled = enabled,
                 modifier = Modifier.semantics { contentDescription = spoken },
             ) { Text(label) }
+            if (key == TerminalKey.TAB) {
+                TextButton(onClick = onInterrupt, enabled = enabled) {
+                    Text(stringResource(R.string.terminal_interrupt))
+                }
+            }
         }
+        TextButton(onClick = onType, enabled = enabled) { Text(stringResource(R.string.terminal_type_no_enter)) }
     }
 }
 
@@ -250,9 +259,7 @@ private val KEY_LABELS = listOf(
     TerminalKey.CTRL_D to "Ctrl+D",
 )
 
-/** Высота окна вывода: вмещает экран `logcat` и оставляет место полю ввода. */
-private val TERMINAL_HEIGHT = 320.dp
-private val PADDING = 12.dp
+private val PADDING = 8.dp
 
 /** Насколько ниже конца можно отстоять, чтобы окно всё ещё считалось «у последней строки». */
 private const val FOLLOW_SLACK_PX = 48
