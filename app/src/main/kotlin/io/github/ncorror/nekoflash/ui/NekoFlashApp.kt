@@ -145,25 +145,50 @@ fun NekoFlashApp(
     BackHandler(enabled = terminalFocus && destination == WorkspaceDestination.TERMINAL) {
         terminalFocus = false
     }
+    WorkspaceScaffold(
+        destination = destination,
+        focused = terminalFocus,
+        sessions = sessions,
+        selected = selected,
+        onSelectSession = selectSession,
+        onSelectDestination = { destination = it },
+        workspace = workspace,
+    )
+}
+
+@Composable
+private fun WorkspaceScaffold(
+    destination: WorkspaceDestination,
+    focused: Boolean,
+    sessions: List<UsbSession>,
+    selected: UsbSession?,
+    onSelectSession: (UsbSession) -> Unit,
+    onSelectDestination: (WorkspaceDestination) -> Unit,
+    workspace: @Composable (Modifier, WorkspaceDestination) -> Unit,
+) {
     // Выбранный раздел живёт здесь, а не в контроллере: это состояние взгляда,
     // а не состояние устройства. Поворот экрана его сохраняет, перезапуск — нет,
     // и это правильно: после перезапуска оператор смотрит на устройство.
     Scaffold(topBar = {
-        if (!terminalFocus || destination != WorkspaceDestination.TERMINAL) {
+        if (!focused || destination != WorkspaceDestination.TERMINAL) {
             Column {
                 NekoFlashTopBar()
-                TargetBar(sessions = sessions, selected = selected, onSelect = selectSession)
+                TargetBar(sessions = sessions, selected = selected, onSelect = onSelectSession)
             }
         }
     }) { innerPadding ->
         val baseModifier = Modifier.fillMaxSize().padding(innerPadding)
-        val contentModifier = if (destination == WorkspaceDestination.TERMINAL) baseModifier.imePadding() else baseModifier
-        if (terminalFocus && destination == WorkspaceDestination.TERMINAL) {
+        val contentModifier = if (destination == WorkspaceDestination.TERMINAL) {
+            baseModifier.imePadding()
+        } else {
+            baseModifier
+        }
+        if (focused && destination == WorkspaceDestination.TERMINAL) {
             workspace(contentModifier, destination)
         } else {
             WorkspaceLayout(
                 destination = destination,
-                onSelect = { chosen -> destination = chosen },
+                onSelect = onSelectDestination,
                 modifier = contentModifier,
                 workspace = workspace,
             )
@@ -251,15 +276,10 @@ private fun Workspace(
 ) {
     if (destination == WorkspaceDestination.TERMINAL) {
         TerminalWorkspace(
-            adbLink = adbLink,
-            terminal = terminal,
-            actions = terminalActions,
-            desktopCommand = desktopCommand,
-            target = selected?.targetId?.value,
-            focused = terminalFocus,
-            onToggleFocus = onToggleTerminalFocus,
-            showCommands = showTerminalCommands,
-            onToggleCommands = onToggleTerminalCommands,
+            adbLink = adbLink, terminal = terminal, actions = terminalActions,
+            desktopCommand = desktopCommand, target = selected?.targetId?.value,
+            focused = terminalFocus, onToggleFocus = onToggleTerminalFocus,
+            showCommands = showTerminalCommands, onToggleCommands = onToggleTerminalCommands,
             modifier = modifier.fillMaxSize(),
         )
         return
@@ -277,8 +297,7 @@ private fun Workspace(
             WorkspaceDestination.FASTBOOT,
             WorkspaceDestination.RECOVERY -> {
                 SectionHeading(
-                    text = stringResource(destination.label),
-                    style = MaterialTheme.typography.headlineMedium,
+                    text = stringResource(destination.label), style = MaterialTheme.typography.headlineMedium,
                 )
                 SessionList(
                     selected = selected,

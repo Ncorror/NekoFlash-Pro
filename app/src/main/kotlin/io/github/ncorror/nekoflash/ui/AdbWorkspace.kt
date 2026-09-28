@@ -485,7 +485,11 @@ private fun TerminalStatus(terminal: AdbTerminalState, connected: Boolean, actio
         modifier = Modifier.fillMaxWidth(),
     ) {
         Text(
-            text = if (connected) terminalModeText(terminal.mode) else stringResource(R.string.terminal_needs_connection),
+            text = if (connected) {
+                terminalModeText(terminal.mode)
+            } else {
+                stringResource(R.string.terminal_needs_connection)
+            },
             style = MaterialTheme.typography.labelSmall,
             modifier = Modifier.weight(1f),
         )
