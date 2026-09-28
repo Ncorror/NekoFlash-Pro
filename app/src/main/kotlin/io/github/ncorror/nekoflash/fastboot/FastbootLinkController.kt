@@ -14,6 +14,7 @@ import io.github.ncorror.nekoflash.protocol.fastboot.FastbootLaneState
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootXiaomiUnlock
 import io.github.ncorror.nekoflash.protocol.fastboot.XiaomiUnlockOutcome
 import io.github.ncorror.nekoflash.miunlock.MiUnlockStatus
+import io.github.ncorror.nekoflash.miunlock.MiUnlockReporter
 import io.github.ncorror.nekoflash.vendor.xiaomi.MiAccountClient
 import io.github.ncorror.nekoflash.vendor.xiaomi.MiUnlockClient
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootLockProbe
@@ -128,6 +129,7 @@ public class FastbootLinkController(
 
     private val mutableMiUnlock = MutableStateFlow<MiUnlockStatus>(MiUnlockStatus.Idle)
     public val miUnlock: StateFlow<MiUnlockStatus> = mutableMiUnlock.asStateFlow()
+    private val unlockReporter = MiUnlockReporter(mutableMiUnlock, ::emit)
 
     private data class PendingUnlock(val generation: SessionGeneration, val product: String, val serial: String?)
     private var pendingUnlock: PendingUnlock? = null
@@ -273,13 +275,13 @@ public class FastbootLinkController(
         busy("mi_unlock", "Mi Unlock") { active, _ ->
             try {
                 runMiUnlockOnLane(active, auth)
-            } catch (expired: MiUnlockClient.SessionExpiredException) {
-                unlockFailure(active, MiUnlockStatus.Reason.SESSION_EXPIRED)
+            } catch (_: MiUnlockClient.SessionExpiredException) {
+                unlockReporter.fail(active, MiUnlockStatus.Reason.SESSION_EXPIRED)
             } catch (business: MiUnlockClient.BusinessException) {
-                unlockFailure(active, MiUnlockStatus.Reason.SERVER, business.code)
+                unlockReporter.fail(active, MiUnlockStatus.Reason.SERVER, business.code)
             } catch (_: Exception) {
                 // A transport exception can embed a signed URL or a server body.
-                unlockFailure(active, MiUnlockStatus.Reason.SERVER)
+                unlockReporter.fail(active, MiUnlockStatus.Reason.SERVER)
             }
         }
     }
@@ -289,37 +291,37 @@ public class FastbootLinkController(
     @Suppress("ReturnCount")
     private fun runMiUnlockOnLane(active: FastbootLane, auth: MiAccountClient.AuthResult): FastbootConsoleState {
         val connected = mutableState.value as? FastbootLinkState.Connected
-            ?: return unlockFailure(active, MiUnlockStatus.Reason.DEVICE)
-        unlockStage(MiUnlockStatus.Stage.DEVICE)
+            ?: return unlockReporter.fail(active, MiUnlockStatus.Reason.DEVICE)
+        unlockReporter.stage(MiUnlockStatus.Stage.DEVICE)
         val product = (FastbootGetVar(active).read("product") as? FastbootVariable.Present)?.value
             ?.filterNot(Char::isWhitespace)
             ?.takeIf { it.length in 1..MAX_PRODUCT_LENGTH && it.matches(Regex("[A-Za-z0-9_.-]+")) }
-            ?: return unlockFailure(active, MiUnlockStatus.Reason.DEVICE)
+            ?: return unlockReporter.fail(active, MiUnlockStatus.Reason.DEVICE)
         val serial = (FastbootGetVar(active).read("serialno") as? FastbootVariable.Present)?.value
             ?.trim()?.takeIf { it.isNotBlank() }
         val token = FastbootXiaomiUnlock(active).readToken()
-            ?: return unlockFailure(active, MiUnlockStatus.Reason.TOKEN)
+            ?: return unlockReporter.fail(active, MiUnlockStatus.Reason.TOKEN)
         // A new explicit attempt supersedes the previous pending marker only after a fresh token.
         pendingUnlock = null
         val client = MiUnlockClient(auth.host, auth.ssecurity, auth.serviceCookies, auth.userId, auth.deviceId)
-        unlockStage(MiUnlockStatus.Stage.NONCE)
+        unlockReporter.stage(MiUnlockStatus.Stage.NONCE)
         val nonce = client.getNonce()
-        unlockStage(MiUnlockStatus.Stage.CHECK)
+        unlockReporter.stage(MiUnlockStatus.Stage.CHECK)
         client.checkClear(product, nonce)
         if (mutableState.value != connected || lane !== active || active.state != FastbootLaneState.IDLE) {
-            return unlockFailure(active, MiUnlockStatus.Reason.DEVICE)
+            return unlockReporter.fail(active, MiUnlockStatus.Reason.DEVICE)
         }
-        unlockStage(MiUnlockStatus.Stage.AUTHORIZE)
+        unlockReporter.stage(MiUnlockStatus.Stage.AUTHORIZE)
         // This request changes server-side unlock state: it is deliberately never retried.
         val encryptedHex = client.requestUnlock(product, token, nonce)
-        val bytes = parseUnlockData(encryptedHex) ?: return unlockFailure(active, MiUnlockStatus.Reason.SERVER)
+        val bytes = parseUnlockData(encryptedHex) ?: return unlockReporter.fail(active, MiUnlockStatus.Reason.SERVER)
         if (mutableState.value != connected || lane !== active || active.state != FastbootLaneState.IDLE) {
-            return unlockFailure(active, MiUnlockStatus.Reason.DEVICE)
+            return unlockReporter.fail(active, MiUnlockStatus.Reason.DEVICE)
         }
-        unlockStage(MiUnlockStatus.Stage.DOWNLOAD)
+        unlockReporter.stage(MiUnlockStatus.Stage.DOWNLOAD)
         // Download and oem unlock are one synchronous operation on the same lane.
         return when (FastbootXiaomiUnlock(active).unlock(bytes) {
-            unlockStage(MiUnlockStatus.Stage.UNLOCK)
+            unlockReporter.stage(MiUnlockStatus.Stage.UNLOCK)
         }) {
             XiaomiUnlockOutcome.Accepted -> {
                 pendingUnlock = PendingUnlock(connected.generation, product, serial)
@@ -330,26 +332,10 @@ public class FastbootLinkController(
                     "ожидается проверка после переподключения", emptyList(), active.state,
                 )
             }
-            is XiaomiUnlockOutcome.Refused -> unlockFailure(active, MiUnlockStatus.Reason.REJECTED)
-            is XiaomiUnlockOutcome.Unknown -> unlockFailure(active, MiUnlockStatus.Reason.UNKNOWN)
-            is XiaomiUnlockOutcome.NotStarted -> unlockFailure(active, MiUnlockStatus.Reason.NOT_STARTED)
+            is XiaomiUnlockOutcome.Refused -> unlockReporter.fail(active, MiUnlockStatus.Reason.REJECTED)
+            is XiaomiUnlockOutcome.Unknown -> unlockReporter.fail(active, MiUnlockStatus.Reason.UNKNOWN)
+            is XiaomiUnlockOutcome.NotStarted -> unlockReporter.fail(active, MiUnlockStatus.Reason.NOT_STARTED)
         }
-    }
-
-    private fun unlockFailure(
-        active: FastbootLane,
-        reason: MiUnlockStatus.Reason,
-        code: Int? = null,
-    ): FastbootConsoleState {
-        mutableMiUnlock.value = MiUnlockStatus.Failed(reason, code)
-        emit("mi_unlock_failed", mapOf("reason" to reason.name, "code" to (code?.toString() ?: "none")))
-        val detail = reason.name + (code?.let { " ($it)" } ?: "")
-        return FastbootConsoleState.NotAnswered("Mi Unlock", detail, active.state)
-    }
-
-    private fun unlockStage(stage: MiUnlockStatus.Stage) {
-        mutableMiUnlock.value = MiUnlockStatus.Running(stage)
-        emit("mi_unlock_stage", mapOf("stage" to stage.name))
     }
 
     private fun parseUnlockData(hex: String): ByteArray? {

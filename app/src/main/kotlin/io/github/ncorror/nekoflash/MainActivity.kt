@@ -109,7 +109,6 @@ class MainActivity : ComponentActivity() {
     ) {
         val sessions by coordinator.sessions.collectAsState()
         val linkState by adbLink.state.collectAsState()
-        val scan by coordinator.lastScan.collectAsState()
         val commandState by adbLink.command.collectAsState()
         val terminalTabs by adbLink.terminals.collectAsState()
         // Каждая вкладка меняется своим потоком: заголовки и выбранная читаются все.
@@ -121,7 +120,6 @@ class MainActivity : ComponentActivity() {
 
         val savedTemplate = stringResource(R.string.diagnostics_export_done)
         val failedTemplate = stringResource(R.string.diagnostics_export_failed)
-        val claimFailedTemplate = stringResource(R.string.usb_claim_failed)
 
         // Системный диалог сохранения: файл создаёт пользователь там, где
         // ему нужно, а приложение не заводит собственного хранилища отчётов.
@@ -147,7 +145,7 @@ class MainActivity : ComponentActivity() {
 
         NekoFlashApp(
             sessions = sessions,
-            scan = scan,
+            scan = coordinator.lastScan.collectAsState().value,
             usbHostSupported = packageManager.hasSystemFeature(PackageManager.FEATURE_USB_HOST),
             exportStatus = exportStatus,
             adbLink = linkState,
@@ -157,7 +155,7 @@ class MainActivity : ComponentActivity() {
             files = fileState,
             fileActions = fileActions(adbLink),
             onRescanUsb = { coordinator.scanAttachedDevices() },
-            onClaim = claimAction(coordinator, claimFailedTemplate) { exportStatus = it },
+            onClaim = claimAction(coordinator, stringResource(R.string.usb_claim_failed)) { exportStatus = it },
             onRelease = { session -> coordinator.release(session.generation) },
             onAdbConnect = { session -> adbLink.connect(session.generation) },
             onAdbDisconnect = { session -> adbLink.disconnect(session.generation) },
