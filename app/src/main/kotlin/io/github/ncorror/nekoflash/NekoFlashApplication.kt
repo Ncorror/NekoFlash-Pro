@@ -13,6 +13,7 @@ import io.github.ncorror.nekoflash.core.model.SessionGeneration
 import io.github.ncorror.nekoflash.adb.AdbLinkController
 import io.github.ncorror.nekoflash.fastboot.FastbootLinkController
 import io.github.ncorror.nekoflash.miunlock.MiAccountSession
+import io.github.ncorror.nekoflash.diagnostics.ExportIdentifiers
 import io.github.ncorror.nekoflash.diagnostics.HostFacts
 import io.github.ncorror.nekoflash.protocol.adb.AdbKeyStore
 import io.github.ncorror.nekoflash.usb.android.AndroidUsbHost
@@ -188,16 +189,10 @@ public class NekoFlashApplication : Application() {
         val sessions = usbSessions.sessions.value + usbSessions.recentlyClosedSessions()
         val snapshot = events.snapshot()
         val host = HostFacts.collect(this)
-        // Серийные номера целей и Android ID хоста заменяются меткой перед
-        // выгрузкой: отчёт пересылают, а эти значения связывают его с
-        // конкретными устройствами (docs/02_INVARIANTS.md §3). Метка одна для
-        // одного значения, поэтому отчёты по-прежнему можно сопоставить.
-        val identifiers = sessions.mapNotNull { it.identity.serialNumber } +
-            snapshot.mapNotNull { it.targetId?.value }
-                .filter { it.startsWith(SERIAL_TARGET_PREFIX) }
-                .map { it.removePrefix(SERIAL_TARGET_PREFIX) } +
-            // Недоступный ID записан словом, а не значением: его заменять нельзя.
-            listOfNotNull(host[HOST_ANDROID_ID]?.takeUnless { it.startsWith(UNAVAILABLE_PREFIX) })
+        // Серийные номера целей, Android ID и ключ хоста заменяются меткой
+        // перед выгрузкой: отчёт пересылают, а эти значения связывают его с
+        // конкретными устройствами (docs/02_INVARIANTS.md §3).
+        val identifiers = ExportIdentifiers.of(sessions.mapNotNull { it.identity.serialNumber }, snapshot, host)
         val sections = DiagnosticRedaction.redact(
             UsbDiagnosticReport.sections(
                 host = host,
@@ -205,7 +200,7 @@ public class NekoFlashApplication : Application() {
                 events = snapshot,
                 droppedEvents = events.droppedCount(),
             ),
-            identifiers.toSet(),
+            identifiers,
         )
         return contentResolver.openOutputStream(destination).use { output ->
             requireNotNull(output) { "Document provider returned no stream" }
@@ -242,15 +237,6 @@ public class NekoFlashApplication : Application() {
         private const val OPERATIONS_FOLDER = "operations"
 
         const val ADB_KEY_FOLDER = "adb"
-
-        /** Префикс личности цели, построенной по серийному номеру (`UsbTargetIdentity`). */
-        const val SERIAL_TARGET_PREFIX = "serial:"
-
-        /** Ключ Android ID хоста в [HostFacts]. */
-        const val HOST_ANDROID_ID = "host.androidId"
-
-        /** Так [HostFacts] пишет значение, которого нет. */
-        const val UNAVAILABLE_PREFIX = "unavailable"
     }
 
     /**
