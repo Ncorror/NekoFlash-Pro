@@ -203,14 +203,38 @@ class FastbootFlashAllTest {
     }
 
     @Test
-    fun aNewerFastbootInfoOrAPlainEraseStopsBeforeAnyCommand() {
+    fun aNewerFastbootInfoStopsBeforeAnyCommand() {
         val newer = flashAll(ScriptedBootloader(vayu), images + ("fastboot-info.txt" to "version 2\nflash boot".toByteArray()))
         assertTrue(newer.detail.contains("not compatible with host tool version --> 1"))
         assertTrue(newer.commands.isEmpty())
+    }
 
-        val erase = flashAll(ScriptedBootloader(vayu), images + ("fastboot-info.txt" to "erase userdata".toByteArray()))
-        assertTrue(erase.detail.contains("fb_perform_format"))
-        assertTrue(erase.commands.isEmpty())
+    /** `erase` набора — `WipeTask`; `-w` добавляет `if-wipe` и очистку трёх разделов перед `reboot`. */
+    @Test
+    fun eraseInTheSetAndWipeFormatOnTheHost() {
+        val formatted = vayu + mapOf("partition-type:userdata" to "ext4", "partition-size:userdata" to "0x1000000")
+        val info = "flash boot\nif-wipe erase userdata\nerase userdata".toByteArray()
+
+        val plain = ScriptedBootloader(formatted)
+        flashAll(plain, images + ("fastboot-info.txt" to info), FlashAllRequest(skipReboot = true))
+        assertEquals(
+            listOf("flash:boot", "erase:userdata", "flash:userdata"),
+            plain.sent.filterNot { it.startsWith("getvar:") || it.startsWith("download:") },
+        )
+
+        val wiped = ScriptedBootloader(formatted)
+        val planned = flashAll(wiped, images + ("fastboot-info.txt" to info), FlashAllRequest(wipe = true))
+        assertEquals(
+            listOf(
+                "flash:boot",
+                "erase:userdata", "flash:userdata",
+                "erase:userdata", "flash:userdata",
+                "erase:userdata", "flash:userdata",
+                "reboot",
+            ),
+            wiped.sent.filterNot { it.startsWith("getvar:") || it.startsWith("download:") },
+        )
+        assertTrue(planned.detail.contains("wipe task partition not found: cache"))
     }
 
     private class MapImageSet(private val files: Map<String, ByteArray>) : FastbootImageSet {

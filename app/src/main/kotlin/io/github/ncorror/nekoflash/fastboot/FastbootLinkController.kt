@@ -463,6 +463,18 @@ public class FastbootLinkController(
             busy("fastboot_wipe_super", "wipe-super") { lane, _ -> wipeSuper(lane, origin(), slot, sparseLimit) }
         }
 
+        /** `fastboot format[:ТИП[:РАЗМЕР]] РАЗДЕЛ` — файловая система с хоста ([formatPartition]). */
+        internal fun format(partition: String, type: String?, size: String?, slot: String, options: FormatOptions) {
+            busy("fastboot_format", "format $partition") { lane, _ ->
+                formatPartition(lane, partition, type, size, slot, options)
+            }
+        }
+
+        /** `fastboot -w [reboot…]`: `userdata`, `cache`, `metadata`, затем [then] ([FastbootFormat.wipe]). */
+        internal fun wipe(force: Boolean, then: List<String>, options: FormatOptions) {
+            busy("fastboot_wipe", "-w") { lane, _ -> FastbootFormat(lane, options).wipe(WIPE_PARTITIONS, force, then) }
+        }
+
         /** Как вернуться к этой цели после её перезагрузки: по серийному номеру текущей сессии. */
         private fun rejoin(): FastbootRejoin {
             val generation = (mutableState.value as? FastbootLinkState.Connected)?.generation

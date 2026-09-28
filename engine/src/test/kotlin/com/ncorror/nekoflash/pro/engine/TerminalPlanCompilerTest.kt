@@ -56,8 +56,7 @@ class TerminalPlanCompilerTest {
             "fastboot --slot a getvar product",
             "fastboot --set-active=a getvar product",
             "fastboot -S 512M erase system",
-            "fastboot format userdata",
-            "fastboot -w flashall",
+            "fastboot -w erase cache",
             "fastboot flash vendor_boot:default",
             "fastboot boot kernel ramdisk",
             "adb install --no-streaming app.apk",
@@ -67,6 +66,28 @@ class TerminalPlanCompilerTest {
             assertIs<TerminalPlanResult.NotImplemented>(compiler.compile(command), command)
         }
         assertIs<TerminalPlanResult.Invalid>(compiler.compile("fastboot -S --force flash boot boot.img"))
+    }
+
+    @Test
+    fun formatAndWipeRunOnTheHostLikeTheDesktopClient() {
+        assertEquals(
+            listOf(TerminalPlanStep.FastbootFormat("userdata", "ext4", "0x4000000", slot = "b", sparseLimit = 4096L)),
+            steps("fastboot --slot b -S 4K format:ext4:0x4000000 userdata"),
+        )
+        assertEquals(
+            listOf(TerminalPlanStep.FastbootFormat("userdata", fsOptions = setOf("casefold", "projid"))),
+            steps("fastboot --fs-options=casefold,projid format userdata"),
+        )
+        assertEquals(TerminalFileNeed.NONE, steps("fastboot format userdata").single().fileNeed)
+        assertEquals(true, steps("fastboot format userdata").single().writesPartition)
+        assertEquals(listOf(TerminalPlanStep.FastbootWipe(force = true)), steps("fastboot --force -w"))
+        assertEquals(listOf(TerminalPlanStep.FastbootWipe(then = listOf("reboot-bootloader"))), steps("fastboot -w reboot bootloader"))
+        assertEquals(
+            listOf(TerminalPlanStep.FastbootFlashAll(archiveName = null, wipe = true)),
+            steps("fastboot -w flashall"),
+        )
+        assertIs<TerminalPlanResult.Invalid>(compiler.compile("fastboot --fs-options= format userdata"))
+        assertIs<TerminalPlanResult.Invalid>(compiler.compile("fastboot --fs-options=zip format userdata"))
     }
 
     @Test

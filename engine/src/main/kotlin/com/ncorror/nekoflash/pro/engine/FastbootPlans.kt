@@ -12,7 +12,8 @@ package com.ncorror.nekoflash.pro.engine
 internal object FastbootPlans {
     fun compile(options: FastbootOptions, command: FastbootCommand): TerminalPlanResult {
         val slot = options.slot ?: CURRENT_SLOT
-        val main = steps(command)?.let { withSlot(it, command, slot) }?.let { withImageOptions(it, options) }
+        val main = (if (options.wipe) wiped(command) else steps(command))
+            ?.let { withSlot(it, command, slot) }?.let { withImageOptions(it, options) }
         // Без значения `--set-active` — слот из `--slot`, а без него текущий:
         // так решает `fastboot.cpp`. Уточняется на устройстве, до первой команды.
         val activate = if (options.setActiveRequested) {
@@ -45,8 +46,9 @@ internal object FastbootPlans {
      * и требует знать текущий, а `--slot` — знать, у каких разделов слоты есть.
      */
     private fun unsupportedOption(options: FastbootOptions, command: FastbootCommand): String? = when {
-        options.wipe -> "fastboot -w"
+        options.wipe && wiped(command) == null -> "fastboot -w"
         command.flashesAll() -> null
+        (options.wipe || command == FastbootCommand.Wipe) && options.force -> null
         options.force -> "fastboot --force"
         options.skipReboot -> "fastboot --skip-reboot"
         options.skipSecondary -> "fastboot --skip-secondary"
@@ -70,6 +72,21 @@ internal object FastbootPlans {
         else -> "fastboot --slot"
     }
 
+    /**
+     * `-w`: `WipeTask` для `userdata`, `cache`, `metadata` у настольного
+     * клиента встают в очередь задач перед отложенными — `reboot` и
+     * `flashall`/`update` (он исполняется сразу, а его `reboot` — в очереди).
+     * С командой, которая исполняется при разборе строки, очистка шла бы
+     * отдельной операцией после неё; такого исполнителя здесь нет.
+     */
+    private fun wiped(command: FastbootCommand): List<TerminalPlanStep>? = when {
+        command == FastbootCommand.Wipe -> steps(command)
+        command.flashesAll() -> steps(command)?.map { (it as TerminalPlanStep.FastbootFlashAll).copy(wipe = true) }
+        command is FastbootCommand.Wire && command.payload.startsWith(REBOOT) ->
+            listOf(TerminalPlanStep.FastbootWipe(then = listOf(command.payload)))
+        else -> null
+    }
+
     /** `flashall` и `update` — `--force`, `--skip-*`, `-S`, флаги vbmeta у них свои. */
     private fun FastbootCommand.flashesAll(): Boolean =
         this == FastbootCommand.FlashAll || this is FastbootCommand.Update
@@ -83,6 +100,7 @@ internal object FastbootPlans {
         is FastbootCommand.Erase,
         is FastbootCommand.Fetch,
         is FastbootCommand.SetActive,
+        is FastbootCommand.Format,
         -> true
         else -> false
     }
@@ -91,7 +109,8 @@ internal object FastbootPlans {
     private fun sparseBlocker(command: FastbootCommand, options: FastbootOptions): String? =
         "fastboot -S".takeIf {
             options.sparseLimit != null && command !is FastbootCommand.Flash && !command.flashesAll() &&
-                command !is FastbootCommand.WipeSuper && command !is FastbootCommand.FlashVendorBootRamdisk
+                command !is FastbootCommand.WipeSuper && command !is FastbootCommand.FlashVendorBootRamdisk &&
+                command !is FastbootCommand.Format && !options.wipe
         }
 
     /**
@@ -113,6 +132,7 @@ internal object FastbootPlans {
                     is TerminalPlanStep.FastbootFlashAll -> step.copy(slot = slot)
                     is TerminalPlanStep.FastbootWipeSuper -> step.copy(slot = slot)
                     is TerminalPlanStep.FastbootFlashVendorRamdisk -> step.copy(slot = slot)
+                    is TerminalPlanStep.FastbootFormat -> step.copy(slot = slot)
                     else -> step
                 }
             }
@@ -147,7 +167,11 @@ internal object FastbootPlans {
                     force = options.force,
                     skipSecondary = options.skipSecondary,
                     skipReboot = options.skipReboot,
+                    fsOptions = options.fsOptions,
                 )
+                is TerminalPlanStep.FastbootFormat -> step.copy(sparseLimit = sparse, fsOptions = options.fsOptions)
+                is TerminalPlanStep.FastbootWipe ->
+                    step.copy(sparseLimit = sparse, force = options.force, fsOptions = options.fsOptions)
                 else -> step
             }
         }
@@ -156,6 +180,8 @@ internal object FastbootPlans {
     private fun steps(command: FastbootCommand): List<TerminalPlanStep>? = when (command) {
         is FastbootCommand.Flash -> listOf(TerminalPlanStep.FastbootFlashImage(command.partition, command.image))
         is FastbootCommand.Erase -> listOf(TerminalPlanStep.FastbootWire("erase:${command.partition}"))
+        is FastbootCommand.Format ->
+            listOf(TerminalPlanStep.FastbootFormat(command.partition, command.fileSystem, command.size))
         is FastbootCommand.Boot -> command.takeIf { it.ramdisk == null && it.second == null }
             ?.let { listOf(TerminalPlanStep.FastbootBootImage(it.kernel)) }
         is FastbootCommand.Fetch -> listOf(TerminalPlanStep.FastbootFetch(command.partition, command.destination))
@@ -171,6 +197,7 @@ internal object FastbootPlans {
             ?.let { listOf(TerminalPlanStep.FastbootGetvar("$IS_LOGICAL:${it.argument}")) }
         is FastbootCommand.Wire -> listOf(TerminalPlanStep.FastbootWire(command.payload))
         FastbootCommand.FlashAll -> listOf(TerminalPlanStep.FastbootFlashAll(archiveName = null))
+        FastbootCommand.Wipe -> listOf(TerminalPlanStep.FastbootWipe())
         is FastbootCommand.FlashVendorBootRamdisk -> command.image
             ?.let { listOf(TerminalPlanStep.FastbootFlashVendorRamdisk(command.ramdisk, it)) }
         is FastbootCommand.WipeSuper ->
@@ -205,4 +232,5 @@ internal object FastbootPlans {
     private const val DISABLE_VERITY = 1
     private const val DISABLE_VERIFICATION = 2
     private const val IS_LOGICAL = "is-logical"
+    private const val REBOOT = "reboot"
 }

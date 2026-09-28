@@ -3,11 +3,7 @@ package io.github.ncorror.nekoflash.fastboot
 import com.ncorror.nekoflash.pro.engine.CURRENT_SLOT
 import com.ncorror.nekoflash.pro.engine.SET_ACTIVE_DEFAULT
 import io.github.ncorror.nekoflash.artifact.VbmetaFlagsSource
-import io.github.ncorror.nekoflash.core.artifact.ArtifactAccess
-import io.github.ncorror.nekoflash.core.artifact.ArtifactIdentity
-import io.github.ncorror.nekoflash.core.artifact.ArtifactRandomAccess
 import io.github.ncorror.nekoflash.core.artifact.ArtifactSource
-import io.github.ncorror.nekoflash.core.artifact.ArtifactStamp
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootAndroidInfo
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootDownload
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootDownloadOutcome
@@ -37,6 +33,10 @@ internal data class FlashAllRequest(
     val sparseLimit: Long? = null,
     /** `flashall` с `--slot all` не прошивает второй слот; `update` только предупреждает. */
     val flashAll: Boolean = true,
+    /** `-w`: строки `if-wipe` набора и очистка `userdata`, `cache`, `metadata` перед `reboot`. */
+    val wipe: Boolean = false,
+    /** `--fs-options` и остальное, что нужно `fb_perform_format`. */
+    val format: FormatOptions = FormatOptions(),
 )
 
 /**
@@ -101,13 +101,16 @@ internal class FastbootFlashAll(
         preflight.checkRequirements(images.bytes(ANDROID_INFO), request.force)
         val secondary = secondarySlot(slot)
         // Задачи собираются до первой команды, а не после `set_active`, как у
-        // настольного клиента: недостающий образ и переход, которого здесь нет,
-        // останавливают `flashall`, пока устройство не тронуто.
+        // настольного клиента: недостающий образ и переход в fastbootd, которым
+        // не к кому вернуться, останавливают `flashall`, пока устройство не тронуто.
         val tasks = withResizeTasks(collect(slot, secondary), superMetadata, slot, preflight::currentSlot)
         gate(tasks)
         setActive(if (slot == ALL) FIRST_SLOT else slot)
         cancelSnapshotIfNeeded()
         tasks.forEach(::perform)
+        // `-w`: `WipeTask` настольного клиента встают в очередь после
+        // `flashall` и перед его `reboot`.
+        if (request.wipe) merge(FastbootFormat(lane, request.format).wipe(WIPE_PARTITIONS), notes = true)
         if (!request.skipReboot) command(REBOOT)
     }
 
@@ -117,8 +120,8 @@ internal class FastbootFlashAll(
             FlashAllTask.UpdateSuper -> updateSuper()
             is FlashAllTask.Resize -> resizeToZero(task.partition, task.slot)
             is FlashAllTask.Reboot -> reboot(task.target)
-            // Отвергнуто [gate] до первой команды.
-            is FlashAllTask.Wipe -> error("wipe task reached the device: ${task.partition}")
+            is FlashAllTask.Wipe ->
+                merge(FastbootFormat(lane, request.format).wipe(listOf(task.partition)), notes = true)
         }
     }
 
@@ -159,7 +162,8 @@ internal class FastbootFlashAll(
     private fun collect(slot: String, secondary: String): List<FlashAllTask> {
         val info = images.bytes(FASTBOOT_INFO)
         if (info != null) {
-            return when (val read = FastbootInfoFile.parse(String(info, Charsets.UTF_8), slot, secondary)) {
+            val text = String(info, Charsets.UTF_8)
+            return when (val read = FastbootInfoFile.parse(text, slot, secondary, request.wipe)) {
                 is FastbootInfoRead.Tasks -> read.tasks
                 is FastbootInfoRead.Invalid -> throw FlashAllStop(read.reason)
             }
@@ -191,18 +195,10 @@ internal class FastbootFlashAll(
     /**
      * Набор с `super_empty.img` из загрузчика настольный клиент доводит, уходя
      * посреди работы в fastbootd (`UpdateSuperTask`) и возвращаясь к новому
-     * подключению. Этого перехода здесь нет, поэтому — отказ до первой
-     * команды, а не на середине.
+     * подключению. Если ту же цель после перезагрузки не узнать ([rejoin]),
+     * — отказ до первой команды, а не на середине.
      */
     private fun gate(tasks: List<FlashAllTask>) {
-        // `erase` из `fastboot-info.txt` — это `WipeTask`: он создаёт файловую
-        // систему на хосте.
-        val wipe = tasks.filterIsInstance<FlashAllTask.Wipe>().firstOrNull()
-        if (wipe != null) {
-            throw FlashAllStop(
-                "erase ${wipe.partition}: formatting on the host (fb_perform_format) is not implemented here",
-            )
-        }
         val hop = tasks.any { it == FlashAllTask.Reboot(FASTBOOTD) } ||
             FlashAllTask.UpdateSuper in tasks && images.source(SUPER_EMPTY) != null
         if (hop && !rejoin.possible && value(IS_USERSPACE) != YES) {
@@ -251,7 +247,7 @@ internal class FastbootFlashAll(
         val source = images.source(imageName)
             ?: throw FlashAllStop("could not load '$imageName': No such file or directory")
         images.bytes(imageName.substringBefore('.') + ".sig")?.let { signature ->
-            download(ByteArraySource(signature, "signature"))
+            download(BytesSource(signature, "signature"))
             command("signature")
         }
         if (value(IS_LOGICAL + partition) == YES) {
@@ -306,24 +302,20 @@ internal class FastbootFlashAll(
         applied++
     }
 
-    /** Исход [flashImage] в общий план: с командами у него всегда [FastbootConsoleState.Planned]. */
-    private fun merge(state: FastbootConsoleState) {
+    /**
+     * Исход [flashImage] или [FastbootFormat] в общий план: с командами он
+     * всегда [FastbootConsoleState.Planned]. [notes] — заметки очистки идут в
+     * отчёт и тогда, когда она не остановилась.
+     */
+    private fun merge(state: FastbootConsoleState, notes: Boolean = false) {
         val planned = state as FastbootConsoleState.Planned
+        if (notes && planned.stoppedAt == null && planned.detail.isNotBlank()) report += planned.detail
         val offset = commands.size
         commands += planned.commands
         applied += planned.applied
         planned.stoppedAt?.let { throw FlashAllStop(planned.detail, offset + it) }
     }
 
-
-    /** Небольшие данные набора — подпись. */
-    private class ByteArraySource(private val bytes: ByteArray, name: String) : ArtifactSource {
-        override val identity = ArtifactIdentity(name, bytes.size.toLong(), ArtifactAccess.SEEKABLE)
-        override val openedStamp = ArtifactStamp(bytes.size.toLong())
-        override fun stamp() = openedStamp
-        override fun open() = bytes.inputStream()
-        override fun randomAccess(): ArtifactRandomAccess? = null
-    }
 
     private companion object {
         const val ALL = "all"

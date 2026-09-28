@@ -14,6 +14,7 @@ import io.github.ncorror.nekoflash.core.artifact.ArtifactSource
 import io.github.ncorror.nekoflash.core.model.SessionGeneration
 import io.github.ncorror.nekoflash.fastboot.FastbootLinkController
 import io.github.ncorror.nekoflash.fastboot.FlashAllRequest
+import io.github.ncorror.nekoflash.fastboot.FormatOptions
 import io.github.ncorror.nekoflash.fastboot.FolderImageSet
 import io.github.ncorror.nekoflash.fastboot.ZipImageSet
 import io.github.ncorror.nekoflash.protocol.adb.AdbShellMode
@@ -35,8 +36,8 @@ internal class ControllerCommandTargets(
 ) : DesktopCommandTargets {
     override fun fastbootCommand(command: String) = fastboot.runCommand(command)
     override fun fastbootPlan(commands: List<String>, slot: String?) = fastboot.runPlan(commands, slot)
-    override fun fastbootVariable(name: String) = fastboot.readVariable(name)
-    override fun fastbootAllVariables() = fastboot.readAllVariables()
+    override fun fastbootVariable(name: String?) =
+        if (name == null) fastboot.readAllVariables() else fastboot.readVariable(name)
     override fun fastbootDownloadThen(
         then: List<String>,
         slot: String?,
@@ -66,6 +67,8 @@ internal class ControllerCommandTargets(
                 vbmetaFlags = step.vbmetaFlags,
                 sparseLimit = step.sparseLimit,
                 flashAll = step.archiveName == null,
+                wipe = step.wipe,
+                format = FormatOptions(step.sparseLimit, step.fsOptions),
             ),
         ) {
             when (picked) {
@@ -74,6 +77,18 @@ internal class ControllerCommandTargets(
                 else -> error("flashall/update: $picked")
             }
         }
+    override fun fastbootFormat(step: TerminalPlanStep) = when (step) {
+        is TerminalPlanStep.FastbootFormat -> fastboot.scenarios.format(
+            step.partition,
+            step.fileSystem,
+            step.size,
+            step.slot,
+            FormatOptions(step.sparseLimit, step.fsOptions),
+        )
+        is TerminalPlanStep.FastbootWipe ->
+            fastboot.scenarios.wipe(step.force, step.then, FormatOptions(step.sparseLimit, step.fsOptions))
+        else -> error("format: $step")
+    }
     override fun adbShell(command: String) = adb.runCommand(command)
     override fun adbInteractiveShell(firstLine: String?, mode: ShellMode) = adb.shells.start(
         firstLine,

@@ -22,8 +22,8 @@ import io.github.ncorror.nekoflash.core.artifact.ArtifactSource
 interface DesktopCommandTargets {
     fun fastbootCommand(command: String)
     fun fastbootPlan(commands: List<String>, slot: String?)
-    fun fastbootVariable(name: String)
-    fun fastbootAllVariables()
+    /** `getvar ИМЯ`; `null` — `getvar all`: всё, что устройство готово рассказать. */
+    fun fastbootVariable(name: String?)
     fun fastbootDownloadThen(then: List<String>, slot: String?, sparseLimit: Long?, origin: () -> ArtifactSource)
     fun fastbootFetch(partition: String, slot: String?, destination: () -> ArtifactSink)
 
@@ -32,6 +32,13 @@ interface DesktopCommandTargets {
 
     /** `wipe-super`: выбранный `super_empty.img`. */
     fun fastbootWipeSuper(slot: String, sparseLimit: Long?, origin: () -> ArtifactSource)
+
+    /**
+     * Файловая система собирается на телефоне: [TerminalPlanStep.FastbootFormat]
+     * (`format[:ТИП[:РАЗМЕР]] РАЗДЕЛ`) или [TerminalPlanStep.FastbootWipe]
+     * (`-w [reboot…]`: `userdata`, `cache`, `metadata`).
+     */
+    fun fastbootFormat(step: TerminalPlanStep)
 
     /** `flash vendor_boot:ИМЯ`: выбранный рамдиск. */
     fun fastbootVendorRamdisk(ramdisk: String, slot: String, sparseLimit: Long?, origin: () -> ArtifactSource)
@@ -135,12 +142,13 @@ class DesktopCommandExecutor(private val targets: DesktopCommandTargets) {
                 targets.fastbootDownloadThen(listOf("boot") + wires, null, null, file.open())
             is TerminalPlanStep.FastbootFetch -> targets.fastbootFetch(first.partition, first.slot, file.create())
             is TerminalPlanStep.FastbootGetvar -> targets.fastbootVariable(first.variable)
-            TerminalPlanStep.FastbootGetvarAll -> targets.fastbootAllVariables()
+            TerminalPlanStep.FastbootGetvarAll -> targets.fastbootVariable(null)
             is TerminalPlanStep.FastbootFlashAll -> targets.fastbootFlashAll(first, checkNotNull(file))
             is TerminalPlanStep.FastbootFlashVendorRamdisk ->
                 targets.fastbootVendorRamdisk(first.ramdisk, first.slot, first.sparseLimit, file.open())
             is TerminalPlanStep.FastbootWipeSuper ->
                 targets.fastbootWipeSuper(first.slot, first.sparseLimit, file.open())
+            is TerminalPlanStep.FastbootFormat, is TerminalPlanStep.FastbootWipe -> targets.fastbootFormat(first)
             // Слот уточняется на устройстве — это тоже план.
             else -> if (wires.size == 1 && slot == null) {
                 targets.fastbootCommand(wires.single())
@@ -186,6 +194,8 @@ fun TerminalPlanStep.isFastboot(): Boolean = when (this) {
     is TerminalPlanStep.FastbootFlashAll,
     is TerminalPlanStep.FastbootWipeSuper,
     is TerminalPlanStep.FastbootFlashVendorRamdisk,
+    is TerminalPlanStep.FastbootFormat,
+    is TerminalPlanStep.FastbootWipe,
     -> true
 
     else -> false

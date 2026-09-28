@@ -122,7 +122,8 @@ sealed interface TerminalPlanStep {
 
     /**
      * `fastboot flashall` (набор — выбранная папка вместо `$ANDROID_PRODUCT_OUT`)
-     * или `fastboot update АРХИВ` ([archiveName] — выбранный архив).
+     * или `fastboot update АРХИВ` ([archiveName] — выбранный архив). [wipe] —
+     * `-w`: строки `if-wipe` набора и в конце `userdata`, `cache`, `metadata`.
      */
     data class FastbootFlashAll(
         val archiveName: String?,
@@ -132,6 +133,34 @@ sealed interface TerminalPlanStep {
         val skipReboot: Boolean = false,
         val vbmetaFlags: Int = 0,
         val sparseLimit: Long? = null,
+        val wipe: Boolean = false,
+        val fsOptions: Set<String> = emptySet(),
+    ) : TerminalPlanStep
+
+    /**
+     * `fastboot format[:ТИП[:РАЗМЕР]] РАЗДЕЛ`: файловая система собирается на
+     * хосте и прошивается ([fileSystem] и [size] — замена того, что назовёт
+     * устройство).
+     */
+    data class FastbootFormat(
+        val partition: String,
+        val fileSystem: String? = null,
+        val size: String? = null,
+        val slot: String = CURRENT_SLOT,
+        val sparseLimit: Long? = null,
+        val fsOptions: Set<String> = emptySet(),
+    ) : TerminalPlanStep
+
+    /**
+     * `fastboot -w`: `erase` и новая файловая система у `userdata`, `cache` и
+     * `metadata`, затем [then] — `reboot` из той же строки. [force] — сначала
+     * отмена незаконченного обновления снимками.
+     */
+    data class FastbootWipe(
+        val then: List<String> = emptyList(),
+        val force: Boolean = false,
+        val sparseLimit: Long? = null,
+        val fsOptions: Set<String> = emptySet(),
     ) : TerminalPlanStep
 
     /**
@@ -212,6 +241,8 @@ val TerminalPlanStep.writesPartition: Boolean
         is TerminalPlanStep.FastbootFlashAll,
         is TerminalPlanStep.FastbootWipeSuper,
         is TerminalPlanStep.FastbootFlashVendorRamdisk,
+        is TerminalPlanStep.FastbootFormat,
+        is TerminalPlanStep.FastbootWipe,
         -> true
         is TerminalPlanStep.FastbootWire -> PARTITION_WRITES.any { command.startsWith(it) }
         else -> false

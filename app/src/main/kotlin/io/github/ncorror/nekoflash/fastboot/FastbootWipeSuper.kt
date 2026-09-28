@@ -1,11 +1,7 @@
 package io.github.ncorror.nekoflash.fastboot
 
 import com.ncorror.nekoflash.pro.engine.CURRENT_SLOT
-import io.github.ncorror.nekoflash.core.artifact.ArtifactAccess
-import io.github.ncorror.nekoflash.core.artifact.ArtifactIdentity
-import io.github.ncorror.nekoflash.core.artifact.ArtifactRandomAccess
 import io.github.ncorror.nekoflash.core.artifact.ArtifactSource
-import io.github.ncorror.nekoflash.core.artifact.ArtifactStamp
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootGetVar
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootLane
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootMutation
@@ -65,7 +61,8 @@ private class WipeSuperRun(private val lane: FastbootLane, private val sparseLim
 
     private fun flash(image: SuperDeviceImage, name: String) {
         val size = image.sparse.size.toLong()
-        val flashed = flashImage(lane, SuperSource(image), size, sparseLimit, listOf(name))
+        val source = BytesSource(image.sparse, "${image.partition}.img")
+        val flashed = flashImage(lane, source, size, sparseLimit, listOf(name))
             as FastbootConsoleState.Planned
         val offset = commands.size
         commands += flashed.commands
@@ -98,16 +95,6 @@ private fun names(image: SuperDeviceImage, slot: String, lane: FastbootLane): Li
 /** `get_current_slot`: без `_`; не назван — пусто, и тогда имя уточняет `do_for_partitions`. */
 private fun currentSlot(lane: FastbootLane): String =
     (FastbootGetVar(lane).read("current-slot") as? FastbootVariable.Present)?.value?.removePrefix("_").orEmpty()
-
-/** Образ `super.img` или `super_ИМЯ.img` из памяти — несколько сотен КиБ. */
-private class SuperSource(private val image: SuperDeviceImage) : ArtifactSource {
-    override val identity =
-        ArtifactIdentity("${image.partition}.img", image.sparse.size.toLong(), ArtifactAccess.SEEKABLE)
-    override val openedStamp = ArtifactStamp(image.sparse.size.toLong())
-    override fun stamp() = openedStamp
-    override fun open() = image.sparse.inputStream()
-    override fun randomAccess(): ArtifactRandomAccess? = null
-}
 
 private const val SUPER = "super"
 private const val FLASH = "flash:"

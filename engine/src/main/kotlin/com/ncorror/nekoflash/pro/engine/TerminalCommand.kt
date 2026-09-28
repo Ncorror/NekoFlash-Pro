@@ -27,6 +27,8 @@ data class FastbootOptions(
     val disableVerification: Boolean = false,
     val serial: String? = null,
     val verbose: Boolean = false,
+    /** `--fs-options`: `casefold`, `projid`, `compress` — для файловой системы `format` и `-w`. */
+    val fsOptions: Set<String> = emptySet(),
 )
 
 sealed interface FastbootCommand {

@@ -54,9 +54,19 @@ class DesktopCommandExecutorTest {
         executor.execute(plan("fastboot oem unlock"), null)
         executor.execute(plan("fastboot boot boot.img"), picked)
         executor.execute(plan("fastboot fetch vendor_boot out.img"), saved)
+        executor.execute(plan("fastboot --slot a format userdata"), null)
+        executor.execute(plan("fastboot -w reboot"), null)
 
         assertEquals(
-            listOf("getvar product", "getvar all", "command oem unlock", "downloadThen boot", "fetch vendor_boot slot="),
+            listOf(
+                "getvar product",
+                "getvar all",
+                "command oem unlock",
+                "downloadThen boot",
+                "fetch vendor_boot slot=",
+                "format userdata slot=a",
+                "wipe then=reboot",
+            ),
             calls,
         )
     }
@@ -172,8 +182,7 @@ class DesktopCommandExecutorTest {
         override fun fastbootPlan(commands: List<String>, slot: String?) {
             calls += "plan ${commands.joinToString(",")}" + (slot?.let { " slot=$it" } ?: "")
         }
-        override fun fastbootVariable(name: String) { calls += "getvar $name" }
-        override fun fastbootAllVariables() { calls += "getvar all" }
+        override fun fastbootVariable(name: String?) { calls += "getvar ${name ?: "all"}" }
         override fun fastbootDownloadThen(
             then: List<String>,
             slot: String?,
@@ -194,6 +203,13 @@ class DesktopCommandExecutorTest {
         }
         override fun fastbootFlashAll(step: TerminalPlanStep.FastbootFlashAll, picked: PickedFile) {
             calls += (step.archiveName?.let { "update $it" } ?: "flashall") + " ${picked.javaClass.simpleName}"
+        }
+        override fun fastbootFormat(step: TerminalPlanStep) {
+            calls += when (step) {
+                is TerminalPlanStep.FastbootFormat -> "format ${step.partition} slot=${step.slot}"
+                is TerminalPlanStep.FastbootWipe -> "wipe then=${step.then.joinToString(",")}"
+                else -> "format $step"
+            }
         }
         override fun adbShell(command: String) { calls += "shell $command" }
         override fun adbInteractiveShell(firstLine: String?, mode: ShellMode) {

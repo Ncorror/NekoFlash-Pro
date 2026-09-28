@@ -43,7 +43,7 @@ internal class FastbootLineParser(private val tokens: List<TerminalToken>) {
         when {
             flag != null -> options = flag(options)
             valued != null -> options = valued(options, next()) ?: options.also { verdict.invalid(value) }
-            value == "--slot=" || value == "--set-active=" -> verdict.invalid(value)
+            value == "--slot=" || value == "--set-active=" || value == "--fs-options=" -> verdict.invalid(value)
             attached != null -> options = attached.value(options, value.removePrefix(attached.key))
                 ?: options.also { verdict.invalid(attached.key.trimEnd('=')) }
             value == "--wipe" && verb == UPDATE_SUPER -> args += value
@@ -120,13 +120,22 @@ internal class FastbootLineParser(private val tokens: List<TerminalToken>) {
             },
             "-S" to { options, value -> value?.let { sparse(options, it) } },
             "-s" to { options, value -> value?.let { options.copy(serial = it) } },
+            "--fs-options" to { options, value -> value?.let { fsOptions(options, it) } },
         )
 
         val ATTACHED: Map<String, (FastbootOptions, String) -> FastbootOptions?> = mapOf(
             "--slot=" to { options, value -> options.copy(slot = value) },
             "--set-active=" to { options, value -> options.copy(setActiveRequested = true, setActiveSlot = value) },
             "-S" to { options, value -> sparse(options, value) },
+            "--fs-options=" to { options, value -> fsOptions(options, value) },
         )
+
+        /** `ParseFsOption`: через запятую `casefold`, `projid`, `compress`; прочее — ошибка разбора. */
+        val FS_OPTIONS = setOf("casefold", "projid", "compress")
+
+        fun fsOptions(options: FastbootOptions, value: String): FastbootOptions? =
+            value.split(',').takeIf { words -> words.all { it in FS_OPTIONS } }
+                ?.let { options.copy(fsOptions = options.fsOptions + it) }
 
         val ONE = 1..1
         val NONE = 0..0

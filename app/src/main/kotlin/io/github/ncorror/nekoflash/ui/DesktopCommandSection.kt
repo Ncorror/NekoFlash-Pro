@@ -321,6 +321,8 @@ private fun baseStepText(step: TerminalPlanStep): String = when (step) {
     is TerminalPlanStep.FastbootFlashVendorRamdisk,
     is TerminalPlanStep.FastbootWipeSuper,
     is TerminalPlanStep.FastbootFlashAll,
+    is TerminalPlanStep.FastbootFormat,
+    is TerminalPlanStep.FastbootWipe,
     -> hostScenarioText(step)
     is TerminalPlanStep.AdbInstall -> stringResource(
         if (step.several) R.string.command_step_adb_install_multiple else R.string.command_step_adb_install,
@@ -346,6 +348,19 @@ private fun hostScenarioText(step: TerminalPlanStep): String = when (step) {
     is TerminalPlanStep.FastbootFlashAll -> step.archiveName
         ?.let { stringResource(R.string.command_step_fastboot_update, it, flashAllOptions(step)) }
         ?: stringResource(R.string.command_step_fastboot_flashall, flashAllOptions(step))
+    is TerminalPlanStep.FastbootFormat -> stringResource(
+        R.string.command_step_fastboot_format,
+        step.partition,
+        step.fileSystem ?: "—",
+        step.size ?: "—",
+        formatOptions(step.slot, step.sparseLimit, step.fsOptions),
+    )
+    is TerminalPlanStep.FastbootWipe -> stringResource(
+        R.string.command_step_fastboot_wipe,
+        step.then.joinToString(", ").ifEmpty { "—" },
+        (listOfNotNull("--force".takeIf { step.force }) + formatOptions("", step.sparseLimit, step.fsOptions))
+            .filter { it != "—" }.joinToString(" ").ifEmpty { "—" },
+    )
     else -> step.toString()
 }
 
@@ -436,6 +451,12 @@ private fun dryRunNote(dryRun: Boolean): String =
     if (dryRun) stringResource(R.string.command_step_adb_dry_run) else ""
 
 /** Опции `flashall`/`update` словами команды: они не переводятся. */
+private fun formatOptions(slot: String, sparseLimit: Long?, fsOptions: Set<String>): String = listOfNotNull(
+    slot.takeIf { it.isNotEmpty() }?.let { "--slot $it" },
+    sparseLimit?.let { "-S $it" },
+    fsOptions.takeIf { it.isNotEmpty() }?.let { "--fs-options=${it.joinToString(",")}" },
+).joinToString(" ").ifEmpty { "—" }
+
 private fun flashAllOptions(step: TerminalPlanStep.FastbootFlashAll): String = listOfNotNull(
     step.slot.takeIf { it.isNotEmpty() }?.let { "--slot $it" },
     "--force".takeIf { step.force },
@@ -444,4 +465,6 @@ private fun flashAllOptions(step: TerminalPlanStep.FastbootFlashAll): String = l
     "--disable-verity".takeIf { step.vbmetaFlags and 1 != 0 },
     "--disable-verification".takeIf { step.vbmetaFlags and 2 != 0 },
     step.sparseLimit?.let { "-S $it" },
+    "-w".takeIf { step.wipe },
+    step.fsOptions.takeIf { it.isNotEmpty() }?.let { "--fs-options=${it.joinToString(",")}" },
 ).joinToString(" ").ifEmpty { "—" }
