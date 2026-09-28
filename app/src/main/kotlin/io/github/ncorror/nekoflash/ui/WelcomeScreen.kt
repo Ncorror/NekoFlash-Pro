@@ -62,26 +62,7 @@ internal fun WelcomeScreen(onContinue: () -> Unit, modifier: Modifier = Modifier
                 )
             }
             Spacer(Modifier.weight(1f))
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = if (compact) 140.dp else 220.dp)
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Text(
-                    text = stringResource(R.string.welcome_usb_title),
-                    style = MaterialTheme.typography.titleMedium.onArtwork(),
-                )
-                Text(
-                    text = stringResource(R.string.welcome_usb_body),
-                    style = MaterialTheme.typography.bodyMedium.onArtwork(),
-                )
-                Text(
-                    text = stringResource(R.string.welcome_capabilities),
-                    style = MaterialTheme.typography.labelMedium.onArtwork(),
-                )
-            }
+            WelcomeInfo(compact)
             Button(
                 onClick = onContinue,
                 modifier = Modifier
@@ -92,6 +73,30 @@ internal fun WelcomeScreen(onContinue: () -> Unit, modifier: Modifier = Modifier
                 Text(stringResource(R.string.welcome_continue))
             }
         }
+    }
+}
+
+@Composable
+private fun WelcomeInfo(compact: Boolean) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(max = if (compact) 140.dp else 220.dp)
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            text = stringResource(R.string.welcome_usb_title),
+            style = MaterialTheme.typography.titleMedium.onArtwork(),
+        )
+        Text(
+            text = stringResource(R.string.welcome_usb_body),
+            style = MaterialTheme.typography.bodyMedium.onArtwork(),
+        )
+        Text(
+            text = stringResource(R.string.welcome_capabilities),
+            style = MaterialTheme.typography.labelMedium.onArtwork(),
+        )
     }
 }
 

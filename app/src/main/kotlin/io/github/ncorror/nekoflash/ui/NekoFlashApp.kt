@@ -317,18 +317,7 @@ private fun Workspace(
                     fastbootConsole = fastbootConsole,
                 )
             }
-            WorkspaceDestination.RECOVERY -> {
-                SectionHeading(stringResource(R.string.nav_recovery), style = MaterialTheme.typography.headlineMedium)
-                Text(
-                    text = when {
-                        selected == null -> stringResource(R.string.sideload_device_hint)
-                        selected.candidate.kind != UsbInterfaceKind.ADB -> stringResource(R.string.tools_need_recovery)
-                        else -> stringResource(R.string.sideload_mode_hint)
-                    },
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                SideloadSection(panel = sideload)
-            }
+            WorkspaceDestination.RECOVERY -> SideloadWorkspace(selected, sideload)
             WorkspaceDestination.TERMINAL -> Unit
             WorkspaceDestination.MI_UNLOCK -> MiUnlockSection(miUnlock)
             WorkspaceDestination.OPERATIONS -> OperationsSection(panel = operations)
@@ -340,6 +329,20 @@ private fun Workspace(
             )
         }
     }
+}
+
+@Composable
+private fun SideloadWorkspace(selected: UsbSession?, sideload: SideloadPanel) {
+    SectionHeading(stringResource(R.string.nav_recovery), style = MaterialTheme.typography.headlineMedium)
+    Text(
+        text = when {
+            selected == null -> stringResource(R.string.sideload_device_hint)
+            selected.candidate.kind != UsbInterfaceKind.ADB -> stringResource(R.string.tools_need_recovery)
+            else -> stringResource(R.string.sideload_mode_hint)
+        },
+        style = MaterialTheme.typography.bodyMedium,
+    )
+    SideloadSection(panel = sideload)
 }
 
 /**
