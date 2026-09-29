@@ -434,10 +434,10 @@ private fun nativeLineEditor(
     inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
     imeOptions = EditorInfo.IME_ACTION_SEND or EditorInfo.IME_FLAG_NO_EXTRACT_UI
     typeface = Typeface.MONOSPACE
-    textSize = 16f
+    textSize = EDITOR_TEXT_SP
     setTextColor(TerminalPalette.foreground.toArgb())
     setHintTextColor(TerminalPalette.muted.toArgb())
-    setPadding((8 * resources.displayMetrics.density).toInt(), 0, 0, 0)
+    setPadding((EDITOR_PADDING_DP * resources.displayMetrics.density).toInt(), 0, 0, 0)
     setText(draft)
     addTextChangedListener(object : TextWatcher {
         override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
@@ -557,6 +557,8 @@ private val HARDWARE_KEYS = mapOf(
     AndroidKeyEvent.KEYCODE_PAGE_DOWN to TerminalKey.PAGE_DOWN,
 )
 
+private const val EDITOR_TEXT_SP = 16f
+private const val EDITOR_PADDING_DP = 8
 private const val DEL = '\u007F'
 private const val ESC = "\u001B"
 private val KEY_HEIGHT = 44.dp

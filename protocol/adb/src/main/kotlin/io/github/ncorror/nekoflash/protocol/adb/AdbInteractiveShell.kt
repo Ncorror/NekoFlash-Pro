@@ -387,20 +387,14 @@ public class AdbInteractiveShell(
     /** Вызывается уже под замком: [close] берёт его повторно, что разрешено. */
     private fun finish(event: AdbShellEvent): List<AdbShellEvent> {
         if (finished) return emptyList()
-        close(reasonOf(event))
+        close(
+            when (event) {
+                is AdbShellEvent.Exited -> "device closed the stream"
+                is AdbShellEvent.Broken -> event.reason
+                else -> CLOSED_BY_HOST
+            },
+        )
         return listOf(event)
-    }
-
-    /**
-     * Причина конца для журнала.
-     *
-     * Берётся из самого события, а не из места вызова: так в журнале оказывается
-     * то, что случилось на самом деле, а не то, что предполагал вызывающий.
-     */
-    private fun reasonOf(event: AdbShellEvent): String = when (event) {
-        is AdbShellEvent.Exited -> "device closed the stream"
-        is AdbShellEvent.Broken -> event.reason
-        else -> CLOSED_BY_HOST
     }
 
     private fun send(packet: AdbOutboundPacket): Boolean =
