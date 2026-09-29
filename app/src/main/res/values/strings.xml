@@ -130,15 +130,15 @@
     <string name="reboot_accepted">Accepted: %1$s — the device is going down</string>
     <string name="reboot_failed">Not confirmed, device: %1$s. %2$s</string>
     <string name="reboot_note">Success looks like a disconnect: the device leaves the bus and the link closes. Targets are not restricted — the device knows which ones exist. UNTOUCHED means the request never left the host and retrying is safe; UNKNOWN means it left without confirmation, so do not retry.</string>
-    <string name="raw_service_label">Raw service</string>
-    <string name="raw_service_hint">Service name, for example shell:ls or sync:</string>
+    <string name="raw_service_label">ADB service (low level)</string>
+    <string name="raw_service_hint">Service, e.g. shell:id (not adb shell id)</string>
     <string name="raw_service_run">Call</string>
     <string name="raw_service_none">Not called</string>
     <string name="raw_service_running">Running: %1$s</string>
     <string name="raw_service_finished">%1$s — %2$d bytes received</string>
     <string name="raw_service_one_way">%1$s — accepted, the device left the bus (%2$s)</string>
     <string name="raw_service_failed">%1$s — failed: %2$s</string>
-    <string name="raw_service_note">The service name is passed through as typed; there is no list, because the device knows which services exist. The response size is always named — a service may not answer with text at all, and then the byte count is the only thing known for certain. A reboot: typed here behaves like the reboot button.</string>
+    <string name="raw_service_note">Enter a device service name here, such as shell:id. For ordinary adb … and fastboot … lines, open Terminal → Commands (&lt;/&gt;). This field sends text verbatim; adb devices -l here will be rejected by the device.</string>
     <string name="forward_label">Port forwarding</string>
     <string name="forward_port_hint">Local port, 0 for any free one</string>
     <string name="forward_address_hint">Address on the device, for example tcp:5555</string>
@@ -380,6 +380,10 @@
     <string name="terminal_tab_raw" translatable="false">sh -T</string>
     <string name="terminal_tab_legacy" translatable="false">sh -x</string>
     <string name="terminal_keyboard">Keyboard</string>
+    <string name="terminal_prompt_prefix" translatable="false">$</string>
+    <string name="terminal_input_hint">Command on device</string>
+    <string name="terminal_paste">Paste from clipboard</string>
+    <string name="terminal_send">Send line</string>
     <string name="terminal_key_home">Home</string>
     <string name="terminal_key_end">End</string>
     <string name="terminal_key_page_up">Page up</string>

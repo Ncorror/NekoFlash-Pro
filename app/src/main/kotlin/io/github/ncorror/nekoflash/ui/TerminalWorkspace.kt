@@ -1,5 +1,7 @@
 package io.github.ncorror.nekoflash.ui
 
+import android.content.ClipboardManager
+import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -11,12 +13,14 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
@@ -29,13 +33,14 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
@@ -43,17 +48,17 @@ import androidx.compose.ui.input.key.isCtrlPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.ncorror.nekoflash.R
@@ -116,6 +121,7 @@ internal fun TerminalWorkspace(
         } else {
             TerminalSection(
                 terminal = current,
+                tabIndex = terminal.selected,
                 actions = actions,
                 connected = connected,
                 focus = focus,
@@ -256,13 +262,14 @@ private fun TerminalTab(
 /**
  * Экран и клавиши одной вкладки.
  *
- * Ctrl и Alt залипают на одну клавишу, как в Termux и NetHunter: нажал Ctrl,
- * потом `c` — ушёл `^C`. Набранное уходит в оболочку сразу, по символу: строку
- * редактирует сама оболочка, а не поле ввода приложения.
+ * Ctrl и Alt залипают на одну клавишу: нажал Ctrl, потом `c` — ушёл `^C`.
+ * Команду в нижнем поле редактирует Android; она уходит в оболочку только после
+ * Enter. Дополнительные управляющие клавиши идут прямо в живой терминал.
  */
 @Composable
 internal fun TerminalSection(
     terminal: AdbTerminalState,
+    tabIndex: Int,
     actions: TerminalActions,
     connected: Boolean,
     focus: FocusRequester,
@@ -271,8 +278,9 @@ internal fun TerminalSection(
 ) {
     var ctrl by remember { mutableStateOf(false) }
     var alt by remember { mutableStateOf(false) }
+    var draft by rememberSaveable(tabIndex) { mutableStateOf("") }
     val type: (String) -> Unit = { text ->
-        actions.onType(withModifiers(text, ctrl, alt))
+        if (ctrl || alt) actions.onType(withModifiers(text, ctrl, alt)) else draft += text
         ctrl = false
         alt = false
     }
@@ -291,8 +299,19 @@ internal fun TerminalSection(
                 onTap = onTap,
                 modifier = Modifier.fillMaxSize(),
             )
-            TerminalKeyboardInput(focus = focus, enabled = terminal.ready, onText = type, onKey = press)
         }
+        TerminalCommandInput(
+            focus = focus,
+            enabled = terminal.ready,
+            draft = draft,
+            onDraftChange = { draft = it },
+            onSend = { line ->
+                actions.onSend(line)
+                draft = ""
+            },
+            onText = actions.onType,
+            onKey = press,
+        )
         TerminalExtraKeys(
             enabled = terminal.ready,
             modifiers = StickyModifiers(ctrl, alt, onCtrl = { ctrl = !ctrl }, onAlt = { alt = !alt }),
@@ -313,40 +332,108 @@ private fun terminalPlaceholder(terminal: AdbTerminalState, connected: Boolean):
 }
 
 /**
- * Невидимое поле, в которое печатает клавиатура.
- *
- * В поле всегда лежит один пробел: стёрли его — ушёл Backspace (`DEL`),
- * дописали за ним — ушли дописанные символы, Enter — `CR`, как у терминалов.
- * Тип «пароль» — чтобы клавиатура не подсказывала и не правила слова: правку
- * задним числом оболочка приняла бы за набор. Стрелки, Esc и Ctrl+буква с
- * аппаратной клавиатуры перехватываются до поля.
+ * Видимая строка для Android IME. Вставка меняет только черновик; команда
+ * уходит устройству при Enter или нажатии отдельной клавиши отправки.
  */
 @Composable
-private fun TerminalKeyboardInput(
+private fun TerminalCommandInput(
     focus: FocusRequester,
     enabled: Boolean,
+    draft: String,
+    onDraftChange: (String) -> Unit,
+    onSend: (String) -> Unit,
     onText: (String) -> Unit,
     onKey: (TerminalKey) -> Unit,
 ) {
-    var value by remember { mutableStateOf(EMPTY_INPUT) }
+    val context = LocalContext.current
+    val clipboard = remember(context) {
+        context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+    }
+    val send = { if (enabled) onSend(draft) }
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth().background(TerminalPalette.chrome).padding(start = 12.dp),
+    ) {
+        Text(
+            text = stringResource(R.string.terminal_prompt_prefix),
+            color = TerminalPalette.live,
+            fontFamily = FontFamily.Monospace,
+            fontSize = 16.sp,
+        )
+        TerminalLineEditor(draft, enabled, focus, onDraftChange, send, onText, onKey)
+        ToolbarIcon(R.drawable.ic_paste, stringResource(R.string.terminal_paste), enabled = enabled) {
+            val item = clipboard?.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)
+            val pasted = item?.coerceToText(context)?.toString()?.let(::clipboardLine).orEmpty()
+            if (pasted.isNotEmpty()) onDraftChange(draft + pasted)
+        }
+        ToolbarIcon(R.drawable.ic_send, stringResource(R.string.terminal_send), enabled = enabled, onClick = send)
+    }
+}
+
+/** Обычное поле с выделением и системной вставкой; аппаратные клавиши остаются у терминала. */
+@Composable
+private fun RowScope.TerminalLineEditor(
+    draft: String,
+    enabled: Boolean,
+    focus: FocusRequester,
+    onDraftChange: (String) -> Unit,
+    onSubmit: () -> Unit,
+    onText: (String) -> Unit,
+    onKey: (TerminalKey) -> Unit,
+) {
     BasicTextField(
-        value = value,
-        onValueChange = { next ->
-            if (enabled) typedText(next.text)?.let(onText)
-            value = EMPTY_INPUT
-        },
+        value = draft,
+        onValueChange = { onDraftChange(clipboardLine(it)) },
+        enabled = enabled,
+        singleLine = true,
+        textStyle = TextStyle(
+            color = TerminalPalette.foreground,
+            fontFamily = FontFamily.Monospace,
+            fontSize = 16.sp,
+        ),
+        cursorBrush = SolidColor(TerminalPalette.foreground),
         keyboardOptions = KeyboardOptions(
             autoCorrectEnabled = false,
-            keyboardType = KeyboardType.Password,
-            imeAction = ImeAction.None,
+            keyboardType = KeyboardType.Ascii,
+            imeAction = ImeAction.Send,
         ),
+        keyboardActions = KeyboardActions(onSend = { onSubmit() }),
         modifier = Modifier
-            .size(1.dp)
-            .alpha(0f)
+            .weight(1f)
+            .heightIn(min = 44.dp)
             .focusRequester(focus)
-            .onPreviewKeyEvent { event -> enabled && hardwareKey(event, onText, onKey) },
+            .onPreviewKeyEvent { event ->
+                when {
+                    event.type != KeyEventType.KeyDown -> false
+                    event.key == Key.Enter -> {
+                        onSubmit()
+                        true
+                    }
+                    draft.isEmpty() -> enabled && hardwareKey(event, onText, onKey)
+                    else -> false
+                }
+            },
+        decorationBox = { inner ->
+            Box(
+                contentAlignment = Alignment.CenterStart,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp).padding(horizontal = 8.dp),
+            ) {
+                if (draft.isEmpty()) {
+                    Text(
+                        text = stringResource(R.string.terminal_input_hint),
+                        color = TerminalPalette.muted,
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 14.sp,
+                    )
+                }
+                inner()
+            }
+        },
     )
 }
+
+/** Одно нажатие «Отправить» исполняет одну строку даже при многострочном буфере. */
+internal fun clipboardLine(text: String): String = text.substringBefore('\n').substringBefore('\r')
 
 /** Аппаратная клавиша, которой нет в тексте поля; `true` — обработана. */
 private fun hardwareKey(event: KeyEvent, onText: (String) -> Unit, onKey: (TerminalKey) -> Unit): Boolean {
@@ -366,13 +453,6 @@ private fun hardwareKey(event: KeyEvent, onText: (String) -> Unit, onKey: (Termi
 
         else -> false
     }
-}
-
-/** Что набрано относительно пробела-заглушки; `null` — ничего. */
-internal fun typedText(text: String): String? = when {
-    text.length < INPUT_SENTINEL.length -> DEL.toString().repeat(INPUT_SENTINEL.length - text.length)
-    text.startsWith(INPUT_SENTINEL) -> text.substring(INPUT_SENTINEL.length).replace('\n', '\r').ifEmpty { null }
-    else -> text.replace('\n', '\r')
 }
 
 /** Залипшие Ctrl и Alt применяются к первому символу набранного. */
@@ -482,10 +562,8 @@ private val HARDWARE_KEYS = mapOf(
     Key.PageDown to TerminalKey.PAGE_DOWN,
 )
 
-private const val INPUT_SENTINEL = " "
 private const val DEL = '\u007F'
 private const val ESC = "\u001B"
-private val EMPTY_INPUT = TextFieldValue(INPUT_SENTINEL, TextRange(INPUT_SENTINEL.length))
 private val KEY_HEIGHT = 44.dp
 private val KEY_TEXT = 13.sp
 private val TAB_TEXT = 13.sp

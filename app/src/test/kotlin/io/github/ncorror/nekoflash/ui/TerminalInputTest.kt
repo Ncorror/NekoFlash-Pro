@@ -1,28 +1,20 @@
 package io.github.ncorror.nekoflash.ui
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
 import org.junit.Test
 
-/** Ввод прямо в экран терминала: что уходит в оболочку от клавиатуры (D078). */
+/** Строка терминала и управляющие клавиши; многострочный буфер не выполняет вторую команду. */
 class TerminalInputTest {
     @Test
-    fun typedCharactersGoAsTheyAre() {
-        assertEquals("ls", typedText(" ls"))
-        assertNull("ничего не набрано", typedText(" "))
+    fun pastedCommandStaysOneLine() {
+        assertEquals("id", clipboardLine("id"))
+        assertEquals("getprop ro.product.device", clipboardLine("getprop ro.product.device\nreboot"))
+        assertEquals("ls /system", clipboardLine("ls /system\r\nrm -rf /"))
     }
 
-    /** Стёрли пробел-заглушку — ушёл `DEL`, как Backspace у терминалов. */
     @Test
-    fun deletingTheSentinelSendsBackspace() {
-        assertEquals("\u007F", typedText(""))
-    }
-
-    /** Enter — `CR`, как у настоящего терминала; tty сам превратит его в `NL`. */
-    @Test
-    fun enterBecomesCarriageReturn() {
-        assertEquals("\r", typedText(" \n"))
-        assertEquals("id\r", typedText(" id\n"))
+    fun emptyClipboardIsAnEmptyDraft() {
+        assertEquals("", clipboardLine(""))
     }
 
     @Test

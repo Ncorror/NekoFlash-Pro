@@ -363,6 +363,7 @@ private fun RawServiceSection(panel: RawServicePanel) {
     val running = panel.state is AdbRawServiceState.Running
 
     StatusLine(rawServiceText(panel.state))
+    NoteText(stringResource(R.string.raw_service_note))
     FieldWithAction(
         value = service.value,
         onValueChange = { text -> service.value = text },
@@ -377,7 +378,6 @@ private fun RawServiceSection(panel: RawServicePanel) {
     (panel.state as? AdbRawServiceState.Finished)?.takeIf { it.text.isNotEmpty() }?.let { done ->
         Text(text = done.text, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
     }
-    NoteText(stringResource(R.string.raw_service_note))
 }
 
 /**

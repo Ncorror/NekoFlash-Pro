@@ -131,15 +131,15 @@
     <string name="reboot_accepted">Принята: %1$s — устройство уходит в перезагрузку</string>
     <string name="reboot_failed">Не подтвердилась, устройство: %1$s. %2$s</string>
     <string name="reboot_note">Успех выглядит как обрыв: устройство уходит с шины, и подключение закрывается. Список целей не ограничен — какие из них есть, знает устройство. UNTOUCHED означает, что запрос не ушёл и повтор безопасен; UNKNOWN — что запрос ушёл, а подтверждения нет, и повторять нельзя.</string>
-    <string name="raw_service_label">Произвольный сервис</string>
-    <string name="raw_service_hint">Имя сервиса, например shell:ls или sync:</string>
+    <string name="raw_service_label">Сервис ADB (низкий уровень)</string>
+    <string name="raw_service_hint">Сервис, например shell:id (не adb shell id)</string>
     <string name="raw_service_run">Вызвать</string>
     <string name="raw_service_none">Не вызывался</string>
     <string name="raw_service_running">Идёт: %1$s</string>
     <string name="raw_service_finished">%1$s — получено %2$d байт</string>
     <string name="raw_service_one_way">%1$s — принят, устройство ушло с шины (%2$s)</string>
     <string name="raw_service_failed">%1$s — не получилось: %2$s</string>
-    <string name="raw_service_note">Имя сервиса передаётся как есть, списка нет: какие сервисы существуют, знает устройство. Размер ответа называется всегда — сервис может отвечать не текстом, и тогда число байт единственное, что известно достоверно. Набранный здесь reboot: ведёт себя как кнопка перезагрузки.</string>
+    <string name="raw_service_note">Здесь вводят имя сервиса устройства, например shell:id. Обычные строки adb … и fastboot … вводятся в «Терминал» → значок «Команды» (&lt;/&gt;). Это поле отправляет текст как есть; команда adb devices -l здесь получит отказ устройства.</string>
     <string name="forward_label">Проброс портов</string>
     <string name="forward_port_hint">Локальный порт, 0 — любой свободный</string>
     <string name="forward_address_hint">Адрес на устройстве, например tcp:5555</string>
@@ -377,6 +377,10 @@
     <string name="terminal_new_tab">Новая вкладка</string>
     <string name="terminal_close_tab_label">Закрыть вкладку %1$d</string>
     <string name="terminal_keyboard">Клавиатура</string>
+    <string name="terminal_prompt_prefix" translatable="false">$</string>
+    <string name="terminal_input_hint">Команда на устройстве</string>
+    <string name="terminal_paste">Вставить из буфера</string>
+    <string name="terminal_send">Отправить строку</string>
     <string name="terminal_key_home">В начало строки</string>
     <string name="terminal_key_end">В конец строки</string>
     <string name="terminal_key_page_up">Страница вверх</string>
