@@ -191,6 +191,7 @@ private fun FilesSection(files: AdbFileState, actions: FileActions) {
 internal fun RecoveryLogSection(files: AdbFileState, actions: FileActions, enabled: Boolean) {
     val idle = files !is AdbFileState.Busy
     if (files.aboutRecoveryLog()) StatusLine(fileStateText(files))
+    NoteText(stringResource(if (enabled) R.string.recovery_log_note else R.string.recovery_log_needs_adb))
     ActionRow {
         OutlinedButton(onClick = actions.onRecoveryBaseline, enabled = enabled && idle) {
             Text(stringResource(R.string.recovery_baseline))

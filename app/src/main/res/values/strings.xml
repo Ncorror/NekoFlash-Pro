@@ -245,7 +245,6 @@
     <string name="recovery_verdict_evidence">Basis: %1$s</string>
     <string name="recovery_baseline">Capture the Recovery log baseline</string>
     <string name="recovery_verdict_read">Read the Recovery verdict</string>
-    <string name="sideload_label">Sideload</string>
     <string name="sideload_idle">Not started.</string>
     <string name="sideload_running">Confirmed %1$d%% — %2$d of %3$d blocks, %4$d bytes sent.</string>
     <string name="sideload_cancel">Cancel the transfer</string>
@@ -454,4 +453,7 @@
     <string name="recovery_log_title">Recovery log</string>
     <string name="fastboot_card_connection">Connection</string>
     <string name="fastboot_card_actions">Actions</string>
+    <string name="sideload_card_title">Install a package</string>
+    <string name="recovery_log_note">Take the baseline before installing and read the verdict after it: only a new entry in the log says what this install did.</string>
+    <string name="recovery_log_needs_adb">Available once the device in Recovery is connected over ADB.</string>
 </resources>

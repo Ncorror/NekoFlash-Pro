@@ -81,21 +81,22 @@ internal fun TerminalScreen(
         val columns = (inner.first / cell.width.coerceAtLeast(1)).toInt().coerceAtLeast(1)
         val rows = (inner.second / cell.height.coerceAtLeast(1)).toInt().coerceAtLeast(1)
         LaunchedEffect(columns, rows) { onResize(columns, rows) }
-        SelectionContainer(
-            modifier = Modifier
-                .verticalScroll(scroll)
-                .horizontalScroll(rememberScrollState())
-                .padding(PADDING),
-        ) {
+        if (screen.rows.isEmpty()) {
+            // Подсказка — обычный текст с переносом, а не строка терминала.
             Text(
-                text = if (screen.rows.isEmpty()) {
-                    AnnotatedString(placeholder)
-                } else {
-                    annotated(screen, showCursor, colors)
-                },
-                style = style,
-                softWrap = false,
+                text = placeholder,
+                style = style.copy(color = TerminalPalette.muted),
+                modifier = Modifier.padding(PADDING),
             )
+        } else {
+            SelectionContainer(
+                modifier = Modifier
+                    .verticalScroll(scroll)
+                    .horizontalScroll(rememberScrollState())
+                    .padding(PADDING),
+            ) {
+                Text(text = annotated(screen, showCursor, colors), style = style, softWrap = false)
+            }
         }
     }
 }

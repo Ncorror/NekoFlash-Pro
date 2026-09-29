@@ -38,7 +38,8 @@ internal fun SideloadSection(panel: SideloadPanel) {
     // не тронуто: кнопки гасит и то, и другое, а формулировки у них разные.
     val busy = running != null || state is AdbSideloadState.Staging
 
-    StatusLine(sideloadText(state))
+    // До первой передачи говорить нечего: «не начинали» читалось как ошибка.
+    if (state != AdbSideloadState.None) StatusLine(sideloadText(state))
     Button(onClick = panel.onChoose, enabled = !busy) {
         Text(stringResource(R.string.sideload_choose))
     }

@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -142,7 +143,9 @@ private fun WorkspaceScaffold(
             TargetBar(sessions = sessions, selected = selected, onSelect = onSelectSession)
         }
     }) { innerPadding ->
-        val baseModifier = Modifier.fillMaxSize().padding(innerPadding)
+        // Отступ, уже отданный панелям, клавиатуре не повторяется: иначе
+        // между рядом клавиш терминала и клавиатурой оставалась пустая полоса.
+        val baseModifier = Modifier.fillMaxSize().padding(innerPadding).consumeWindowInsets(innerPadding)
         val contentModifier = if (destination == WorkspaceDestination.TERMINAL) {
             baseModifier.imePadding()
         } else {
@@ -297,7 +300,7 @@ private fun RecoveryWorkspace(
             else -> stringResource(R.string.sideload_mode_hint)
         },
     )
-    ToolCard(title = stringResource(R.string.sideload_label)) { SideloadSection(panel = sideload) }
+    ToolCard(title = stringResource(R.string.sideload_card_title)) { SideloadSection(panel = sideload) }
     ToolCard(title = stringResource(R.string.recovery_log_title)) {
         RecoveryLogSection(files = files, actions = fileActions, enabled = adbLink is AdbLinkState.Connected)
     }

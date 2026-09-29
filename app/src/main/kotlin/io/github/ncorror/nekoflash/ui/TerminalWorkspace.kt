@@ -86,9 +86,13 @@ internal fun TerminalWorkspace(
     val current = terminal.current
     val focus = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
+    // Клавиатура открывается, только когда печатать есть куда: без живой
+    // оболочки набранное никуда бы не ушло.
     val openKeyboard = {
-        runCatching { focus.requestFocus() }
-        keyboard?.show()
+        if (current.ready) {
+            runCatching { focus.requestFocus() }
+            keyboard?.show()
+        }
         Unit
     }
     LaunchedEffect(connected, terminal.selected, current.active, current.ended) {

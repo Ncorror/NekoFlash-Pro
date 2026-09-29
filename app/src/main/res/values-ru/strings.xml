@@ -246,7 +246,6 @@
     <string name="recovery_verdict_evidence">Основание: %1$s</string>
     <string name="recovery_baseline">Снять базу журнала Recovery</string>
     <string name="recovery_verdict_read">Прочитать вердикт Recovery</string>
-    <string name="sideload_label">Sideload</string>
     <string name="sideload_idle">Не начинали.</string>
     <string name="sideload_running">Подтверждено %1$d%% — %2$d из %3$d блоков, отдано %4$d байт.</string>
     <string name="sideload_cancel">Отменить передачу</string>
@@ -451,4 +450,7 @@
     <string name="recovery_log_title">Журнал Recovery</string>
     <string name="fastboot_card_connection">Подключение</string>
     <string name="fastboot_card_actions">Действия</string>
+    <string name="sideload_card_title">Установка пакета</string>
+    <string name="recovery_log_note">Снимите базу до установки и прочитайте вердикт после: только новая запись в журнале говорит, чем кончилась именно эта установка.</string>
+    <string name="recovery_log_needs_adb">Доступно, когда устройство в Recovery подключено по ADB.</string>
 </resources>
