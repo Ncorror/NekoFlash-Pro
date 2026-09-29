@@ -170,19 +170,14 @@ class AdbTerminalControllerTest {
 
             handle.enqueueOkay(localId = 1, remoteId = 42)
 
-            // Первый WRTE меняет размер. Ввод ждёт подтверждения этой записи.
+            // У этой подставной связи нет feature shell_v2: resize не отправляется,
+            // а первая строка уходит как обычные байты legacy shell: после OKAY.
             assertTrue(eventually { writer.taskCount == 2 })
+            val before = handle.sendCalls
             writer.runAll()
-            val firstPayload = synchronized(handle.sent) { handle.sent.last().copyOf() }
-            assertEquals(5, firstPayload[0].toInt())
-            val afterResize = handle.sendCalls
-            handle.enqueueOkay(localId = 1, remoteId = 42)
-            assertTrue(eventually { writer.taskCount == 1 })
-            writer.runSingle()
-            assertEquals(afterResize + 2, handle.sendCalls)
+            assertEquals(before + 2, handle.sendCalls)
             val inputPayload = synchronized(handle.sent) { handle.sent.last().copyOf() }
-            assertEquals(0, inputPayload[0].toInt())
-            assertEquals("logcat\n", inputPayload.copyOfRange(5, inputPayload.size).decodeToString())
+            assertEquals("logcat\n", inputPayload.decodeToString())
         } finally {
             controller.stop()
             reader.shutdownNow()
@@ -190,7 +185,7 @@ class AdbTerminalControllerTest {
     }
 
     @Test
-    fun typedCommandWaitsForResizeAckThenReachesShellStdin() = withConnection { connection, handle ->
+    fun typedCommandReachesLegacyShellAfterOkay() = withConnection { connection, handle ->
         val reader = Executors.newSingleThreadExecutor()
         val writer = RecordingExecutor()
         val controller = AdbTerminalController(reader, writer)
@@ -199,17 +194,12 @@ class AdbTerminalControllerTest {
             assertTrue(eventually { handle.sendCalls >= 2 })
             handle.enqueueOkay(localId = 1, remoteId = 42)
             assertTrue(eventually { controller.state.value.ready && writer.taskCount == 1 })
-            writer.runSingle() // resize
+            writer.runSingle() // resize is unavailable without shell_v2
             controller.sendInput("id")
-            writer.runSingle() // enqueue while resize awaits ACK
-            val beforeAck = handle.sendCalls
-            handle.enqueueOkay(localId = 1, remoteId = 42)
-            assertTrue(eventually { writer.taskCount == 1 })
-            assertEquals(beforeAck, handle.sendCalls)
+            assertEquals(1, writer.taskCount)
             writer.runSingle()
             val payload = synchronized(handle.sent) { handle.sent.last().copyOf() }
-            assertEquals(0, payload[0].toInt())
-            assertEquals("id\n", payload.copyOfRange(5, payload.size).decodeToString())
+            assertEquals("id\n", payload.decodeToString())
         } finally {
             controller.stop()
             reader.shutdownNow()
