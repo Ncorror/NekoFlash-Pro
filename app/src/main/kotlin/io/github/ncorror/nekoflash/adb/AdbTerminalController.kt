@@ -324,11 +324,13 @@ public class AdbTerminalController(
         var received = previous.received
         for (event in session.pump()) {
             received += 1
-            if (event == AdbShellEvent.Opened) {
-                ready = true
-                onOpened(session, requestId)
-            } else {
-                ended = applyEvent(event, terminal, screenLock) ?: ended
+            when (event) {
+                AdbShellEvent.Opened -> {
+                    ready = true
+                    onOpened(session, requestId)
+                }
+                AdbShellEvent.WriteReady -> writerExecutor.execute { session.flushPendingWrites() }
+                else -> ended = applyEvent(event, terminal, screenLock) ?: ended
             }
         }
         return PumpProgress(ready, ended, received)
@@ -440,7 +442,7 @@ public class AdbTerminalController(
 
 /** Прикладывает событие вывода и возвращает причину завершения. */
 private fun applyEvent(event: AdbShellEvent, terminal: VtScreen, lock: Any): String? = when (event) {
-    AdbShellEvent.Opened -> null
+    AdbShellEvent.Opened, AdbShellEvent.WriteReady -> null
 
     is AdbShellEvent.Output -> {
         synchronized(lock) { terminal.feed(event.text) }

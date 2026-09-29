@@ -2,6 +2,14 @@ package io.github.ncorror.nekoflash.ui
 
 import android.content.ClipboardManager
 import android.content.Context
+import android.graphics.Typeface
+import android.text.Editable
+import android.text.InputType
+import android.text.TextWatcher
+import android.view.KeyEvent as AndroidKeyEvent
+import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputMethodManager
+import android.widget.EditText
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -19,9 +27,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -30,6 +35,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.key
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -37,30 +43,18 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.input.key.KeyEvent
-import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.isCtrlPressed
-import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.onPreviewKeyEvent
-import androidx.compose.ui.input.key.type
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import io.github.ncorror.nekoflash.R
 import io.github.ncorror.nekoflash.adb.AdbLinkState
 import io.github.ncorror.nekoflash.adb.AdbTerminalState
@@ -89,14 +83,12 @@ internal fun TerminalWorkspace(
 ) {
     val connected = adbLink is AdbLinkState.Connected
     val current = terminal.current
-    val focus = remember { FocusRequester() }
-    val keyboard = LocalSoftwareKeyboardController.current
-    // Клавиатура открывается, только когда печатать есть куда: без живой
-    // оболочки набранное никуда бы не ушло.
+    var editor by remember { mutableStateOf<EditText?>(null) }
     val openKeyboard = {
-        if (current.ready) {
-            runCatching { focus.requestFocus() }
-            keyboard?.show()
+        if (current.ready && !showCommands) editor?.let { field ->
+            field.requestFocus()
+            val input = field.context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+            input?.showSoftInput(field, InputMethodManager.SHOW_IMPLICIT)
         }
         Unit
     }
@@ -124,7 +116,7 @@ internal fun TerminalWorkspace(
                 tabIndex = terminal.selected,
                 actions = actions,
                 connected = connected,
-                focus = focus,
+                onEditorChanged = { editor = it },
                 onTap = openKeyboard,
                 modifier = Modifier.weight(1f),
             )
@@ -272,15 +264,21 @@ internal fun TerminalSection(
     tabIndex: Int,
     actions: TerminalActions,
     connected: Boolean,
-    focus: FocusRequester,
+    onEditorChanged: (EditText) -> Unit,
     onTap: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var ctrl by remember { mutableStateOf(false) }
     var alt by remember { mutableStateOf(false) }
     var draft by rememberSaveable(tabIndex) { mutableStateOf("") }
+    var input by remember(tabIndex) { mutableStateOf<EditText?>(null) }
     val type: (String) -> Unit = { text ->
-        if (ctrl || alt) actions.onType(withModifiers(text, ctrl, alt)) else draft += text
+        if (ctrl || alt) {
+            actions.onType(withModifiers(text, ctrl, alt))
+        } else {
+            val field = input
+            if (field == null) draft += text else field.text?.insert(field.selectionStart.coerceAtLeast(0), text)
+        }
         ctrl = false
         alt = false
     }
@@ -300,18 +298,20 @@ internal fun TerminalSection(
                 modifier = Modifier.fillMaxSize(),
             )
         }
-        TerminalCommandInput(
-            focus = focus,
-            enabled = terminal.ready,
-            draft = draft,
-            onDraftChange = { draft = it },
-            onSend = { line ->
-                actions.onSend(line)
-                draft = ""
-            },
-            onText = actions.onType,
-            onKey = press,
-        )
+        key(tabIndex) {
+            TerminalCommandInput(
+                enabled = terminal.ready,
+                draft = draft,
+                onDraftChange = { draft = it },
+                onSend = { line ->
+                    actions.onSend(line)
+                    draft = ""
+                },
+                onText = actions.onType,
+                onKey = press,
+                onEditorChanged = { field -> input = field; onEditorChanged(field) },
+            )
+        }
         TerminalExtraKeys(
             enabled = terminal.ready,
             modifiers = StickyModifiers(ctrl, alt, onCtrl = { ctrl = !ctrl }, onAlt = { alt = !alt }),
@@ -331,28 +331,25 @@ private fun terminalPlaceholder(terminal: AdbTerminalState, connected: Boolean):
     else -> stringResource(R.string.terminal_waiting)
 }
 
-/**
- * Видимая строка для Android IME. Вставка меняет только черновик; команда
- * уходит устройству при Enter или нажатии отдельной клавиши отправки.
- */
+/** Компактная строка ввода на фоне самого экрана терминала. */
 @Composable
 private fun TerminalCommandInput(
-    focus: FocusRequester,
     enabled: Boolean,
     draft: String,
     onDraftChange: (String) -> Unit,
     onSend: (String) -> Unit,
     onText: (String) -> Unit,
     onKey: (TerminalKey) -> Unit,
+    onEditorChanged: (EditText) -> Unit,
 ) {
     val context = LocalContext.current
     val clipboard = remember(context) {
         context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
     }
-    val send = { if (enabled) onSend(draft) }
+    val hint = stringResource(R.string.terminal_input_hint)
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.fillMaxWidth().background(TerminalPalette.chrome).padding(start = 12.dp),
+        modifier = Modifier.fillMaxWidth().background(TerminalPalette.background).padding(start = 12.dp, end = 4.dp),
     ) {
         Text(
             text = stringResource(R.string.terminal_prompt_prefix),
@@ -360,100 +357,98 @@ private fun TerminalCommandInput(
             fontFamily = FontFamily.Monospace,
             fontSize = 16.sp,
         )
-        TerminalLineEditor(draft, enabled, focus, onDraftChange, send, onText, onKey)
+        TerminalLineEditor(
+            draft, hint, enabled, onDraftChange, onSend, onText, onKey, onEditorChanged,
+        )
         ToolbarIcon(R.drawable.ic_paste, stringResource(R.string.terminal_paste), enabled = enabled) {
             val item = clipboard?.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)
             val pasted = item?.coerceToText(context)?.toString()?.let(::clipboardLine).orEmpty()
             if (pasted.isNotEmpty()) onDraftChange(draft + pasted)
         }
-        ToolbarIcon(R.drawable.ic_send, stringResource(R.string.terminal_send), enabled = enabled, onClick = send)
+        ToolbarIcon(R.drawable.ic_send, stringResource(R.string.terminal_send), enabled = enabled) {
+            onSend(draft)
+        }
     }
 }
 
-/** Обычное поле с выделением и системной вставкой; аппаратные клавиши остаются у терминала. */
+/** Настоящий Android EditText принимает IME, аппаратный ввод и системную вставку. */
 @Composable
 private fun RowScope.TerminalLineEditor(
     draft: String,
+    hint: String,
     enabled: Boolean,
-    focus: FocusRequester,
     onDraftChange: (String) -> Unit,
-    onSubmit: () -> Unit,
+    onSubmit: (String) -> Unit,
     onText: (String) -> Unit,
     onKey: (TerminalKey) -> Unit,
+    onEditorChanged: (EditText) -> Unit,
 ) {
-    BasicTextField(
-        value = draft,
-        onValueChange = { onDraftChange(clipboardLine(it)) },
-        enabled = enabled,
-        singleLine = true,
-        textStyle = TextStyle(
-            color = TerminalPalette.foreground,
-            fontFamily = FontFamily.Monospace,
-            fontSize = 16.sp,
-        ),
-        cursorBrush = SolidColor(TerminalPalette.foreground),
-        keyboardOptions = KeyboardOptions(
-            autoCorrectEnabled = false,
-            keyboardType = KeyboardType.Ascii,
-            imeAction = ImeAction.Send,
-        ),
-        keyboardActions = KeyboardActions(onSend = { onSubmit() }),
-        modifier = Modifier
-            .weight(1f)
-            .heightIn(min = 44.dp)
-            .focusRequester(focus)
-            .onPreviewKeyEvent { event ->
-                when {
-                    event.type != KeyEventType.KeyDown -> false
-                    event.key == Key.Enter -> {
-                        onSubmit()
+    AndroidView(
+        factory = { context -> nativeLineEditor(context, draft, onDraftChange, onEditorChanged) },
+        update = { field ->
+            field.isEnabled = enabled
+            field.hint = hint
+            if (field.text.toString() != draft) {
+                field.setText(draft)
+                field.setSelection(draft.length)
+            }
+            field.setOnEditorActionListener { _, action, event ->
+                val enter = event?.keyCode == AndroidKeyEvent.KEYCODE_ENTER &&
+                    event.action == AndroidKeyEvent.ACTION_DOWN
+                if (enabled && (action == EditorInfo.IME_ACTION_SEND || enter)) {
+                    onSubmit(field.text.toString())
+                    true
+                } else false
+            }
+            field.setOnKeyListener { _, code, event ->
+                if (!enabled || event.action != AndroidKeyEvent.ACTION_DOWN || field.text.isNotEmpty()) {
+                    false
+                } else {
+                    val key = HARDWARE_KEYS[code]
+                    if (key != null) {
+                        onKey(key)
                         true
+                    } else {
+                        val letter = event.getUnicodeChar(0).toChar()
+                        if (event.isCtrlPressed && letter in 'a'..'z') {
+                            onText(controlOf(letter).toString())
+                            true
+                        } else false
                     }
-                    draft.isEmpty() -> enabled && hardwareKey(event, onText, onKey)
-                    else -> false
                 }
-            },
-        decorationBox = { inner ->
-            Box(
-                contentAlignment = Alignment.CenterStart,
-                modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp).padding(horizontal = 8.dp),
-            ) {
-                if (draft.isEmpty()) {
-                    Text(
-                        text = stringResource(R.string.terminal_input_hint),
-                        color = TerminalPalette.muted,
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 14.sp,
-                    )
-                }
-                inner()
             }
         },
+        modifier = Modifier.weight(1f).heightIn(min = 44.dp),
     )
+}
+
+/** Плоское поле без системной рамки, в палитре терминала. */
+private fun nativeLineEditor(
+    context: Context,
+    draft: String,
+    onDraftChange: (String) -> Unit,
+    onEditorChanged: (EditText) -> Unit,
+): EditText = EditText(context).apply {
+    background = null
+    setSingleLine(true)
+    inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+    imeOptions = EditorInfo.IME_ACTION_SEND or EditorInfo.IME_FLAG_NO_EXTRACT_UI
+    typeface = Typeface.MONOSPACE
+    textSize = 16f
+    setTextColor(TerminalPalette.foreground.toArgb())
+    setHintTextColor(TerminalPalette.muted.toArgb())
+    setPadding((8 * resources.displayMetrics.density).toInt(), 0, 0, 0)
+    setText(draft)
+    addTextChangedListener(object : TextWatcher {
+        override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+        override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
+        override fun afterTextChanged(s: Editable?) { onDraftChange(s?.toString().orEmpty()) }
+    })
+    onEditorChanged(this)
 }
 
 /** Одно нажатие «Отправить» исполняет одну строку даже при многострочном буфере. */
 internal fun clipboardLine(text: String): String = text.substringBefore('\n').substringBefore('\r')
-
-/** Аппаратная клавиша, которой нет в тексте поля; `true` — обработана. */
-private fun hardwareKey(event: KeyEvent, onText: (String) -> Unit, onKey: (TerminalKey) -> Unit): Boolean {
-    if (event.type != KeyEventType.KeyDown) return false
-    val key = HARDWARE_KEYS[event.key]
-    val letter = event.nativeKeyEvent.getUnicodeChar(0).toChar()
-    return when {
-        key != null -> {
-            onKey(key)
-            true
-        }
-
-        event.isCtrlPressed && letter in 'a'..'z' -> {
-            onText(controlOf(letter).toString())
-            true
-        }
-
-        else -> false
-    }
-}
 
 /** Залипшие Ctrl и Alt применяются к первому символу набранного. */
 internal fun withModifiers(text: String, ctrl: Boolean, alt: Boolean): String {
@@ -550,16 +545,16 @@ private fun RowScope.ExtraKey(
 }
 
 private val HARDWARE_KEYS = mapOf(
-    Key.Escape to TerminalKey.ESCAPE,
-    Key.Tab to TerminalKey.TAB,
-    Key.DirectionUp to TerminalKey.UP,
-    Key.DirectionDown to TerminalKey.DOWN,
-    Key.DirectionLeft to TerminalKey.LEFT,
-    Key.DirectionRight to TerminalKey.RIGHT,
-    Key.MoveHome to TerminalKey.HOME,
-    Key.MoveEnd to TerminalKey.END,
-    Key.PageUp to TerminalKey.PAGE_UP,
-    Key.PageDown to TerminalKey.PAGE_DOWN,
+    AndroidKeyEvent.KEYCODE_ESCAPE to TerminalKey.ESCAPE,
+    AndroidKeyEvent.KEYCODE_TAB to TerminalKey.TAB,
+    AndroidKeyEvent.KEYCODE_DPAD_UP to TerminalKey.UP,
+    AndroidKeyEvent.KEYCODE_DPAD_DOWN to TerminalKey.DOWN,
+    AndroidKeyEvent.KEYCODE_DPAD_LEFT to TerminalKey.LEFT,
+    AndroidKeyEvent.KEYCODE_DPAD_RIGHT to TerminalKey.RIGHT,
+    AndroidKeyEvent.KEYCODE_MOVE_HOME to TerminalKey.HOME,
+    AndroidKeyEvent.KEYCODE_MOVE_END to TerminalKey.END,
+    AndroidKeyEvent.KEYCODE_PAGE_UP to TerminalKey.PAGE_UP,
+    AndroidKeyEvent.KEYCODE_PAGE_DOWN to TerminalKey.PAGE_DOWN,
 )
 
 private const val DEL = '\u007F'

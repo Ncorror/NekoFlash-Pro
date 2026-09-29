@@ -241,6 +241,29 @@ class AdbInteractiveShellTest {
         )
     }
 
+    /** Второй WRTE ждёт OKAY первого; размер окна не должен поглотить команду. */
+    @Test
+    fun inputWaitsForWindowSizeAcknowledgement() {
+        val device = Device(
+            okay(),
+            listOf(FakeUsbTransportHandle.Transfer.Gate(2)),
+            okay(),
+        )
+        val shell = device.opened()
+        assertTrue(shell.resize(rows = 40, columns = 100))
+        assertTrue(shell.sendInput("id\n"))
+        assertEquals(1, device.handle.sentFrames().count { it.command == AdbCommand.WRTE })
+
+        assertEquals(listOf(AdbShellEvent.WriteReady), shell.collect(expected = 1))
+        assertTrue(shell.flushPendingWrites())
+        val writes = device.handle.sentFrames().filter { it.command == AdbCommand.WRTE }
+        assertEquals(2, writes.size)
+        assertArrayEquals(
+            AdbShellProtocol.encode(AdbShellProtocol.ID_STDIN, "id\n".toByteArray()),
+            writes.last().payload,
+        )
+    }
+
     /** Без shell,v2 рамок нет: ввод уходит как есть. */
     @Test
     fun inputGoesRawWithoutShellV2() {

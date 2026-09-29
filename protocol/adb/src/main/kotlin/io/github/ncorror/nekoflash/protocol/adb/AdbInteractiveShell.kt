@@ -10,6 +10,9 @@ public sealed interface AdbShellEvent {
     /** Устройство подтвердило OPEN, ввод теперь можно отправлять. */
     public data object Opened : AdbShellEvent
 
+    /** Peer подтвердил предыдущую запись; можно отправить следующую из очереди. */
+    public data object WriteReady : AdbShellEvent
+
     /** Обычный вывод. */
     public data class Output(val text: String) : AdbShellEvent
 
@@ -78,6 +81,8 @@ public class AdbInteractiveShell(
 
     /** Защищает диспетчер, писателя и состояние сессии. */
     private val lock = Any()
+    private val pendingWrites = ArrayDeque<ByteArray>()
+    private var awaitingWriteAck = false
 
     /**
      * Ящик открытого потока.
@@ -114,7 +119,7 @@ public class AdbInteractiveShell(
             // `ShellServiceString`: shell,v2,TERM=…,pty: — в этом порядке.
             else -> "shell,v2,TERM=$term,${if (raw) "raw" else "pty"}:"
         } + command
-        val (box, packet) = dispatcher.open(service)
+        val (box, packet) = dispatcher.open(service, acknowledgements = true)
         mailbox = box
         val id = box.localId
         localId = id
@@ -137,10 +142,18 @@ public class AdbInteractiveShell(
 
     /** Тот же ввод байтами: для управляющих символов вроде `Ctrl+C`. */
     public fun sendInput(bytes: ByteArray): Boolean = synchronized(lock) {
-        if (!opened || finished) return false
         val payload = if (useShellV2) AdbShellProtocol.encode(AdbShellProtocol.ID_STDIN, bytes) else bytes
-        val packet = dispatcher.write(localId, payload) ?: return false
-        return send(packet)
+        val queued = if (!opened || finished) {
+            false
+        } else {
+            pendingWrites.addLast(payload)
+            if (awaitingWriteAck) true else flushPendingWrites()
+        }
+        emit(
+            "shell_input",
+            mapOf("stream" to localId.toString(), "bytes" to bytes.size.toString(), "queued" to queued.toString()),
+        )
+        return queued
     }
 
     /**
@@ -151,9 +164,8 @@ public class AdbInteractiveShell(
     public fun resize(rows: Int, columns: Int): Boolean = synchronized(lock) {
         if (!useShellV2 || !opened || finished) return false
         val text = "${rows}x$columns,0x0\u0000".toByteArray(Charsets.US_ASCII)
-        val packet = dispatcher.write(localId, AdbShellProtocol.encode(AdbShellProtocol.ID_WINDOW_SIZE_CHANGE, text))
-            ?: return false
-        return send(packet)
+        pendingWrites.addLast(AdbShellProtocol.encode(AdbShellProtocol.ID_WINDOW_SIZE_CHANGE, text))
+        return if (awaitingWriteAck) true else flushPendingWrites()
     }
 
     /**
@@ -178,8 +190,26 @@ public class AdbInteractiveShell(
      */
     public fun closeInput(): Boolean = synchronized(lock) {
         if (!useShellV2 || !opened || finished) return false
-        val packet = dispatcher.write(localId, AdbShellProtocol.closeStdinFrame()) ?: return false
-        return send(packet)
+        pendingWrites.addLast(AdbShellProtocol.closeStdinFrame())
+        return if (awaitingWriteAck) true else flushPendingWrites()
+    }
+
+    /**
+     * Отправка из очереди вызывается writer executor'ом после OKAY. На одном
+     * ADB-потоке одновременно остаётся не больше одной неподтверждённой WRTE.
+     */
+    public fun flushPendingWrites(): Boolean = synchronized(lock) {
+        if (!opened || finished) return false
+        if (awaitingWriteAck) return true
+        val payload = pendingWrites.removeFirstOrNull() ?: return true
+        val packet = dispatcher.write(localId, payload)
+        val sent = packet != null && send(packet)
+        if (sent) awaitingWriteAck = true
+        emit(
+            "shell_write",
+            mapOf("stream" to localId.toString(), "bytes" to payload.size.toString(), "sent" to sent.toString()),
+        )
+        return sent
     }
 
     /**
@@ -212,6 +242,8 @@ public class AdbInteractiveShell(
     public fun close(reason: String = CLOSED_BY_HOST): Unit = synchronized(lock) {
         if (localId == 0 || finished) return
         finished = true
+        pendingWrites.clear()
+        awaitingWriteAck = false
         dispatcher.close(localId)?.let(::send)
         emit("shell_closed", mapOf("stream" to localId.toString(), "reason" to reason))
     }
@@ -258,9 +290,11 @@ public class AdbInteractiveShell(
 
         is AdbMailboxItem.Ended -> applyEnd(item, events)
 
-        // Подтверждений наших записей этот потребитель не просил:
-        // они приходят только в ящик, открытый с ними.
-        is AdbMailboxItem.Acknowledged -> null
+        is AdbMailboxItem.Acknowledged -> {
+            awaitingWriteAck = false
+            if (pendingWrites.isNotEmpty()) events += AdbShellEvent.WriteReady
+            null
+        }
     }
 
     private fun appendLegacyText(
