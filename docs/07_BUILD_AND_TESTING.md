@@ -8,11 +8,11 @@ JDK 17 и Android SDK (платформа 37, build-tools 37.0.0, NDK 28.2.13676
 
 <!-- ci-command:begin -->
 ```sh
-./gradlew test lint assembleDebug --no-daemon --stacktrace
+./gradlew test lint assembleDebug assembleRelease --no-daemon --stacktrace 2>&1 | tee build/logs/gradle.log
 ```
 <!-- ci-command:end -->
 
-Debug APK — `app/build/outputs/apk/debug/`.
+Debug APK — `app/build/outputs/apk/debug/`, неподписанный release — `app/build/outputs/apk/release/`; `scripts/ci/sign_ci_release.sh` подписывает его в `build/ci-release/` (перед запуском — `mkdir -p build/logs`).
 
 **Выпуск (D074).** `scripts/ci/release_apk.sh` при чистом рабочем дереве собирает `assembleRelease` дважды — в дереве и в отдельном рабочем дереве того же коммита без кеша сборки — и останавливается, если неподписанные APK не совпали побайтно. Затем, если задан `NEKOFLASH_RELEASE_KEYSTORE`, подписывает APK `apksigner` и проверяет подпись. Итог — в `build/release/`: `NekoFlash-Pro-<версия>-unsigned.apk`, `NekoFlash-Pro-<версия>.apk` (если был ключ), `SHA256SUMS`, `COMMIT`. Ключ в Gradle не попадает, поэтому любой может собрать тот же коммит (JDK 17, build-tools 37.0.0, NDK 28.2.13676358; каталог дерева любой — пути в `.so` не попадают) и сравнить свой неподписанный APK с выпущенным. Ключ выпуска владелец создаёт один раз и хранит сам; в секреты Actions кладутся `NEKOFLASH_RELEASE_KEYSTORE_BASE64`, `NEKOFLASH_RELEASE_KEYSTORE_PASSWORD`, `NEKOFLASH_RELEASE_KEY_ALIAS` и, если отличается, `NEKOFLASH_RELEASE_KEY_PASSWORD`:
 
@@ -43,11 +43,11 @@ base64 -w0 nekoflash-debug.keystore
 
 1. быстрые проверки до Gradle: документация и архивы (`scripts/ci/check_docs.py`), гигиена дерева (`check_repository_hygiene.sh`: нет `.orig`/`.bak`, ключей, заглушек `TODO(`/`FIXME`, NUL-байтов, хвостовых пробелов), локализация (`check_localization.py`: EN/RU совпадают, нет строк в Compose-коде), стиль и границы модулей (`check_kotlin_style.sh`, detekt 1.23.8 с закреплённой суммой), Compose wiring (`check_compose_wiring.py`);
 2. постоянная debug-подпись из секрета, если он задан;
-3. все тесты, Android lint, debug APK (команда выше);
+3. все тесты, Android lint, debug и release APK (команда выше); вывод каждой проверки и Gradle — в `build/logs/`; release подписывается ключом выпуска из секрета, а без него — тем же отладочным ключом, что и debug (`scripts/ci/sign_ci_release.sh`, D079);
 4. сводка тестов `scripts/ci-test-summary.py` → `build/verification/test-summary.md` и Job summary;
-5. артефакты: `NekoFlash-Pro-debug-<номер>` (APK) и `NekoFlash-Pro-test-results-<номер>` (JUnit XML, отчёты тестов и lint, этот документ).
+5. артефакты, как в legacy: `NekoFlash-Pro-debug-<номер>` (отладочная сборка и `SHA256SUMS`), `NekoFlash-Pro-release-<номер>` (чистая сборка без отладки, `apk-signature.txt`, `build-info.txt` с ключом подписи, `SHA256SUMS`) и `NekoFlash-Pro-logs-<номер>` — всегда, и при падении: логи проверок и Gradle, JUnit XML, отчёты тестов и lint, сводка тестов, этот документ.
 
-`.github/workflows/release.yml` запускается тегом `v*` и вручную: ключ выпуска из секрета, если он задан, затем `scripts/ci/release_apk.sh`; артефакт `NekoFlash-Pro-release-<номер>` — содержимое `build/release/`.
+`.github/workflows/release.yml` запускается тегом `v*` и вручную: ключ выпуска из секрета, если он задан, затем `scripts/ci/release_apk.sh`; артефакт `NekoFlash-Pro-reproducible-<номер>` — содержимое `build/release/`.
 
 Зелёный CI подтверждает сборку и тесты, **но не поведение USB, ADB, Fastboot и Recovery**. Это доказывает только прогон на устройстве.
 

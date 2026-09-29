@@ -66,6 +66,7 @@
 | --- | --- | --- |
 | `gradle/libs.versions.toml` | добавлен `kotlin-test-junit` | тесты `:engine` написаны на `kotlin.test`; в архиве такого модуля нет |
 | `.github/workflows/build.yml` | один workflow вместо `android-ci.yml`: версии actions этого репозитория, `setup-android` с платформой 37, сводка тестов, имена артефактов `NekoFlash-Pro-*`; вместо `check_docs_consistency.py` — `check_docs.py` | проверка документов архива сверяет его собственные файлы |
+| `.github/workflows/build.yml`, `release.yml`, `scripts/ci/sign_ci_release.sh` (новый) | каждая сборка CI даёт три артефакта: debug, подписанный release и логи; артефакт `release.yml` переименован в `NekoFlash-Pro-reproducible-<номер>` | как legacy `build.yml` (debug, release, `…-reports` с логами lint и сборок) по просьбе владельца (D079) |
 | `scripts/ci/check_repository_hygiene.sh` | убрана сверка иконки с `docs/brand-reference/` | эталон иконки теперь внутри неизменяемого архива; иконки в приложении ещё нет |
 | `scripts/ci/check_kotlin_style.sh` | добавлена проверка `:engine` своей границей `engine-boundaries.yml`, без baseline | `:engine` — код этого репозитория |
 | `config/detekt/detekt.yml` | `CyclomaticComplexMethod.ignoreSimpleWhenEntries: true` | исчерпывающий `when` по запечатанному типу с одним выражением в ветке — таблица соответствия (шаг плана → вход движка, шаг → строка Preview), а не ветвление |
