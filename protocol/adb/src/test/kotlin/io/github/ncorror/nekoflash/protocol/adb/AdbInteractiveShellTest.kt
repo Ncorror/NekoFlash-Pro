@@ -72,6 +72,18 @@ class AdbInteractiveShellTest {
         )
     }
 
+    /** `adb shell -t КОМАНДА`: команда идёт после `pty:` той же строкой сервиса. */
+    @Test
+    fun aCommandFollowsTheModeInTheServiceString() {
+        val device = Device()
+        device.shell(useShellV2 = true, term = "xterm-256color", command = "exec sh -i").open()
+
+        assertEquals(
+            "shell,v2,TERM=xterm-256color,pty:exec sh -i\u0000",
+            device.handle.sentFrames().single().payload.decodeToString(),
+        )
+    }
+
     @Test
     fun windowSizeGoesAsFrameFive() {
         val device = Device(okay())
@@ -504,6 +516,7 @@ class AdbInteractiveShellTest {
             diagnostics: InMemoryDiagnosticSink = InMemoryDiagnosticSink(),
             raw: Boolean = false,
             term: String? = null,
+            command: String = "",
         ) = AdbInteractiveShell(
             writer = harness.writer,
             dispatcher = harness.dispatcher,
@@ -511,6 +524,7 @@ class AdbInteractiveShellTest {
             diagnostics = diagnostics,
             raw = raw,
             term = term,
+            command = command,
         )
 
         /**

@@ -1,38 +1,25 @@
 package io.github.ncorror.nekoflash.ui
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.MutableState
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import io.github.ncorror.nekoflash.R
 import io.github.ncorror.nekoflash.adb.AdbCommandState
 import io.github.ncorror.nekoflash.adb.AdbFileState
+import io.github.ncorror.nekoflash.protocol.adb.AdbRecoveryInstall
 import io.github.ncorror.nekoflash.protocol.adb.AdbRecoveryVerdict
 import io.github.ncorror.nekoflash.adb.AdbForwardController
 import io.github.ncorror.nekoflash.adb.AdbForwardEntry
@@ -61,64 +48,45 @@ import io.github.ncorror.nekoflash.usb.api.UsbSession
 internal fun AdbLinkSection(
     session: UsbSession,
     adbLink: AdbLinkState,
-    adbCommand: AdbCommandState,
     files: AdbFileState,
     fileActions: FileActions,
     onAdbConnect: () -> Unit,
     onAdbDisconnect: () -> Unit,
-    onRunCommand: (String) -> Unit,
     reboot: RebootPanel,
     rawService: RawServicePanel,
     forward: ForwardPanel,
     reverse: ReversePanel,
-    sideload: SideloadPanel,
 ) {
     val linkForThisSession = adbLink.takeIf { it.generationOrNull() == session.generation }
     val connected = linkForThisSession is AdbLinkState.Connected
     val busy = linkForThisSession is AdbLinkState.Connecting ||
         linkForThisSession is AdbLinkState.WaitingForAuthorization
 
-    LabelledValue(
-        label = stringResource(R.string.adb_state_label),
-        value = adbLinkText(linkForThisSession),
-    )
-    if (linkForThisSession is AdbLinkState.Connected) {
-        LabelledValue(
-            label = stringResource(R.string.adb_features_label),
-            value = linkForThisSession.features.sorted().joinToString(", ").ifEmpty {
-                stringResource(R.string.adb_features_none)
-            },
-        )
+    ToolCard(title = stringResource(R.string.adb_state_label)) {
+        StatusLine(adbLinkText(linkForThisSession))
+        Button(onClick = if (connected) onAdbDisconnect else onAdbConnect, enabled = !busy) {
+            Text(stringResource(if (connected) R.string.adb_disconnect else R.string.adb_connect))
+        }
+        if (linkForThisSession is AdbLinkState.Connected) {
+            NoteText(
+                stringResource(R.string.adb_features_label) + ": " +
+                    linkForThisSession.features.sorted().joinToString(", ").ifEmpty {
+                        stringResource(R.string.adb_features_none)
+                    },
+            )
+        } else {
+            NoteText(stringResource(R.string.adb_connect_hint))
+        }
     }
-    Button(
-        onClick = if (connected) onAdbDisconnect else onAdbConnect,
-        enabled = !busy,
-    ) {
-        Text(
-            stringResource(
-                if (connected) R.string.adb_disconnect else R.string.adb_connect,
-            ),
-        )
-    }
-    Text(
-        text = stringResource(R.string.adb_connect_hint),
-        style = MaterialTheme.typography.bodySmall,
-    )
+    // Разовая команда, Sideload и журнал Recovery живут в своих разделах:
+    // команда — в терминале, остальное — в Recovery. Здесь они были вторым
+    // входом в то же самое.
     if (connected) {
-        ShellSection(command = adbCommand, onRunCommand = onRunCommand)
-        // Интерактивная оболочка живёт в своём разделе: она переживает
-        // отдельную команду, и листать до неё через все протокольные секции
-        // приходилось каждый раз.
-        FilesSection(files = files, actions = fileActions)
-        // Sideload стоит сразу за файлами не по алфавиту: база журнала
-        // снимается там, вердикт читается там же, а между ними — эта передача.
-        // Три шага одного дела, и разносить их по экрану значило бы заставить
-        // оператора искать второй и третий.
-        SideloadSection(panel = sideload)
-        RebootSection(panel = reboot)
-        RawServiceSection(panel = rawService)
-        ForwardSection(panel = forward)
-        ReverseSection(panel = reverse)
+        ToolCard(title = stringResource(R.string.files_label)) { FilesSection(files = files, actions = fileActions) }
+        ToolCard(title = stringResource(R.string.reboot_label)) { RebootSection(panel = reboot) }
+        ToolCard(title = stringResource(R.string.raw_service_label)) { RawServiceSection(panel = rawService) }
+        ToolCard(title = stringResource(R.string.forward_label)) { ForwardSection(panel = forward) }
+        ToolCard(title = stringResource(R.string.reverse_label)) { ReverseSection(panel = reverse) }
     }
 }
 
@@ -191,8 +159,9 @@ data class FileActions(
 private fun FilesSection(files: AdbFileState, actions: FileActions) {
     val path = remember { mutableStateOf("") }
     val idle = files !is AdbFileState.Busy
+    val ready = idle && path.value.isNotBlank()
 
-    LabelledValue(label = stringResource(R.string.files_label), value = fileStateText(files))
+    if (!files.aboutRecoveryLog()) StatusLine(fileStateText(files))
     OutlinedTextField(
         value = path.value,
         onValueChange = { text -> path.value = text },
@@ -201,24 +170,43 @@ private fun FilesSection(files: AdbFileState, actions: FileActions) {
         enabled = idle,
         modifier = Modifier.fillMaxWidth(),
     )
-    Button(onClick = { actions.onDescribe(path.value) }, enabled = idle && path.value.isNotBlank()) {
-        Text(stringResource(R.string.files_describe))
+    ActionRow {
+        OutlinedButton(onClick = { actions.onDescribe(path.value) }, enabled = ready) {
+            Text(stringResource(R.string.files_describe))
+        }
+        Button(onClick = { actions.onReadToFile(path.value) }, enabled = ready) {
+            Text(stringResource(R.string.files_read_to_file))
+        }
+        Button(onClick = { actions.onWriteFromFile(path.value) }, enabled = ready) {
+            Text(stringResource(R.string.files_write_from_file))
+        }
     }
-    Button(onClick = { actions.onReadToFile(path.value) }, enabled = idle && path.value.isNotBlank()) {
-        Text(stringResource(R.string.files_read_to_file))
+}
+
+/**
+ * Журнал Recovery — задача раздела Recovery: база, установка, вердикт идут
+ * там подряд. Кнопки и исход показываются там, а не среди файлов.
+ */
+@Composable
+internal fun RecoveryLogSection(files: AdbFileState, actions: FileActions, enabled: Boolean) {
+    val idle = files !is AdbFileState.Busy
+    if (files.aboutRecoveryLog()) StatusLine(fileStateText(files))
+    ActionRow {
+        OutlinedButton(onClick = actions.onRecoveryBaseline, enabled = enabled && idle) {
+            Text(stringResource(R.string.recovery_baseline))
+        }
+        Button(onClick = actions.onRecoveryVerdict, enabled = enabled && idle) {
+            Text(stringResource(R.string.recovery_verdict_read))
+        }
     }
-    Button(onClick = { actions.onWriteFromFile(path.value) }, enabled = idle && path.value.isNotBlank()) {
-        Text(stringResource(R.string.files_write_from_file))
-    }
-    // Две кнопки Recovery не берут путь из поля: журнал текущей сессии один, и
-    // дать выбрать другой значило бы позволить снять базу с файла, который
-    // продолжением не бывает по определению.
-    Button(onClick = actions.onRecoveryBaseline, enabled = idle) {
-        Text(stringResource(R.string.recovery_baseline))
-    }
-    Button(onClick = actions.onRecoveryVerdict, enabled = idle) {
-        Text(stringResource(R.string.recovery_verdict_read))
-    }
+}
+
+/** Относится ли состояние к журналу Recovery, а не к файлу из поля пути. */
+private fun AdbFileState.aboutRecoveryLog(): Boolean = when (this) {
+    is AdbFileState.Verdict -> true
+    is AdbFileState.Busy -> path == AdbRecoveryInstall.PRIMARY_PATH
+    is AdbFileState.Failed -> path == AdbRecoveryInstall.PRIMARY_PATH
+    else -> false
 }
 
 @Composable
@@ -349,14 +337,6 @@ data class TerminalPanel(
     val current: AdbTerminalState get() = tabs.getOrElse(selected) { AdbTerminalState() }
 }
 
-/**
- * Интерактивная оболочка.
- *
- * Пока сессия жива, она занимает текущий production reader, поэтому одиночные
- * команды в это время недоступны — и об этом сказано на экране, а не оставлено
- * догадкам. Интерактивные записи при этом идут отдельным writer executor и не
- * блокируют UI.
- */
 /** Режим живой оболочки — как его назвал бы настольный `adb shell`. */
 @Composable
 internal fun terminalModeText(mode: AdbShellMode): String = stringResource(
@@ -366,104 +346,6 @@ internal fun terminalModeText(mode: AdbShellMode): String = stringResource(
         AdbShellMode.LEGACY -> R.string.terminal_mode_legacy
     },
 )
-
-/** Строка ввода: уходит в оболочку вместе с Enter. */
-@Composable
-private fun TerminalInput(input: MutableState<String>, ready: Boolean, onSend: (String) -> Unit) {
-    Row(
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        OutlinedTextField(
-            value = input.value,
-            onValueChange = { text -> input.value = text },
-            label = { Text(stringResource(R.string.terminal_input_hint)) },
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-            keyboardActions = KeyboardActions(onSend = {
-                if (ready && input.value.isNotBlank()) {
-                    onSend(input.value)
-                    input.value = ""
-                }
-            }),
-            enabled = ready,
-            modifier = Modifier.weight(1f),
-        )
-        Button(
-            onClick = {
-                onSend(input.value)
-                input.value = ""
-            },
-            enabled = ready && input.value.isNotBlank(),
-        ) {
-            Text(stringResource(R.string.terminal_send))
-        }
-    }
-}
-
-@Composable
-internal fun TerminalSection(
-    terminal: AdbTerminalState,
-    actions: TerminalActions,
-    connected: Boolean,
-    modifier: Modifier = Modifier,
-) {
-    val input = remember { mutableStateOf("") }
-    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        TerminalStatus(terminal, connected, actions)
-        TerminalScreen(
-            screen = terminal.screen,
-            placeholder = when {
-                terminal.ended != null -> stringResource(R.string.terminal_ended, terminal.ended)
-                terminal.closing -> stringResource(R.string.terminal_closing)
-                terminal.active && !terminal.ready -> stringResource(R.string.terminal_opening)
-                else -> stringResource(R.string.terminal_waiting)
-            },
-            showCursor = terminal.ready,
-            onResize = actions.onResize,
-            modifier = Modifier.weight(1f),
-        )
-        TerminalKeys(
-            enabled = terminal.ready,
-            onKey = actions.onKey,
-            onInterrupt = actions.onInterrupt,
-            onType = {
-                actions.onType(input.value)
-                input.value = ""
-            },
-        )
-        TerminalInput(input, terminal.ready, actions.onSend)
-    }
-}
-
-@Composable
-private fun TerminalStatus(terminal: AdbTerminalState, connected: Boolean, actions: TerminalActions) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Text(
-            text = if (connected) {
-                terminalModeText(terminal.mode)
-            } else {
-                stringResource(R.string.terminal_needs_connection)
-            },
-            style = MaterialTheme.typography.labelSmall,
-            modifier = Modifier.weight(1f),
-        )
-        if (terminal.active) {
-            TextButton(onClick = actions.onStop, enabled = !terminal.closing) {
-                Text(stringResource(R.string.terminal_stop))
-            }
-        } else {
-            TextButton(onClick = actions.onStart, enabled = connected) {
-                Text(stringResource(R.string.terminal_start))
-            }
-        }
-    }
-}
 
 /**
  * Вызов произвольного сервиса ADB.
@@ -479,31 +361,22 @@ private fun RawServiceSection(panel: RawServicePanel) {
     val service = remember { mutableStateOf("") }
     val running = panel.state is AdbRawServiceState.Running
 
-    LabelledValue(
-        label = stringResource(R.string.raw_service_label),
-        value = rawServiceText(panel.state),
-    )
-    OutlinedTextField(
+    StatusLine(rawServiceText(panel.state))
+    FieldWithAction(
         value = service.value,
         onValueChange = { text -> service.value = text },
-        label = { Text(stringResource(R.string.raw_service_hint)) },
-        singleLine = true,
-        enabled = !running,
-        modifier = Modifier.fillMaxWidth(),
-    )
-    Button(
-        onClick = { panel.onCall(service.value) },
+        label = stringResource(R.string.raw_service_hint),
+        onSubmit = { panel.onCall(service.value) },
         enabled = !running && service.value.isNotBlank(),
     ) {
-        Text(stringResource(R.string.raw_service_run))
+        Button(onClick = { panel.onCall(service.value) }, enabled = !running && service.value.isNotBlank()) {
+            Text(stringResource(R.string.raw_service_run))
+        }
     }
     (panel.state as? AdbRawServiceState.Finished)?.takeIf { it.text.isNotEmpty() }?.let { done ->
-        Text(text = done.text, style = MaterialTheme.typography.bodySmall)
+        Text(text = done.text, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
     }
-    Text(
-        text = stringResource(R.string.raw_service_note),
-        style = MaterialTheme.typography.bodySmall,
-    )
+    NoteText(stringResource(R.string.raw_service_note))
 }
 
 /**
@@ -518,25 +391,23 @@ private fun ForwardSection(panel: ForwardPanel) {
     val port = remember { mutableStateOf("") }
     val address = remember { mutableStateOf("") }
 
-    LabelledValue(
-        label = stringResource(R.string.forward_label),
-        value = panel.state.forwards.size.takeIf { it > 0 }?.toString()
-            ?: stringResource(R.string.forward_none),
-    )
-    OutlinedTextField(
-        value = port.value,
-        onValueChange = { text -> port.value = text },
-        label = { Text(stringResource(R.string.forward_port_hint)) },
-        singleLine = true,
-        modifier = Modifier.fillMaxWidth(),
-    )
-    OutlinedTextField(
-        value = address.value,
-        onValueChange = { text -> address.value = text },
-        label = { Text(stringResource(R.string.forward_address_hint)) },
-        singleLine = true,
-        modifier = Modifier.fillMaxWidth(),
-    )
+    if (panel.state.forwards.isEmpty()) StatusLine(stringResource(R.string.forward_none))
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        OutlinedTextField(
+            value = port.value,
+            onValueChange = { text -> port.value = text },
+            label = { Text(stringResource(R.string.forward_port_hint)) },
+            singleLine = true,
+            modifier = Modifier.weight(PORT_WEIGHT),
+        )
+        OutlinedTextField(
+            value = address.value,
+            onValueChange = { text -> address.value = text },
+            label = { Text(stringResource(R.string.forward_address_hint)) },
+            singleLine = true,
+            modifier = Modifier.weight(1f),
+        )
+    }
     Button(
         onClick = { panel.onAdd(port.value.trim().toIntOrNull() ?: 0, address.value) },
         enabled = address.value.isNotBlank(),
@@ -544,16 +415,8 @@ private fun ForwardSection(panel: ForwardPanel) {
         Text(stringResource(R.string.forward_add))
     }
     panel.state.forwards.forEach { entry -> ForwardRow(entry = entry, onRemove = panel.onRemove) }
-    panel.state.failure?.let { failure ->
-        Text(
-            text = stringResource(R.string.forward_failed, failure),
-            style = MaterialTheme.typography.bodySmall,
-        )
-    }
-    Text(
-        text = stringResource(R.string.forward_note, AdbForwardController.MAX_CONNECTIONS),
-        style = MaterialTheme.typography.bodySmall,
-    )
+    panel.state.failure?.let { failure -> StatusLine(stringResource(R.string.forward_failed, failure)) }
+    NoteText(stringResource(R.string.forward_note, AdbForwardController.MAX_CONNECTIONS))
 }
 
 @Composable
@@ -577,7 +440,7 @@ private fun ForwardRow(entry: AdbForwardEntry, onRemove: (Int) -> Unit) {
             style = MaterialTheme.typography.bodySmall,
         )
     }
-    Button(onClick = { onRemove(entry.localPort) }) {
+    OutlinedButton(onClick = { onRemove(entry.localPort) }) {
         Text(stringResource(R.string.forward_remove))
     }
 }
@@ -595,25 +458,23 @@ private fun ReverseSection(panel: ReversePanel) {
     val onDevice = remember { mutableStateOf("") }
     val onHost = remember { mutableStateOf("") }
 
-    LabelledValue(
-        label = stringResource(R.string.reverse_label),
-        value = panel.state.reverses.size.takeIf { it > 0 }?.toString()
-            ?: stringResource(R.string.reverse_none),
-    )
-    OutlinedTextField(
-        value = onDevice.value,
-        onValueChange = { text -> onDevice.value = text },
-        label = { Text(stringResource(R.string.reverse_device_hint)) },
-        singleLine = true,
-        modifier = Modifier.fillMaxWidth(),
-    )
-    OutlinedTextField(
-        value = onHost.value,
-        onValueChange = { text -> onHost.value = text },
-        label = { Text(stringResource(R.string.reverse_host_hint)) },
-        singleLine = true,
-        modifier = Modifier.fillMaxWidth(),
-    )
+    if (panel.state.reverses.isEmpty()) StatusLine(stringResource(R.string.reverse_none))
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        OutlinedTextField(
+            value = onDevice.value,
+            onValueChange = { text -> onDevice.value = text },
+            label = { Text(stringResource(R.string.reverse_device_hint)) },
+            singleLine = true,
+            modifier = Modifier.weight(1f),
+        )
+        OutlinedTextField(
+            value = onHost.value,
+            onValueChange = { text -> onHost.value = text },
+            label = { Text(stringResource(R.string.reverse_host_hint)) },
+            singleLine = true,
+            modifier = Modifier.weight(1f),
+        )
+    }
     Button(
         onClick = { panel.onAdd(onDevice.value, onHost.value) },
         enabled = onDevice.value.isNotBlank() && onHost.value.isNotBlank(),
@@ -647,28 +508,17 @@ private fun ReverseRow(entry: AdbReverseEntry) {
 /** Ответ устройства и две кнопки: вынесено, чтобы секция не разрослась. */
 @Composable
 private fun ReverseFooter(panel: ReversePanel) {
-    Button(onClick = panel.onRefresh) {
-        Text(stringResource(R.string.reverse_refresh))
+    ActionRow {
+        OutlinedButton(onClick = panel.onRefresh) {
+            Text(stringResource(R.string.reverse_refresh))
+        }
+        OutlinedButton(onClick = panel.onRemoveAll) {
+            Text(stringResource(R.string.reverse_remove_all))
+        }
     }
-    panel.state.listing?.let { listing ->
-        Text(
-            text = stringResource(R.string.reverse_listing, listing),
-            style = MaterialTheme.typography.bodySmall,
-        )
-    }
-    Button(onClick = panel.onRemoveAll) {
-        Text(stringResource(R.string.reverse_remove_all))
-    }
-    panel.state.failure?.let { failure ->
-        Text(
-            text = stringResource(R.string.reverse_failed, failure),
-            style = MaterialTheme.typography.bodySmall,
-        )
-    }
-    Text(
-        text = stringResource(R.string.reverse_note),
-        style = MaterialTheme.typography.bodySmall,
-    )
+    panel.state.listing?.let { listing -> StatusLine(stringResource(R.string.reverse_listing, listing)) }
+    panel.state.failure?.let { failure -> StatusLine(stringResource(R.string.reverse_failed, failure)) }
+    NoteText(stringResource(R.string.reverse_note))
 }
 
 /** Размер ответа называется всегда: он известен даже тогда, когда текст бессмыслен. */
@@ -701,22 +551,28 @@ private fun RebootSection(panel: RebootPanel) {
     val target = remember { mutableStateOf("") }
     val running = panel.state is AdbRebootState.Running
 
-    LabelledValue(label = stringResource(R.string.reboot_label), value = rebootText(panel.state))
-    OutlinedTextField(
+    StatusLine(rebootText(panel.state))
+    // Частые цели — одним касанием; поле ниже принимает любую, списка разрешённых нет.
+    ActionRow {
+        OutlinedButton(onClick = { panel.onReboot("") }, enabled = !running) {
+            Text(stringResource(R.string.reboot_target_system))
+        }
+        REBOOT_TARGETS.forEach { name ->
+            OutlinedButton(onClick = { panel.onReboot(name) }, enabled = !running) { Text(name) }
+        }
+    }
+    FieldWithAction(
         value = target.value,
         onValueChange = { text -> target.value = text },
-        label = { Text(stringResource(R.string.reboot_target_hint)) },
-        singleLine = true,
+        label = stringResource(R.string.reboot_target_hint),
+        onSubmit = { panel.onReboot(target.value) },
         enabled = !running,
-        modifier = Modifier.fillMaxWidth(),
-    )
-    Button(onClick = { panel.onReboot(target.value) }, enabled = !running) {
-        Text(stringResource(R.string.reboot_run))
+    ) {
+        Button(onClick = { panel.onReboot(target.value) }, enabled = !running) {
+            Text(stringResource(R.string.reboot_run))
+        }
     }
-    Text(
-        text = stringResource(R.string.reboot_note),
-        style = MaterialTheme.typography.bodySmall,
-    )
+    NoteText(stringResource(R.string.reboot_note))
 }
 
 /**
@@ -741,79 +597,6 @@ internal fun rebootText(reboot: AdbRebootState): String = when (reboot) {
 @Composable
 private fun AdbRebootState.Running.service(): String =
     target.ifBlank { stringResource(R.string.reboot_target_system) }
-
-/**
- * Неинтерактивная оболочка.
- *
- * Показывается только у подключённого устройства: команда без соединения
- * никуда не уйдёт, а кнопка, которая ничего не делает, врёт о состоянии.
- *
- * Живая интерактивная оболочка команде больше не мешает: у неё свой логический
- * поток. Гасит кнопку только предыдущая незаконченная команда — на экране один
- * слот результата.
- */
-/**
- * Недавние команды под полем ввода.
- *
- * Нажатие **подставляет** команду в поле, а не отправляет её. Разница
- * существенная: в этом поле бывают и мутирующие команды, и отправка по
- * случайному касанию была бы тем самым действием без подтверждения, которого
- * здесь быть не должно.
- */
-@Composable
-private fun CommandHistoryRow(entries: List<String>, enabled: Boolean, onPick: (String) -> Unit) {
-    if (entries.isEmpty()) return
-    Text(
-        text = stringResource(R.string.shell_history),
-        style = MaterialTheme.typography.labelMedium,
-    )
-    entries.forEach { entry ->
-        TextButton(onClick = { onPick(entry) }, enabled = enabled) {
-            Text(entry)
-        }
-    }
-}
-
-@Composable
-private fun ShellSection(
-    command: AdbCommandState,
-    onRunCommand: (String) -> Unit,
-) {
-    val input = remember { mutableStateOf("") }
-    val history = remember { CommandHistory() }
-    // Список перерисовывается по счётчику, а не по самой истории: она
-    // изменяемая, и Compose о её правках не узнаёт. Счётчик — то, что меняется
-    // при каждой отправке, и этого достаточно.
-    val remembered = remember { mutableStateOf(0) }
-    val running = command is AdbCommandState.Running
-
-    OutlinedTextField(
-        value = input.value,
-        onValueChange = { text -> input.value = text },
-        label = { Text(stringResource(R.string.shell_label)) },
-        placeholder = { Text(stringResource(R.string.shell_hint)) },
-        singleLine = true,
-        enabled = !running,
-        modifier = Modifier.fillMaxWidth(),
-    )
-    Button(
-        onClick = {
-            history.add(input.value)
-            remembered.value += 1
-            onRunCommand(input.value)
-        },
-        enabled = !running && input.value.isNotBlank(),
-    ) {
-        Text(stringResource(R.string.shell_run))
-    }
-    CommandHistoryRow(
-        entries = remember(remembered.value) { history.entries() },
-        enabled = !running,
-        onPick = { chosen -> input.value = chosen },
-    )
-    ShellOutcome(command)
-
-}
 
 private fun AdbLinkState.generationOrNull(): SessionGeneration? = when (this) {
     AdbLinkState.Idle -> null
@@ -886,3 +669,9 @@ internal fun ShellOutcome(command: AdbCommandState) {
         style = MaterialTheme.typography.bodySmall,
     )
 }
+
+/** Цели `reboot:`, которые набирают чаще всего; остальное — полем. */
+private val REBOOT_TARGETS = listOf("bootloader", "recovery", "fastboot", "sideload")
+
+/** Порт короче адреса: поле под него уже. */
+private const val PORT_WEIGHT = 0.4f

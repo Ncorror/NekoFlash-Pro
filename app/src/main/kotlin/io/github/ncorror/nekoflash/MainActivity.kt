@@ -109,7 +109,6 @@ class MainActivity : ComponentActivity() {
     ) {
         val sessions by coordinator.sessions.collectAsState()
         val linkState by adbLink.state.collectAsState()
-        val commandState by adbLink.command.collectAsState()
         val terminalTabs by adbLink.terminals.collectAsState()
         // Каждая вкладка меняется своим потоком: заголовки и выбранная читаются все.
         val terminalStates = terminalTabs.tabs.map { flow -> key(flow) { flow.collectAsState().value } }
@@ -149,7 +148,6 @@ class MainActivity : ComponentActivity() {
             usbHostSupported = packageManager.hasSystemFeature(PackageManager.FEATURE_USB_HOST),
             exportStatus = exportStatus,
             adbLink = linkState,
-            adbCommand = commandState,
             terminal = TerminalPanel(terminalStates, terminalTabs.selected),
             terminalActions = terminalActions(adbLink),
             files = fileState,
@@ -159,7 +157,6 @@ class MainActivity : ComponentActivity() {
             onRelease = { session -> coordinator.release(session.generation) },
             onAdbConnect = { session -> adbLink.connect(session.generation) },
             onAdbDisconnect = { session -> adbLink.disconnect(session.generation) },
-            onRunCommand = adbLink::runCommand,
             reboot = rebootPanel(adbLink),
             rawService = rawServicePanel(adbLink),
             forward = forwardPanel(adbLink),

@@ -4,6 +4,7 @@ import io.github.ncorror.nekoflash.protocol.adb.AdbCommand
 import io.github.ncorror.nekoflash.protocol.adb.AdbConnection
 import io.github.ncorror.nekoflash.protocol.adb.AdbKeyStore
 import io.github.ncorror.nekoflash.protocol.adb.AdbPacketHeader
+import io.github.ncorror.nekoflash.protocol.adb.AdbShellMode
 import io.github.ncorror.nekoflash.usb.api.UsbDeviceDescriptor
 import io.github.ncorror.nekoflash.usb.api.UsbEndpointDescriptor
 import io.github.ncorror.nekoflash.usb.api.UsbEndpointDirection
@@ -112,6 +113,48 @@ class AdbTerminalControllerTest {
     }
 
     /**
+     * Терминал в стиле NetHunter (D078): оболочка открывается командой с
+     * настройками, а логотип виден ещё до ответа устройства.
+     */
+    @Test
+    fun theProfileOpensTheShellWithItsSettingsAndShowsTheBanner() = withConnection { connection, handle ->
+        val reader = Executors.newSingleThreadExecutor()
+        val writer = RecordingExecutor()
+        val controller = AdbTerminalController(reader, writer, profile = true)
+        try {
+            controller.start(connection)
+
+            assertTrue(eventually { controller.state.value.output.contains("adb · fastboot") })
+            val open = synchronized(handle.sent) { handle.sent.joinToString("") { String(it, Charsets.ISO_8859_1) } }
+            assertTrue(open.contains("shell:exec 3<&0; printf %s "))
+            assertTrue(open.contains("export ENV=/proc/self/fd/9; exec sh -i"))
+            assertFalse("ввод за оператора не набирается", controller.state.value.ready)
+        } finally {
+            controller.stop()
+            reader.shutdownNow()
+        }
+    }
+
+    /** `adb shell -T`: без терминала приглашения нет, и настраивать нечего. */
+    @Test
+    fun aRawShellOpensWithoutTheProfile() = withConnection { connection, handle ->
+        val reader = Executors.newSingleThreadExecutor()
+        val writer = RecordingExecutor()
+        val controller = AdbTerminalController(reader, writer, profile = true)
+        try {
+            controller.start(connection, mode = AdbShellMode.RAW)
+
+            assertTrue(eventually { handle.sendCalls >= 1 })
+            val open = synchronized(handle.sent) { handle.sent.joinToString("") { String(it, Charsets.ISO_8859_1) } }
+            assertTrue(open.contains("shell:\u0000"))
+            assertFalse(controller.state.value.output.contains("adb · fastboot"))
+        } finally {
+            controller.stop()
+            reader.shutdownNow()
+        }
+    }
+
+    /**
      * `adb logcat` из поля команды: строка уходит в оболочку сразу после
      * `OKAY`, а не раньше — до подтверждения писать в поток некуда.
      */
@@ -202,6 +245,9 @@ class AdbTerminalControllerTest {
         var sendCalls = 0
             private set
 
+        /** Всё, что ушло на провод, по записям. */
+        val sent: MutableList<ByteArray> = java.util.Collections.synchronizedList(mutableListOf())
+
         override fun receive(
             destination: ByteArray,
             offset: Int,
@@ -236,6 +282,7 @@ class AdbTerminalControllerTest {
         ): UsbTransferResult {
             val call = synchronized(this) {
                 sendCalls += 1
+                sent += source.copyOfRange(offset, offset + length)
                 sendCalls
             }
             if (call == 1) {

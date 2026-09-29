@@ -5,20 +5,16 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -26,12 +22,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.ncorror.nekoflash.R
-import io.github.ncorror.nekoflash.adb.AdbCommandState
 import io.github.ncorror.nekoflash.adb.AdbFileState
-import io.github.ncorror.nekoflash.adb.AdbTerminalState
 import io.github.ncorror.nekoflash.adb.AdbLinkState
 import io.github.ncorror.nekoflash.usb.api.UsbScanSummary
 import io.github.ncorror.nekoflash.fastboot.FastbootLinkState
@@ -46,7 +39,6 @@ fun NekoFlashApp(
     usbHostSupported: Boolean = true,
     exportStatus: String? = null,
     adbLink: AdbLinkState = AdbLinkState.Idle,
-    adbCommand: AdbCommandState = AdbCommandState.None,
     terminal: TerminalPanel = TerminalPanel(),
     files: AdbFileState = AdbFileState.None,
     onRescanUsb: () -> Unit = {},
@@ -54,7 +46,6 @@ fun NekoFlashApp(
     onRelease: (UsbSession) -> Unit = {},
     onAdbConnect: (UsbSession) -> Unit = {},
     onAdbDisconnect: (UsbSession) -> Unit = {},
-    onRunCommand: (String) -> Unit = {},
     reboot: RebootPanel = RebootPanel(),
     rawService: RawServicePanel = RawServicePanel(),
     forward: ForwardPanel = ForwardPanel(),
@@ -88,7 +79,6 @@ fun NekoFlashApp(
             usbHostSupported = usbHostSupported,
             exportStatus = exportStatus,
             adbLink = adbLink,
-            adbCommand = adbCommand,
             terminal = terminal,
             terminalActions = terminalActions,
             files = files,
@@ -98,7 +88,6 @@ fun NekoFlashApp(
             onRelease = onRelease,
             onAdbConnect = onAdbConnect,
             onAdbDisconnect = onAdbDisconnect,
-            onRunCommand = onRunCommand,
             reboot = reboot,
             rawService = rawService,
             forward = forward,
@@ -217,7 +206,6 @@ private fun Workspace(
     usbHostSupported: Boolean,
     exportStatus: String?,
     adbLink: AdbLinkState,
-    adbCommand: AdbCommandState,
     terminal: TerminalPanel,
     terminalActions: TerminalActions,
     files: AdbFileState,
@@ -227,7 +215,6 @@ private fun Workspace(
     onRelease: (UsbSession) -> Unit,
     onAdbConnect: (UsbSession) -> Unit,
     onAdbDisconnect: (UsbSession) -> Unit,
-    onRunCommand: (String) -> Unit,
     reboot: RebootPanel,
     rawService: RawServicePanel,
     forward: ForwardPanel,
@@ -252,8 +239,7 @@ private fun Workspace(
 ) {
     if (destination == WorkspaceDestination.TERMINAL) {
         TerminalWorkspace(
-            adbLink = adbLink, terminal = terminal, actions = terminalActions,
-            desktopCommand = desktopCommand, target = selected?.targetId?.value,
+            adbLink = adbLink, terminal = terminal, actions = terminalActions, desktopCommand = desktopCommand,
             focused = terminalFocus, onToggleFocus = onToggleTerminalFocus,
             showCommands = showTerminalCommands, onToggleCommands = onToggleTerminalCommands,
             modifier = modifier.fillMaxSize(),
@@ -263,38 +249,21 @@ private fun Workspace(
     Column(
         modifier = modifier
             .verticalScroll(rememberScrollState())
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(20.dp),
+            .padding(horizontal = 16.dp, vertical = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         when (destination) {
             WorkspaceDestination.HOME -> HomeWorkspace(selected, paletteActions, onRescanUsb, onNavigate)
             WorkspaceDestination.DEVICE,
             WorkspaceDestination.ADB,
-            WorkspaceDestination.FASTBOOT -> {
-                SessionList(
-                    selected = selected,
-                    destination = destination,
-                    scan = scan,
-                    usbHostSupported = usbHostSupported,
-                    adbLink = adbLink,
-                    adbCommand = adbCommand,
-                    files = files,
-                    fileActions = fileActions,
-                    onClaim = onClaim,
-                    onRelease = onRelease,
-                    onAdbConnect = onAdbConnect,
-                    onAdbDisconnect = onAdbDisconnect,
-                    onRunCommand = onRunCommand,
-                    reboot = reboot,
-                    rawService = rawService,
-                    forward = forward,
-                    reverse = reverse,
-                    sideload = sideload,
-                    fastboot = fastboot,
-                    fastbootConsole = fastbootConsole,
-                )
-            }
-            WorkspaceDestination.RECOVERY -> SideloadWorkspace(selected, sideload)
+            WorkspaceDestination.FASTBOOT -> SessionList(
+                selected = selected, destination = destination, scan = scan,
+                usbHostSupported = usbHostSupported, adbLink = adbLink, files = files, fileActions = fileActions,
+                onClaim = onClaim, onRelease = onRelease, onAdbConnect = onAdbConnect,
+                onAdbDisconnect = onAdbDisconnect, reboot = reboot, rawService = rawService,
+                forward = forward, reverse = reverse, fastboot = fastboot, fastbootConsole = fastbootConsole,
+            )
+            WorkspaceDestination.RECOVERY -> RecoveryWorkspace(selected, adbLink, sideload, files, fileActions)
             WorkspaceDestination.TERMINAL -> Unit
             WorkspaceDestination.MI_UNLOCK -> MiUnlockSection(miUnlock)
             WorkspaceDestination.OPERATIONS -> OperationsSection(panel = operations)
@@ -308,73 +277,29 @@ private fun Workspace(
     }
 }
 
+/**
+ * Recovery — всё, что относится к установке пакета, подряд: база журнала до
+ * установки, сама передача, вердикт после. Раньше передача была здесь и ещё
+ * раз во вкладке ADB, а база с вердиктом — среди файлов.
+ */
 @Composable
-private fun SideloadWorkspace(selected: UsbSession?, sideload: SideloadPanel) {
-    Text(
-        text = when {
+private fun RecoveryWorkspace(
+    selected: UsbSession?,
+    adbLink: AdbLinkState,
+    sideload: SideloadPanel,
+    files: AdbFileState,
+    fileActions: FileActions,
+) {
+    NoteText(
+        when {
             selected == null -> stringResource(R.string.sideload_device_hint)
             selected.candidate.kind != UsbInterfaceKind.ADB -> stringResource(R.string.tools_need_recovery)
             else -> stringResource(R.string.sideload_mode_hint)
         },
-        style = MaterialTheme.typography.bodyMedium,
     )
-    SideloadSection(panel = sideload)
-}
-
-/**
- * Терминал как отдельный инструмент.
- *
- * Он переехал из карточки устройства не ради симметрии: оболочка живёт дольше
- * одной команды, и листать до неё через все протокольные секции приходилось
- * каждый раз. Здесь она открывается сразу.
- */
-@Composable
-private fun TerminalWorkspace(
-    adbLink: AdbLinkState,
-    terminal: TerminalPanel,
-    actions: TerminalActions,
-    desktopCommand: DesktopCommandPanel,
-    target: String?,
-    focused: Boolean,
-    onToggleFocus: () -> Unit,
-    showCommands: Boolean,
-    onToggleCommands: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Column(modifier = modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            if (focused) {
-                Text(
-                    text = target ?: stringResource(R.string.nav_terminal),
-                    style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.weight(1f).padding(top = 12.dp),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            } else {
-                Spacer(Modifier.weight(1f))
-            }
-            TextButton(onClick = onToggleCommands) {
-                Text(stringResource(if (showCommands) R.string.terminal_shell else R.string.terminal_commands))
-            }
-            TextButton(onClick = onToggleFocus) {
-                Text(stringResource(if (focused) R.string.terminal_exit_fullscreen else R.string.terminal_fullscreen))
-            }
-        }
-        if (showCommands) {
-            // Команды adb и fastboot не сжимают живой экран оболочки.
-            Column(modifier = Modifier.weight(1f).verticalScroll(rememberScrollState())) {
-                DesktopCommandSection(panel = desktopCommand)
-            }
-        } else {
-            TerminalTabsRow(panel = terminal, actions = actions)
-            TerminalSection(
-                terminal = terminal.current,
-                actions = actions,
-                connected = adbLink is AdbLinkState.Connected,
-                modifier = Modifier.weight(1f),
-            )
-        }
+    ToolCard(title = stringResource(R.string.sideload_label)) { SideloadSection(panel = sideload) }
+    ToolCard(title = stringResource(R.string.recovery_log_title)) {
+        RecoveryLogSection(files = files, actions = fileActions, enabled = adbLink is AdbLinkState.Connected)
     }
 }
 
@@ -386,13 +311,19 @@ private fun DiagnosticsWorkspace(
     onRescanUsb: () -> Unit,
     onExportDiagnostics: () -> Unit,
 ) {
-    ActionsCard(
-        exportStatus = exportStatus,
-        onRescanUsb = onRescanUsb,
-        onExportDiagnostics = onExportDiagnostics,
-    )
+    ToolCard(title = stringResource(R.string.nav_diagnostics)) {
+        ActionRow {
+            Button(onClick = onExportDiagnostics) { Text(stringResource(R.string.diagnostics_export)) }
+            OutlinedButton(onClick = onRescanUsb) { Text(stringResource(R.string.usb_rescan)) }
+        }
+        exportStatus?.let { StatusLine(it) }
+        NoteText(stringResource(R.string.usb_rescan_hint))
+    }
     DiagnosticsPane(source = recentEvents)
-    BuildBaselineCard()
+    ToolCard(title = stringResource(R.string.build_baseline_title)) {
+        Text(stringResource(R.string.build_baseline_values))
+        NoteText(stringResource(R.string.professional_capability_policy))
+    }
 }
 
 @Composable
@@ -402,102 +333,72 @@ private fun SessionList(
     scan: UsbScanSummary,
     usbHostSupported: Boolean,
     adbLink: AdbLinkState,
-    adbCommand: AdbCommandState,
     files: AdbFileState,
     fileActions: FileActions,
     onClaim: (UsbSession) -> Unit,
     onRelease: (UsbSession) -> Unit,
     onAdbConnect: (UsbSession) -> Unit,
     onAdbDisconnect: (UsbSession) -> Unit,
-    onRunCommand: (String) -> Unit,
     reboot: RebootPanel,
     rawService: RawServicePanel,
     forward: ForwardPanel,
     reverse: ReversePanel,
-    sideload: SideloadPanel,
     fastboot: FastbootPanel,
     fastbootConsole: FastbootConsolePanel,
 ) {
     if (selected == null) {
-        Text(
-            text = stringResource(R.string.sessions_empty),
-            style = MaterialTheme.typography.bodyLarge,
-        )
-        // Пустой список сам по себе ничего не объясняет. Разбор 2026-09-04
-        // показал цену этого молчания: по выгруженному evidence нельзя было
-        // сказать, видит ли система устройство вообще.
-        Text(
-            text = emptyStateReason(scan, usbHostSupported),
-            style = MaterialTheme.typography.bodySmall,
-        )
+        ToolCard(title = stringResource(R.string.sessions_empty)) {
+            // Пустой список сам по себе ничего не объясняет. Разбор 2026-09-04
+            // показал цену этого молчания: по выгруженному evidence нельзя было
+            // сказать, видит ли система устройство вообще.
+            NoteText(emptyStateReason(scan, usbHostSupported))
+        }
         return
     }
-    SessionCard(
-        session = selected,
-        destination = destination,
-        adbLink = adbLink,
-        adbCommand = adbCommand,
-        files = files,
-        fileActions = fileActions,
-        onClaim = { onClaim(selected) },
-        onRelease = { onRelease(selected) },
-        onAdbConnect = { onAdbConnect(selected) },
-        onAdbDisconnect = { onAdbDisconnect(selected) },
-        onRunCommand = onRunCommand,
-        reboot = reboot,
-        rawService = rawService,
-        forward = forward,
-        reverse = reverse,
-        sideload = sideload,
-        fastboot = fastboot,
-        fastbootConsole = fastbootConsole,
-    )
-    if (destination == WorkspaceDestination.DEVICE) {
-        Text(stringResource(R.string.mode_requires_handshake), style = MaterialTheme.typography.bodySmall)
-    }
-}
-
-@Composable
-private fun ActionsCard(
-    exportStatus: String?,
-    onRescanUsb: () -> Unit,
-    onExportDiagnostics: () -> Unit,
-) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Button(onClick = onRescanUsb) {
-                Text(stringResource(R.string.usb_rescan))
-            }
-            Text(
-                text = stringResource(R.string.usb_rescan_hint),
-                style = MaterialTheme.typography.bodySmall,
+    val usable = selected.state == UsbSessionState.READY || selected.state == UsbSessionState.CLAIMED
+    when {
+        destination == WorkspaceDestination.DEVICE -> DeviceCard(
+            session = selected,
+            onClaim = { onClaim(selected) },
+            onRelease = { onRelease(selected) },
+        )
+        !usable -> NoteText(stringResource(R.string.mode_requires_handshake))
+        destination == WorkspaceDestination.ADB -> if (selected.candidate.kind == UsbInterfaceKind.ADB) {
+            AdbLinkSection(
+                session = selected,
+                adbLink = adbLink,
+                files = files,
+                fileActions = fileActions,
+                onAdbConnect = { onAdbConnect(selected) },
+                onAdbDisconnect = { onAdbDisconnect(selected) },
+                reboot = reboot,
+                rawService = rawService,
+                forward = forward,
+                reverse = reverse,
             )
-            Button(onClick = onExportDiagnostics) {
-                Text(stringResource(R.string.diagnostics_export))
-            }
-            if (exportStatus != null) {
-                Text(text = exportStatus, style = MaterialTheme.typography.bodyMedium)
-            }
+        } else {
+            NoteText(stringResource(R.string.tools_need_adb))
         }
+        destination == WorkspaceDestination.FASTBOOT -> if (selected.candidate.kind == UsbInterfaceKind.FASTBOOT) {
+            FastbootWorkspace(fastboot = fastboot, fastbootConsole = fastbootConsole)
+        } else {
+            NoteText(stringResource(R.string.tools_need_fastboot))
+        }
+        else -> Unit
     }
 }
 
+/** Fastboot: связь с ролью устройства — и действия, когда связь есть. */
 @Composable
-private fun BuildBaselineCard() {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text(
-                stringResource(R.string.build_baseline_title),
-                style = MaterialTheme.typography.titleMedium,
-            )
-            Text(stringResource(R.string.build_baseline_values))
-            Text(stringResource(R.string.professional_capability_policy))
+private fun FastbootWorkspace(fastboot: FastbootPanel, fastbootConsole: FastbootConsolePanel) {
+    ToolCard(title = stringResource(R.string.fastboot_card_connection)) {
+        FastbootLinkSection(fastboot = fastboot)
+        NoteText(stringResource(R.string.fastboot_note))
+    }
+    val link = fastboot.state
+    if (link is FastbootLinkState.Connected) {
+        ToolCard(title = stringResource(R.string.fastboot_card_actions)) {
+            FastbootConsoleSection(console = fastbootConsole, lock = link.lock, onPlan = fastboot.onPlan)
         }
     }
 }
@@ -534,80 +435,25 @@ private fun SessionIdentity(session: UsbSession) {
     )
 }
 
+/**
+ * Устройство: кто оно и, если это не ADB и не Fastboot, — захват интерфейса.
+ *
+ * Удерживается ли интерфейс, видно по самому состоянию сессии. Отдельный
+ * список захваченных был бы вторым источником истины о том же самом.
+ */
 @Composable
-private fun SessionCard(
-    session: UsbSession,
-    destination: WorkspaceDestination,
-    adbLink: AdbLinkState,
-    adbCommand: AdbCommandState,
-    files: AdbFileState,
-    fileActions: FileActions,
-    onClaim: () -> Unit,
-    onRelease: () -> Unit,
-    onAdbConnect: () -> Unit,
-    onAdbDisconnect: () -> Unit,
-    onRunCommand: (String) -> Unit,
-    reboot: RebootPanel,
-    rawService: RawServicePanel,
-    forward: ForwardPanel,
-    reverse: ReversePanel,
-    sideload: SideloadPanel,
-    fastboot: FastbootPanel,
-    fastbootConsole: FastbootConsolePanel,
-) {
-    // Удерживается ли интерфейс, видно по самому состоянию сессии. Отдельный
-    // список захваченных был бы вторым источником истины о том же самом.
+private fun DeviceCard(session: UsbSession, onClaim: () -> Unit, onRelease: () -> Unit) {
     val claimed = session.state == UsbSessionState.CLAIMED
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            if (destination == WorkspaceDestination.DEVICE) SessionIdentity(session = session)
-
-            if (session.state == UsbSessionState.READY || session.state == UsbSessionState.CLAIMED) {
-                when (destination) {
-                    WorkspaceDestination.ADB -> if (session.candidate.kind == UsbInterfaceKind.ADB) {
-                        AdbLinkSection(
-                            session = session,
-                            adbLink = adbLink,
-                            adbCommand = adbCommand,
-                            files = files,
-                            fileActions = fileActions,
-                            onAdbConnect = onAdbConnect,
-                            onAdbDisconnect = onAdbDisconnect,
-                            onRunCommand = onRunCommand,
-                            reboot = reboot,
-                            rawService = rawService,
-                            forward = forward,
-                            reverse = reverse,
-                            sideload = sideload,
-                        )
-                    } else Text(stringResource(R.string.tools_need_adb))
-                    WorkspaceDestination.FASTBOOT -> if (session.candidate.kind == UsbInterfaceKind.FASTBOOT) {
-                        FastbootLinkSection(fastboot = fastboot)
-                        val link = fastboot.state
-                        if (link is FastbootLinkState.Connected) {
-                            FastbootConsoleSection(
-                                console = fastbootConsole,
-                                lock = link.lock,
-                                onPlan = fastboot.onPlan,
-                            )
-                        }
-                        Text(stringResource(R.string.fastboot_note), style = MaterialTheme.typography.bodySmall)
-                    } else Text(stringResource(R.string.tools_need_fastboot))
-                    WorkspaceDestination.DEVICE -> if (session.candidate.kind != UsbInterfaceKind.ADB &&
-                        session.candidate.kind != UsbInterfaceKind.FASTBOOT) {
-                        Button(onClick = if (claimed) onRelease else onClaim) {
-                            Text(stringResource(if (claimed) R.string.usb_release else R.string.usb_claim))
-                        }
-                        Text(stringResource(R.string.usb_claim_hint), style = MaterialTheme.typography.bodySmall)
-                    }
-                    else -> Unit
-                }
-            } else if (destination != WorkspaceDestination.DEVICE) {
-                Text(stringResource(R.string.mode_requires_handshake))
+    val usable = session.state == UsbSessionState.READY || claimed
+    ToolCard(title = stringResource(R.string.nav_device)) {
+        SessionIdentity(session = session)
+        val kind = session.candidate.kind
+        if (usable && kind != UsbInterfaceKind.ADB && kind != UsbInterfaceKind.FASTBOOT) {
+            Button(onClick = if (claimed) onRelease else onClaim) {
+                Text(stringResource(if (claimed) R.string.usb_release else R.string.usb_claim))
             }
+            NoteText(stringResource(R.string.usb_claim_hint))
         }
+        NoteText(stringResource(R.string.mode_requires_handshake))
     }
 }

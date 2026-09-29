@@ -270,6 +270,7 @@ public class AdbConnection(
         diagnostics: DiagnosticSink = DiagnosticSink { },
         mode: AdbShellMode = AdbShellMode.PTY,
         term: String? = null,
+        command: String = "",
     ): AdbInteractiveShell {
         ensureDispatching()
         return AdbInteractiveShell(
@@ -279,6 +280,7 @@ public class AdbConnection(
             diagnostics = diagnostics,
             raw = mode == AdbShellMode.RAW,
             term = term,
+            command = command,
         )
     }
 

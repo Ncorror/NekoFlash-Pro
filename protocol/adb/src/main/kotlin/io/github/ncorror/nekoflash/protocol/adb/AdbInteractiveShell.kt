@@ -64,6 +64,11 @@ public class AdbInteractiveShell(
     private val raw: Boolean = false,
     /** `TERM=` в строке сервиса `shell,v2`, как у настольного клиента; `null` — не передавать. */
     private val term: String? = null,
+    /**
+     * Команда после `:` — как у `adb shell -t КОМАНДА`: устройство выполняет её
+     * через `sh -c` в том же терминале. Пустая — оболочка входа, как `adb shell`.
+     */
+    private val command: String = "",
     private val clock: () -> Instant = { Clock.systemUTC().instant() },
 ) {
     private val frames = AdbShellFrameBuffer()
@@ -108,7 +113,7 @@ public class AdbInteractiveShell(
             term == null -> if (raw) SERVICE_RAW else SERVICE_PTY
             // `ShellServiceString`: shell,v2,TERM=…,pty: — в этом порядке.
             else -> "shell,v2,TERM=$term,${if (raw) "raw" else "pty"}:"
-        }
+        } + command
         val (box, packet) = dispatcher.open(service)
         mailbox = box
         val id = box.localId

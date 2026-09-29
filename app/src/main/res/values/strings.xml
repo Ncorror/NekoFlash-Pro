@@ -14,7 +14,6 @@
     <string name="home_connect_device">Connect an Android device over USB to start.</string>
     <string name="home_current_target">Current device</string>
     <string name="home_device_details">Device details</string>
-    <string name="home_tools">Tools</string>
     <string name="tools_need_adb">Connect a device in ADB mode to use these tools.</string>
     <string name="tools_need_fastboot">Connect a device in Fastboot mode to use these tools.</string>
     <string name="tools_need_recovery">Connect a device in Recovery or ADB Sideload mode to use these tools.</string>
@@ -30,7 +29,6 @@
 
     <string name="target_label">Target</string>
 
-    <string name="sessions_title">USB sessions</string>
     <string name="usb_claim">Claim interface</string>
     <string name="usb_release">Release interface</string>
     <string name="usb_claim_hint">Claiming is exclusive: while the interface is held, no other owner on this host can use it. Nothing is claimed automatically.</string>
@@ -94,17 +92,13 @@
     <string name="shell_stderr">stderr</string>
     <string name="shell_exit_code">Exit code: %1$d</string>
     <string name="shell_exit_unknown">Exit code is unavailable: the device does not support shell,v2.</string>
-    <string name="terminal_label">Interactive shell</string>
     <string name="terminal_start">Open shell</string>
     <string name="terminal_stop">Close shell</string>
-    <string name="terminal_send">Send</string>
     <string name="terminal_interrupt">Ctrl+C</string>
-    <string name="terminal_input_hint">Line to send to the shell</string>
     <string name="terminal_opening">Opening shell; waiting for the device to confirm the stream…</string>
     <string name="terminal_closing">Closing shell; waiting for the ADB stream to release…</string>
     <string name="terminal_waiting">The shell is open and waiting for input.</string>
     <string name="terminal_ended">Session ended: %1$s</string>
-    <string name="terminal_note">The shell stays open until you close it. Single commands and file operations keep working meanwhile — each runs on its own stream. Escape sequences are shown as they arrive; they are not interpreted yet.</string>
     <string name="files_label">Device files</string>
     <string name="files_path_hint">Path on the device, for example /sdcard/Download/file.zip</string>
     <string name="files_describe">Check</string>
@@ -167,7 +161,6 @@
     <string name="reverse_listing">The device is listening to: %1$s</string>
     <string name="reverse_failed">Did not work: %1$s</string>
     <string name="reverse_note">Here the device listens and brings the connections; forwarding above is the other way round. The address on this phone is reached as 127.0.0.1 and its port, so only tcp: works on our side — what to do with other kinds was never observed, and a stream to one of them is refused with a named reason rather than dropped silently. What may be asked of the device is not limited.</string>
-    <string name="fastboot_section_title">Fastboot</string>
     <string name="fastboot_probe">Ask the device who it is</string>
     <string name="fastboot_probe_again">Ask again</string>
     <string name="fastboot_probing">Asking the device…</string>
@@ -287,7 +280,6 @@
     <string name="operation_notification_waiting">Waiting for work.</string>
     <string name="operation_notification_line">%1$s — %2$s</string>
     <string name="operation_notification_line_percent">%1$s — %2$s, %3$d%%</string>
-    <string name="operations_title">Operations</string>
     <string name="operations_note">History is kept so that an operation interrupted by the app being killed can be read honestly afterwards — not so that it can be resumed. There is nothing to resume: the transport went away with the process.</string>
     <string name="operations_live_percent">%1$s — %2$d%%</string>
     <string name="operations_live_bytes">%1$s — %2$d bytes sent</string>
@@ -322,7 +314,6 @@
     <string name="diagnostics_recent_title">Being recorded right now</string>
     <string name="diagnostics_recent_empty">Nothing recorded yet in this session.</string>
     <string name="diagnostics_recent_note">The last %1$d lines, newest first. The full report is the export above — this pane is here so you can see during a run whether the thing you are testing is being recorded at all.</string>
-    <string name="target_bar_label">Working with</string>
     <string name="target_bar_state">%1$s · %2$s</string>
     <string name="target_bar_no_device">No device connected</string>
     <string name="target_bar_others">Switch device (%1$d more)</string>
@@ -383,17 +374,25 @@
     <string name="command_step_fastboot_format">fastboot: format %1$s — the phone asks the device for the partition type and size (override: type %2$s, size %3$s), builds an empty file system like mke2fs or make_f2fs and flashes it. Options: %4$s</string>
     <string name="command_step_fastboot_wipe">fastboot: -w — erase and a fresh file system for userdata, cache and metadata (a partition the device does not know is skipped), then: %1$s. Options: %2$s</string>
     <string name="command_step_fastboot_wipe_super">fastboot: wipe-super from %1$s (the file you pick): an empty super built from its metadata is flashed to each super device; slot: %2$s</string>
-    <string name="terminal_type_no_enter">Send without Enter</string>
-    <string name="terminal_new_tab">+ Tab</string>
-    <string name="terminal_close_tab">×</string>
+    <string name="terminal_new_tab">New tab</string>
     <string name="terminal_close_tab_label">Close tab %1$d</string>
+    <string name="terminal_tab_title" translatable="false">%1$d %2$s</string>
+    <string name="terminal_tab_shell" translatable="false">sh</string>
+    <string name="terminal_tab_raw" translatable="false">sh -T</string>
+    <string name="terminal_tab_legacy" translatable="false">sh -x</string>
+    <string name="terminal_keyboard">Keyboard</string>
+    <string name="terminal_key_home">Home</string>
+    <string name="terminal_key_end">End</string>
+    <string name="terminal_key_page_up">Page up</string>
+    <string name="terminal_key_page_down">Page down</string>
+    <string name="terminal_key_ctrl">Control, for the next key</string>
+    <string name="terminal_key_alt">Alt, for the next key</string>
     <string name="terminal_key_escape">Escape</string>
     <string name="terminal_key_tab">Tab</string>
     <string name="terminal_key_up">Arrow up</string>
     <string name="terminal_key_down">Arrow down</string>
     <string name="terminal_key_left">Arrow left</string>
     <string name="terminal_key_right">Arrow right</string>
-    <string name="terminal_key_ctrl_d">Control D, end of input</string>
     <string name="command_note">The same engines run this as the buttons and the raw console. A path in the command is never opened directly: the file is picked through Android and bound to the plan shown above. A command or option without an executor answers \"not implemented\" before anything is sent, instead of turning into a different command. `flash` of an image larger than the device\'s max-download-size goes in sparse pieces, as with desktop fastboot.</string>
     <string name="command_file_count">The command names %1$d files, and %2$d were picked. Nothing was sent.</string>
     <string name="command_run_open_many">Pick the files and run</string>
@@ -417,7 +416,6 @@
     <string name="mi_login_retry">Try again</string>
     <string name="mi_login_missing_cookies">Xiaomi did not return the unlock session. Sign out and try again.</string>
     <string name="mi_login_cancelled_by_user">Login cancelled.</string>
-    <string name="mi_unlock_title">Mi Unlock</string>
     <string name="mi_unlock_warning">Unlocking may erase all user data on the selected device. Back up your files before continuing.</string>
     <string name="mi_unlock_sign_in">Sign in to Mi Account</string>
     <string name="mi_unlock_signing_in">Getting Xiaomi authorization…</string>
@@ -453,4 +451,7 @@
     <string name="terminal_fullscreen">Full screen</string>
     <string name="terminal_exit_fullscreen">Exit full screen</string>
     <string name="target_bar_switch">Switch</string>
+    <string name="recovery_log_title">Recovery log</string>
+    <string name="fastboot_card_connection">Connection</string>
+    <string name="fastboot_card_actions">Actions</string>
 </resources>

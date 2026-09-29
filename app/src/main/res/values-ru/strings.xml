@@ -13,7 +13,6 @@
     <string name="home_connect_device">Подключите Android-устройство по USB, чтобы начать работу.</string>
     <string name="home_current_target">Текущее устройство</string>
     <string name="home_device_details">Сведения об устройстве</string>
-    <string name="home_tools">Инструменты</string>
     <string name="tools_need_adb">Подключите устройство в режиме ADB для работы с этими инструментами.</string>
     <string name="tools_need_fastboot">Подключите устройство в режиме Fastboot для работы с этими инструментами.</string>
     <string name="tools_need_recovery">Подключите устройство в режиме Recovery или ADB Sideload для работы с этими инструментами.</string>
@@ -28,7 +27,6 @@
 
     <string name="target_label">Целевое устройство</string>
 
-    <string name="sessions_title">Сессии USB</string>
     <string name="usb_claim">Захватить интерфейс</string>
     <string name="usb_release">Освободить интерфейс</string>
     <string name="usb_claim_hint">Захват исключителен: пока интерфейс удерживается, другой владелец на этом хосте его не получит. Автоматически ничего не захватывается.</string>
@@ -89,17 +87,13 @@
     <string name="shell_stderr">stderr</string>
     <string name="shell_exit_code">Код возврата: %1$d</string>
     <string name="shell_exit_unknown">Код возврата недоступен: устройство не поддерживает shell,v2.</string>
-    <string name="terminal_label">Интерактивная оболочка</string>
     <string name="terminal_start">Открыть оболочку</string>
     <string name="terminal_stop">Закрыть оболочку</string>
-    <string name="terminal_send">Отправить</string>
     <string name="terminal_interrupt">Ctrl+C</string>
-    <string name="terminal_input_hint">Строка для оболочки</string>
     <string name="terminal_opening">Открываем оболочку; ждём подтверждения потока от устройства…</string>
     <string name="terminal_closing">Закрываем оболочку; ждём освобождения ADB-потока…</string>
     <string name="terminal_waiting">Оболочка открыта и ждёт ввода.</string>
     <string name="terminal_ended">Сессия завершена: %1$s</string>
-    <string name="terminal_note">Оболочка живёт, пока её не закрыть. Одиночные команды и файловые операции при этом продолжают работать — у каждой свой поток. Управляющие последовательности показываются как есть, они пока не разбираются.</string>
     <string name="files_label">Файлы устройства</string>
     <string name="files_path_hint">Путь на устройстве, например /sdcard/Download/file.zip</string>
     <string name="files_describe">Проверить</string>
@@ -168,7 +162,6 @@
     <string name="reverse_listing">Устройство слушает: %1$s</string>
     <string name="reverse_failed">Не получилось: %1$s</string>
     <string name="reverse_note">Здесь слушает устройство и само приводит соединения; проброс выше — наоборот. Адрес на этом телефоне достигается по 127.0.0.1 и номеру порта, поэтому с нашей стороны работает только tcp: — что делать с другими, не наблюдалось, и поток к такому адресу получает отказ с названной причиной, а не тишину. Что просить у устройства, ничем не ограничено.</string>
-    <string name="fastboot_section_title">Fastboot</string>
     <string name="fastboot_probe">Спросить устройство, кто оно</string>
     <string name="fastboot_probe_again">Спросить ещё раз</string>
     <string name="fastboot_probing">Спрашиваем устройство…</string>
@@ -288,7 +281,6 @@
     <string name="operation_notification_waiting">Работы нет.</string>
     <string name="operation_notification_line">%1$s — %2$s</string>
     <string name="operation_notification_line_percent">%1$s — %2$s, %3$d%%</string>
-    <string name="operations_title">Операции</string>
     <string name="operations_note">История хранится, чтобы операцию, прерванную гибелью приложения, можно было потом честно прочитать, — а не чтобы её продолжить. Продолжать нечего: транспорт ушёл вместе с процессом.</string>
     <string name="operations_live_percent">%1$s — %2$d%%</string>
     <string name="operations_live_bytes">%1$s — отдано %2$d байт</string>
@@ -323,7 +315,6 @@
     <string name="diagnostics_recent_title">Записывается прямо сейчас</string>
     <string name="diagnostics_recent_empty">В этом сеансе пока ничего не записано.</string>
     <string name="diagnostics_recent_note">Последние %1$d строк, свежие сверху. Полный отчёт — это выгрузка выше; панель здесь для того, чтобы прямо на прогоне видеть, пишется ли вообще то, ради чего прогон затеян.</string>
-    <string name="target_bar_label">Работаем с</string>
     <string name="target_bar_state">%1$s · %2$s</string>
     <string name="target_bar_no_device">Устройство не подключено</string>
     <string name="target_bar_others">Сменить устройство (ещё %1$d)</string>
@@ -384,17 +375,21 @@
     <string name="command_step_fastboot_format">fastboot: format %1$s — телефон спрашивает у устройства тип и размер раздела (замена: тип %2$s, размер %3$s), собирает пустую файловую систему, как mke2fs или make_f2fs, и прошивает её. Опции: %4$s</string>
     <string name="command_step_fastboot_wipe">fastboot: -w — стирание и новая файловая система у userdata, cache и metadata (раздел, которого устройство не знает, пропускается), затем: %1$s. Опции: %2$s</string>
     <string name="command_step_fastboot_wipe_super">fastboot: wipe-super по %1$s (файл, который вы выберете): пустой super по его метаданным прошивается на каждое устройство super; слот: %2$s</string>
-    <string name="terminal_type_no_enter">Отправить без Enter</string>
-    <string name="terminal_new_tab">+ Вкладка</string>
-    <string name="terminal_close_tab">×</string>
+    <string name="terminal_new_tab">Новая вкладка</string>
     <string name="terminal_close_tab_label">Закрыть вкладку %1$d</string>
+    <string name="terminal_keyboard">Клавиатура</string>
+    <string name="terminal_key_home">В начало строки</string>
+    <string name="terminal_key_end">В конец строки</string>
+    <string name="terminal_key_page_up">Страница вверх</string>
+    <string name="terminal_key_page_down">Страница вниз</string>
+    <string name="terminal_key_ctrl">Control, для следующей клавиши</string>
+    <string name="terminal_key_alt">Alt, для следующей клавиши</string>
     <string name="terminal_key_escape">Escape</string>
     <string name="terminal_key_tab">Табуляция</string>
     <string name="terminal_key_up">Стрелка вверх</string>
     <string name="terminal_key_down">Стрелка вниз</string>
     <string name="terminal_key_left">Стрелка влево</string>
     <string name="terminal_key_right">Стрелка вправо</string>
-    <string name="terminal_key_ctrl_d">Control D, конец ввода</string>
     <string name="command_note">Исполняют те же движки, что у кнопок и сырой консоли. Путь из команды напрямую не открывается: файл выбирается через Android и привязывается к показанному плану. Команда или опция без исполнителя отвечает «не реализовано» до отправки, а не превращается в другую команду. `flash` образа больше max-download-size устройства уходит кусками sparse, как у настольного fastboot.</string>
     <string name="command_file_count">Команда называет файлов: %1$d, выбрано: %2$d. Ничего не отправлено.</string>
     <string name="command_run_open_many">Выбрать файлы и выполнить</string>
@@ -418,7 +413,6 @@
     <string name="mi_login_retry">Повторить</string>
     <string name="mi_login_missing_cookies">Xiaomi не вернула сессию разблокировки. Выйдите и попробуйте снова.</string>
     <string name="mi_login_cancelled_by_user">Вход отменён.</string>
-    <string name="mi_unlock_title">Mi Unlock</string>
     <string name="mi_unlock_warning">Разблокировка может удалить все данные выбранного устройства. Сохраните файлы перед продолжением.</string>
     <string name="mi_unlock_sign_in">Войти в Mi Аккаунт</string>
     <string name="mi_unlock_signing_in">Получаем разрешение Xiaomi…</string>
@@ -454,4 +448,7 @@
     <string name="terminal_fullscreen">На весь экран</string>
     <string name="terminal_exit_fullscreen">Свернуть</string>
     <string name="target_bar_switch">Сменить</string>
+    <string name="recovery_log_title">Журнал Recovery</string>
+    <string name="fastboot_card_connection">Подключение</string>
+    <string name="fastboot_card_actions">Действия</string>
 </resources>

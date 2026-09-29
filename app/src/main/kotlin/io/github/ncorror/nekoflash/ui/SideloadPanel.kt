@@ -1,11 +1,9 @@
 package io.github.ncorror.nekoflash.ui
 
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import io.github.ncorror.nekoflash.R
 import io.github.ncorror.nekoflash.adb.AdbSideloadState
@@ -40,18 +38,14 @@ internal fun SideloadSection(panel: SideloadPanel) {
     // не тронуто: кнопки гасит и то, и другое, а формулировки у них разные.
     val busy = running != null || state is AdbSideloadState.Staging
 
-    LabelledValue(label = stringResource(R.string.sideload_label), value = sideloadText(state))
-
-    Button(onClick = panel.onChoose, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
+    StatusLine(sideloadText(state))
+    Button(onClick = panel.onChoose, enabled = !busy) {
         Text(stringResource(R.string.sideload_choose))
     }
     if (running != null) {
         SideloadCancel(running, panel.onCancel)
     }
-    Text(
-        text = stringResource(R.string.sideload_note),
-        style = MaterialTheme.typography.bodySmall,
-    )
+    NoteText(stringResource(R.string.sideload_note))
 }
 
 /**

@@ -1,37 +1,29 @@
 package io.github.ncorror.nekoflash.ui
 
 import androidx.compose.foundation.background
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.Alignment
-import androidx.compose.material3.minimumInteractiveComponentSize
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
@@ -39,9 +31,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
-import io.github.ncorror.nekoflash.R
-import io.github.ncorror.nekoflash.adb.AdbTerminalState
-import io.github.ncorror.nekoflash.adb.TerminalKey
+import androidx.compose.ui.unit.sp
 import io.github.ncorror.nekoflash.terminal.VtRow
 import io.github.ncorror.nekoflash.terminal.VtSnapshot
 import io.github.ncorror.nekoflash.terminal.VtStyle
@@ -61,12 +51,15 @@ internal fun TerminalScreen(
     showCursor: Boolean,
     onResize: (Int, Int) -> Unit,
     modifier: Modifier = Modifier,
+    onTap: () -> Unit = {},
 ) {
-    val colors = TerminalColors(
-        foreground = MaterialTheme.colorScheme.onBackground,
-        background = MaterialTheme.colorScheme.background,
+    val colors = TerminalColors(foreground = TerminalPalette.foreground, background = TerminalPalette.background)
+    val style = TextStyle(
+        fontFamily = FontFamily.Monospace,
+        fontSize = TEXT_SIZE,
+        lineHeight = LINE_HEIGHT,
+        color = colors.foreground,
     )
-    val style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace, color = colors.foreground)
     val measurer = rememberTextMeasurer()
     val density = LocalDensity.current
     val scroll = rememberScrollState()
@@ -80,7 +73,8 @@ internal fun TerminalScreen(
     BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
-            .background(colors.background),
+            .background(colors.background)
+            .observeTaps(onTap),
     ) {
         val cell = remember(style) { measurer.measure("M", style).size }
         val inner = with(density) { (maxWidth - PADDING * 2).toPx() to (maxHeight - PADDING * 2).toPx() }
@@ -106,81 +100,33 @@ internal fun TerminalScreen(
     }
 }
 
-/** Вкладки: номер и то, с чего вкладка открыта; «+» — новая, «×» — закрыть. */
-@Composable
-internal fun TerminalTabsRow(panel: TerminalPanel, actions: TerminalActions) {
-    Row(
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-    ) {
-        panel.tabs.forEachIndexed { index, tab ->
-            FilterChip(
-                selected = index == panel.selected,
-                onClick = { actions.onSelectTab(index) },
-                label = { Text(tabTitle(index, tab)) },
-                trailingIcon = if (panel.tabs.size > 1) {
-                    { CloseTab(index, actions.onCloseTab) }
-                } else {
-                    null
-                },
-            )
-        }
-        OutlinedButton(onClick = actions.onAddTab) { Text(stringResource(R.string.terminal_new_tab)) }
+/**
+ * Касание экрана открывает клавиатуру, а долгое нажатие остаётся выделению
+ * текста: касание только наблюдается, событие не съедается.
+ */
+private fun Modifier.observeTaps(onTap: () -> Unit): Modifier = pointerInput(onTap) {
+    awaitEachGesture {
+        val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+        val up = waitForUpOrCancellation(pass = PointerEventPass.Initial)
+        val quick = up != null && up.uptimeMillis - down.uptimeMillis < viewConfiguration.longPressTimeoutMillis
+        if (quick && (up!!.position - down.position).getDistance() < viewConfiguration.touchSlop) onTap()
     }
 }
 
-/** «×» вкладки: цель не меньше 48 dp и название для TalkBack — «Закрыть вкладку N». */
-@Composable
-private fun CloseTab(index: Int, onClose: (Int) -> Unit) {
-    val label = stringResource(R.string.terminal_close_tab_label, index + 1)
-    Box(
-        contentAlignment = Alignment.Center,
-        modifier = Modifier
-            .minimumInteractiveComponentSize()
-            .clickable(role = Role.Button, onClickLabel = label) { onClose(index) }
-            .semantics { contentDescription = label },
-    ) {
-        Text(stringResource(R.string.terminal_close_tab))
-    }
-}
+/**
+ * Цвета терминала — свои, тёмные в любой теме, как у NetHunter и Termux:
+ * вывод программ рассчитан на тёмный фон, и на светлом жёлтый и белый текст
+ * `ls --color` пропадали бы.
+ */
+@Suppress("MagicNumber")
+internal object TerminalPalette {
+    val background = Color(0xFF0C0C10)
+    val chrome = Color(0xFF16161D)
+    val foreground = Color(0xFFE4E4E7)
+    val muted = Color(0xFF8B8B96)
 
-private fun tabTitle(index: Int, tab: AdbTerminalState): String {
-    val name = tab.title ?: "sh"
-    val mark = when {
-        tab.active -> ""
-        tab.ended != null -> " ·"
-        else -> ""
-    }
-    return "${index + 1} $name$mark"
-}
-
-/** Клавиши, которых нет в строке ввода, и ввод без Enter — для `top`, `less`, `vi`. */
-@Composable
-internal fun TerminalKeys(
-    enabled: Boolean,
-    onKey: (TerminalKey) -> Unit,
-    onInterrupt: () -> Unit,
-    onType: () -> Unit,
-) {
-    Row(
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-    ) {
-        for ((key, label) in KEY_LABELS) {
-            val spoken = stringResource(keySpoken(key))
-            TextButton(
-                onClick = { onKey(key) },
-                enabled = enabled,
-                modifier = Modifier.semantics { contentDescription = spoken },
-            ) { Text(label) }
-            if (key == TerminalKey.TAB) {
-                TextButton(onClick = onInterrupt, enabled = enabled) {
-                    Text(stringResource(R.string.terminal_interrupt))
-                }
-            }
-        }
-        TextButton(onClick = onType, enabled = enabled) { Text(stringResource(R.string.terminal_type_no_enter)) }
-    }
+    /** Метка живой вкладки — зелёный, как у приглашения. */
+    val live = Color(0xFF23D18B)
 }
 
 private class TerminalColors(val foreground: Color, val background: Color)
@@ -238,28 +184,9 @@ private fun colorOf(value: Int): Color? = when {
     }
 }
 
-/** Как клавишу назвать вслух: «↑» TalkBack читает по-разному, а то и никак. */
-private fun keySpoken(key: TerminalKey): Int = when (key) {
-    TerminalKey.ESCAPE -> R.string.terminal_key_escape
-    TerminalKey.TAB -> R.string.terminal_key_tab
-    TerminalKey.UP -> R.string.terminal_key_up
-    TerminalKey.DOWN -> R.string.terminal_key_down
-    TerminalKey.LEFT -> R.string.terminal_key_left
-    TerminalKey.RIGHT -> R.string.terminal_key_right
-    TerminalKey.CTRL_D -> R.string.terminal_key_ctrl_d
-}
-
-private val KEY_LABELS = listOf(
-    TerminalKey.ESCAPE to "Esc",
-    TerminalKey.TAB to "Tab",
-    TerminalKey.UP to "↑",
-    TerminalKey.DOWN to "↓",
-    TerminalKey.LEFT to "←",
-    TerminalKey.RIGHT to "→",
-    TerminalKey.CTRL_D to "Ctrl+D",
-)
-
 private val PADDING = 8.dp
+private val TEXT_SIZE = 13.sp
+private val LINE_HEIGHT = 16.sp
 
 /** Насколько ниже конца можно отстоять, чтобы окно всё ещё считалось «у последней строки». */
 private const val FOLLOW_SLACK_PX = 48
@@ -277,8 +204,12 @@ private const val GRAY_STEP = 10
 @Suppress("MagicNumber")
 private val CUBE = intArrayOf(0, 95, 135, 175, 215, 255)
 
+/**
+ * 16 цветов — читаемые на тёмном фоне: у классической палитры xterm синий
+ * `#0000EE` на чёрном почти не виден, а каталоги в `ls` именно синие.
+ */
 @Suppress("MagicNumber")
 private val BASE16 = intArrayOf(
-    0x000000, 0xCD0000, 0x00CD00, 0xCDCD00, 0x0000EE, 0xCD00CD, 0x00CDCD, 0xE5E5E5,
-    0x7F7F7F, 0xFF0000, 0x00FF00, 0xFFFF00, 0x5C5CFF, 0xFF00FF, 0x00FFFF, 0xFFFFFF,
+    0x000000, 0xCD3131, 0x0DBC79, 0xE5E510, 0x2472C8, 0xBC3FBC, 0x11A8CD, 0xE5E5E5,
+    0x666666, 0xF14C4C, 0x23D18B, 0xF5F543, 0x3B8EEA, 0xD670D6, 0x29B8DB, 0xFFFFFF,
 )

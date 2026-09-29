@@ -5,6 +5,7 @@ import io.github.ncorror.nekoflash.protocol.adb.AdbConnection
 import io.github.ncorror.nekoflash.protocol.adb.AdbInteractiveShell
 import io.github.ncorror.nekoflash.protocol.adb.AdbShellEvent
 import io.github.ncorror.nekoflash.protocol.adb.AdbShellMode
+import io.github.ncorror.nekoflash.terminal.TerminalShellProfile
 import io.github.ncorror.nekoflash.terminal.VtScreen
 import io.github.ncorror.nekoflash.terminal.VtSnapshot
 import java.util.concurrent.Executor
@@ -34,7 +35,7 @@ public data class AdbTerminalState(
 }
 
 /** Клавиши, которых нет в строке ввода: для программ во весь экран вроде `top`. */
-public enum class TerminalKey { ESCAPE, TAB, UP, DOWN, LEFT, RIGHT, CTRL_D }
+public enum class TerminalKey { ESCAPE, TAB, UP, DOWN, LEFT, RIGHT, HOME, END, PAGE_UP, PAGE_DOWN }
 
 /**
  * Владелец интерактивной сессии оболочки.
@@ -54,6 +55,11 @@ public class AdbTerminalController(
     private val writerExecutor: Executor,
     private val diagnostics: DiagnosticSink = DiagnosticSink { },
     private val elapsedNanos: () -> Long = { System.nanoTime() },
+    /**
+     * Логотип и приглашение как у NetHunter (D078) — только для обычного
+     * терминала: у `-T` и `-x` приглашения нет или оно чужое.
+     */
+    private val profile: Boolean = false,
 ) {
     private val mutableState = MutableStateFlow(AdbTerminalState())
     private val lifecycleLock = Any()
@@ -170,10 +176,16 @@ public class AdbTerminalController(
 
     private fun openAndPump(connection: AdbConnection, requestId: Long, mode: AdbShellMode) {
         if (markReaderStarted(requestId)) {
-            val session = connection.interactiveShell(diagnostics, mode, VtScreen.TERM)
+            val styled = profile && mode == AdbShellMode.PTY
+            val session = connection.interactiveShell(
+                diagnostics = diagnostics,
+                mode = mode,
+                term = VtScreen.TERM,
+                command = if (styled) TerminalShellProfile.command else "",
+            )
             when {
                 !session.open() -> finishSession(session, requestId, OPEN_FAILED)
-                bindShell(session, requestId) -> pumpUntilClosed(session, requestId)
+                bindShell(session, requestId) -> pumpUntilClosed(session, requestId, styled)
                 else -> session.close()
             }
         }
@@ -212,12 +224,17 @@ public class AdbTerminalController(
      * [PUBLISH_INTERVAL_MS]: терминалу этого хватает, а темп разбора перестаёт
      * зависеть от скорости перерисовки.
      */
-    private fun pumpUntilClosed(session: AdbInteractiveShell, requestId: Long) {
+    private fun pumpUntilClosed(session: AdbInteractiveShell, requestId: Long, styled: Boolean) {
         // Ответы терминала (`DSR`, `DA`) уходят в оболочку тем же вводом.
         val terminal = VtScreen(size.columns, size.rows) { answer ->
             writerExecutor.execute { session.sendInput(answer) }
         }
-        synchronized(screenLock) { screen = terminal }
+        synchronized(screenLock) {
+            if (styled) terminal.feed(TerminalShellProfile.banner(size.columns))
+            screen = terminal
+        }
+        // Логотип виден сразу, пока устройство ещё открывает поток.
+        if (styled) publishRunningState(requestId, ready = false, terminal = terminal)
         var progress = PumpProgress()
         var shown = ShownState()
 
@@ -261,7 +278,11 @@ public class AdbTerminalController(
             TerminalKey.DOWN -> arrow + "B"
             TerminalKey.RIGHT -> arrow + "C"
             TerminalKey.LEFT -> arrow + "D"
-            TerminalKey.CTRL_D -> "\u0004"
+            // Как у xterm: Home и End следуют режиму курсора, страницы — нет.
+            TerminalKey.HOME -> arrow + "H"
+            TerminalKey.END -> arrow + "F"
+            TerminalKey.PAGE_UP -> "\u001B[5~"
+            TerminalKey.PAGE_DOWN -> "\u001B[6~"
         }
         writerExecutor.execute { session.sendInput(bytes) }
     }
