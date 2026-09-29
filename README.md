@@ -14,7 +14,7 @@
 
 ## Сборка
 
-JDK 17 и Android SDK 36; команда, CI, артефакты и работа через Termux — [docs/07_BUILD_AND_TESTING.md](docs/07_BUILD_AND_TESTING.md#сборка).
+JDK 17 и Android SDK 37; команда, CI, артефакты и Termux — [сборка](docs/07_BUILD_AND_TESTING.md#сборка). Проверка APK на телефоне — [пошаговый план с копируемыми командами](docs/07_BUILD_AND_TESTING.md#план-проверки-этапа-3-часть-2).
 
 ## Лицензия
 

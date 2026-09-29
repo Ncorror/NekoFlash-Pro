@@ -215,6 +215,27 @@ def check_roadmap() -> None:
                 fail(f"{rel(path)}: колонка «Статус» бывает только в docs/05_ROADMAP.md")
 
 
+def check_device_plan() -> None:
+    """The operator plan keeps copyable, single-command blocks for this APK."""
+    text = read(BUILD_DOC)
+    start = text.find("### План проверки этапа 3, часть 2")
+    end = text.find("### Mi Unlock", start)
+    if start < 0 or end < 0:
+        fail("docs/07_BUILD_AND_TESTING.md: не найден текущий план проверки телефона")
+        return
+    plan = text[start:end]
+    version = re.search(r'versionName\s*=\s*"([^"]+)"', read(APP_BUILD))
+    if version is None or f"APK \x60{version.group(1)}\x60" not in plan[:300]:
+        fail("docs/07_BUILD_AND_TESTING.md: план телефона не называет текущую версию APK")
+    blocks = re.findall(r"^\x60{3}(?:text|sh)\n(.*?)^\x60{3}", plan, flags=re.MULTILINE | re.DOTALL)
+    if len(blocks) < 10:
+        fail("docs/07_BUILD_AND_TESTING.md: в плане меньше 10 копируемых команд")
+    for number, block in enumerate(blocks, start=1):
+        lines = [line for line in block.splitlines() if line.strip()]
+        if len(lines) != 1:
+            fail(f"docs/07_BUILD_AND_TESTING.md: блок команды {number} должен содержать одну строку")
+
+
 def check_numbering() -> None:
     adr = sorted(int(path.name[:4]) for path in (DOCS / "adr").glob("[0-9][0-9][0-9][0-9]_*.md"))
     if adr != list(range(1, len(adr) + 1)):
@@ -248,7 +269,7 @@ def check_archives() -> None:
 
 def main() -> int:
     for check in (check_links, check_map, check_modules, check_ci_command, check_version,
-                  check_roadmap, check_numbering, check_archives):
+                  check_roadmap, check_device_plan, check_numbering, check_archives):
         check()
     if problems:
         print("docs: FAIL", file=sys.stderr)
