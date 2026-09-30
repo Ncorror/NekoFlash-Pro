@@ -274,16 +274,7 @@ internal fun TerminalSection(
     var draft by rememberSaveable(tabIndex) { mutableStateOf("") }
     var input by remember(tabIndex) { mutableStateOf<EditText?>(null) }
     val type: (String) -> Unit = { text ->
-        if (ctrl || alt) {
-            actions.onType(withModifiers(text, ctrl, alt))
-        } else {
-            val field = input
-            if (field?.hasFocus() == true) {
-                field.text?.insert(field.selectionStart.coerceAtLeast(0), text)
-            } else {
-                actions.onType(text)
-            }
-        }
+        routeTerminalText(text, ctrl, alt, input, actions.onType)
         ctrl = false
         alt = false
     }
@@ -293,27 +284,18 @@ internal fun TerminalSection(
         alt = false
     }
     Column(modifier = modifier) {
-        Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-            TerminalScreen(
-                screen = terminal.screen,
-                placeholder = terminalPlaceholder(terminal, connected),
-                showCursor = terminal.ready,
-                onResize = actions.onResize,
-                onTap = onTap,
-                modifier = Modifier.fillMaxSize(),
-            )
-            TerminalInputBridge(
-                enabled = terminal.ready,
-                enterText = if (terminal.mode == AdbShellMode.RAW) "\n" else "\r",
-                ctrl = ctrl,
-                alt = alt,
-                onText = actions.onType,
-                onKey = press,
-                onModifiersConsumed = { ctrl = false; alt = false },
-                onViewChanged = onInputBridgeChanged,
-                modifier = Modifier.align(Alignment.TopStart).size(1.dp),
-            )
-        }
+        TerminalLiveScreen(
+            terminal = terminal,
+            connected = connected,
+            actions = actions,
+            ctrl = ctrl,
+            alt = alt,
+            onKey = press,
+            onModifiersConsumed = { ctrl = false; alt = false },
+            onInputBridgeChanged = onInputBridgeChanged,
+            onTap = onTap,
+            modifier = Modifier.weight(1f),
+        )
         key(tabIndex) {
             TerminalCommandInput(
                 enabled = terminal.ready,
@@ -334,6 +316,56 @@ internal fun TerminalSection(
             onKey = press,
             onText = type,
             onInterrupt = actions.onInterrupt,
+        )
+    }
+}
+
+private fun routeTerminalText(
+    text: String,
+    ctrl: Boolean,
+    alt: Boolean,
+    input: EditText?,
+    onType: (String) -> Unit,
+) {
+    when {
+        ctrl || alt -> onType(withModifiers(text, ctrl, alt))
+        input?.hasFocus() == true -> input.text?.insert(input.selectionStart.coerceAtLeast(0), text)
+        else -> onType(text)
+    }
+}
+
+@Composable
+private fun TerminalLiveScreen(
+    terminal: AdbTerminalState,
+    connected: Boolean,
+    actions: TerminalActions,
+    ctrl: Boolean,
+    alt: Boolean,
+    onKey: (TerminalKey) -> Unit,
+    onModifiersConsumed: () -> Unit,
+    onInputBridgeChanged: (TerminalInputBridgeView) -> Unit,
+    onTap: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Box(modifier = modifier.fillMaxWidth()) {
+        TerminalScreen(
+            screen = terminal.screen,
+            placeholder = terminalPlaceholder(terminal, connected),
+            showCursor = terminal.ready,
+            onResize = actions.onResize,
+            onTap = onTap,
+            modifier = Modifier.fillMaxSize(),
+        )
+        TerminalInputBridge(
+            enabled = terminal.ready,
+            enterText = if (terminal.mode == AdbShellMode.RAW) "\n" else "\r",
+            ctrl = ctrl,
+            alt = alt,
+            onText = actions.onType,
+            onKey = onKey,
+            onModifiersConsumed = onModifiersConsumed,
+            onViewChanged = onInputBridgeChanged,
+            modifier = Modifier.align(Alignment.TopStart).size(1.dp),
         )
     }
 }
