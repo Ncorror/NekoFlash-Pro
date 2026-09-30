@@ -104,6 +104,8 @@ public class AdbTerminalController(
      * Compose. До события [AdbShellEvent.Opened] состояние остаётся
      * `ready=false`, поэтому ранний ввод не может молча потеряться.
      */
+    // Executor failures must release the reserved lifecycle slot regardless of implementation.
+    @Suppress("TooGenericExceptionCaught")
     public fun start(connection: AdbConnection, firstLine: String? = null, mode: AdbShellMode = AdbShellMode.PTY) {
         val requestId = synchronized(lifecycleLock) {
             if (activeRequestId != null) return
@@ -178,6 +180,8 @@ public class AdbTerminalController(
         return shell.takeIf { wasReady && shellRequestId == requestId }?.let { it to requestId }
     }
 
+    // This worker boundary must clean up the session for any transport/parser failure.
+    @Suppress("TooGenericExceptionCaught")
     private fun openAndPump(connection: AdbConnection, requestId: Long, mode: AdbShellMode) {
         if (markReaderStarted(requestId)) {
             val styled = profile && mode == AdbShellMode.PTY
@@ -256,7 +260,7 @@ public class AdbTerminalController(
         var progress = PumpProgress()
         var shown = ShownState()
 
-        while (session.active && isCurrent(requestId)) {
+        while (session.active && synchronized(lifecycleLock) { activeRequestId == requestId }) {
             progress = consumePumpEvents(session, requestId, terminal, progress)
             if (shown.shouldPublish(progress, terminal.revision, elapsedNanos())) {
                 publishRunningState(requestId, progress.ready, terminal)
@@ -367,7 +371,10 @@ public class AdbTerminalController(
 
     /** Открытие подтверждено: закрыть, если просили, иначе отдать первую строку. */
     private fun onOpened(session: AdbInteractiveShell, requestId: Long) {
-        if (isClosing(requestId)) {
+        val closing = synchronized(lifecycleLock) {
+            activeRequestId == requestId && mutableState.value.closing
+        }
+        if (closing) {
             scheduleClose(session, requestId)
             return
         }
@@ -411,13 +418,6 @@ public class AdbTerminalController(
         val requestId = activeRequestId ?: return null
         if (!mutableState.value.ready || shellRequestId != requestId) return null
         shell
-    }
-
-    private fun isCurrent(requestId: Long): Boolean =
-        synchronized(lifecycleLock) { activeRequestId == requestId }
-
-    private fun isClosing(requestId: Long): Boolean = synchronized(lifecycleLock) {
-        activeRequestId == requestId && mutableState.value.closing
     }
 
     private fun finishSession(
@@ -468,6 +468,8 @@ public class AdbTerminalController(
     }
 
     /** Keeps every potentially blocking writer callback off the UI thread. */
+    // Executor implementations may report failures through different RuntimeException subclasses.
+    @Suppress("TooGenericExceptionCaught")
     private fun enqueueWriter(operation: String, task: () -> Unit) {
         try {
             writerExecutor.execute {

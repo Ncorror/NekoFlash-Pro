@@ -251,7 +251,8 @@ def check_archives() -> None:
         if line.strip():
             digest, name = line.split(maxsplit=1)
             listed[name.strip()] = digest
-    present = {path.name for path in ARCHIVES.iterdir() if path.is_file()}
+    # Git does not track empty directories; a snapshot with no archives omits it.
+    present = {path.name for path in ARCHIVES.glob("*") if path.is_file()}
     for name in sorted(present - listed.keys()):
         fail(f"reference/archives/{name}: нет в reference/SHA256SUMS")
     for name, digest in sorted(listed.items()):

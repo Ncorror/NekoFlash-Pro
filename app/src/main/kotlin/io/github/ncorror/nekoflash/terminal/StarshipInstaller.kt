@@ -108,7 +108,7 @@ public class StarshipInstaller(
 
     private fun makeExecutable(file: File) {
         // 0755: owner can replace the file, while the shell can execute it.
-        runCatching { Os.chmod(file.absolutePath, 0x1ED) }
+        runCatching { Os.chmod(file.absolutePath, EXECUTABLE_PERMISSIONS) }
         require(file.setExecutable(true, false)) { "cannot mark Starship executable" }
         file.setReadable(true, false)
         file.setWritable(false, true)
@@ -151,10 +151,12 @@ public class StarshipInstaller(
             RandomAccessFile(file, "r").use { input ->
                 val header = ByteArray(ELF_HEADER_BYTES)
                 input.readFully(header)
-                header[0] == 0x7F.toByte() && header[1] == 'E'.code.toByte() &&
-                    header[2] == 'L'.code.toByte() && header[3] == 'F'.code.toByte() &&
-                    header[4].toInt() == ELFCLASS64 && header[5].toInt() == ELFDATA2LSB &&
-                    (header[18].toInt() and 0xFF) == EM_AARCH64 && header[19].toInt() == 0
+                header[0] == ELF_MAGIC_FIRST_BYTE.toByte() && header[1] == 'E'.code.toByte() &&
+                    header[2] == 'L'.code.toByte() && header[ELF_MAGIC_LAST_OFFSET] == 'F'.code.toByte() &&
+                    header[ELF_CLASS_OFFSET].toInt() == ELFCLASS64 &&
+                    header[ELF_DATA_OFFSET].toInt() == ELFDATA2LSB &&
+                    (header[ELF_MACHINE_OFFSET].toInt() and UNSIGNED_BYTE_MASK) == EM_AARCH64 &&
+                    header[ELF_MACHINE_OFFSET + 1].toInt() == 0
             }
         }.getOrDefault(false)
     }
@@ -169,6 +171,13 @@ public class StarshipInstaller(
         )
         const val COPY_BUFFER_BYTES = 64 * 1024
         const val ELF_HEADER_BYTES = 20
+        const val EXECUTABLE_PERMISSIONS = 0x1ED
+        const val ELF_MAGIC_FIRST_BYTE = 0x7F
+        const val ELF_MAGIC_LAST_OFFSET = 3
+        const val UNSIGNED_BYTE_MASK = 0xFF
+        const val ELF_CLASS_OFFSET = 4
+        const val ELF_DATA_OFFSET = 5
+        const val ELF_MACHINE_OFFSET = 18
         const val ELFCLASS64 = 2
         const val ELFDATA2LSB = 1
         const val EM_AARCH64 = 183

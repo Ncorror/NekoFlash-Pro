@@ -168,7 +168,8 @@ public class AdbInteractiveShell(
      * Без `shell,v2` размер передать нечем: старые устройства его не знают.
      */
     public fun resize(rows: Int, columns: Int): Boolean = synchronized(lock) {
-        if (!useShellV2 || !opened || finished || !validWindowSize(rows, columns)) return false
+        if (!useShellV2 || !opened || finished) return false
+        if (rows !in 1..MAX_WINDOW_DIMENSION || columns !in 1..MAX_WINDOW_DIMENSION) return false
         val text = "${rows}x$columns,0x0\u0000".toByteArray(Charsets.US_ASCII)
         val frame = AdbShellProtocol.encode(AdbShellProtocol.ID_WINDOW_SIZE_CHANGE, text)
         // A resize burst is common while the IME or rotation settles. Keep only
@@ -316,7 +317,10 @@ public class AdbInteractiveShell(
                 if (frames.append(item.payload)) null
                 else finish(AdbShellEvent.Broken("shell frame buffer overflow"))
             } else {
-                appendLegacyText(item.payload, events)
+                // Legacy shell has no frames: every payload byte belongs to stdout.
+                legacyText.decode(item.payload)
+                    .takeIf(String::isNotEmpty)
+                    ?.let { text -> events += AdbShellEvent.Output(text) }
                 null
             }
         }
@@ -328,17 +332,6 @@ public class AdbInteractiveShell(
             if (pendingWrites.isNotEmpty()) events += AdbShellEvent.WriteReady
             null
         }
-    }
-
-    private fun appendLegacyText(
-        payload: ByteArray,
-        events: MutableList<AdbShellEvent>,
-    ) {
-        // Без shell,v2 рамок нет вовсе: всё, что пришло, — вывод,
-        // и отделить stderr не от чего.
-        legacyText.decode(payload)
-            .takeIf(String::isNotEmpty)
-            ?.let { text -> events += AdbShellEvent.Output(text) }
     }
 
     /**
@@ -448,9 +441,6 @@ public class AdbInteractiveShell(
         pendingWriteBytes += payload.size
         return true
     }
-
-    private fun validWindowSize(rows: Int, columns: Int): Boolean =
-        rows in 1..MAX_WINDOW_DIMENSION && columns in 1..MAX_WINDOW_DIMENSION
 
     private fun flushTextStreams(): List<AdbShellEvent> {
         if (!useShellV2) {
