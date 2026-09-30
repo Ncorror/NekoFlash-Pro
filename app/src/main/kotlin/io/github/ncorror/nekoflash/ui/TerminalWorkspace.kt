@@ -2,7 +2,6 @@ package io.github.ncorror.nekoflash.ui
 
 import android.content.ClipboardManager
 import android.content.Context
-import android.graphics.Typeface
 import android.text.Editable
 import android.text.InputType
 import android.text.TextWatcher
@@ -433,7 +432,7 @@ private fun nativeLineEditor(
     setSingleLine(true)
     inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
     imeOptions = EditorInfo.IME_ACTION_SEND or EditorInfo.IME_FLAG_NO_EXTRACT_UI
-    typeface = Typeface.MONOSPACE
+    typeface = nerdTypefaceOrMonospace(context.assets)
     textSize = EDITOR_TEXT_SP
     setTextColor(TerminalPalette.foreground.toArgb())
     setHintTextColor(TerminalPalette.muted.toArgb())

@@ -40,9 +40,14 @@ public class AdbShellFrameBuffer(private val maxFrameBytes: Int = MAX_FRAME_BYTE
     public val pendingBytes: Int
         get() = pending.size
 
-    /** Добавляет принятое. */
-    public fun append(bytes: ByteArray) {
+    /**
+     * Добавляет принятое. `false` означает, что незавершённый frame превысил
+     * лимит накопителя и поток нужно закрыть вместо бесконечного роста памяти.
+     */
+    public fun append(bytes: ByteArray): Boolean {
+        if (bytes.size > MAX_PENDING_BYTES - pending.size) return false
         for (byte in bytes) pending.addLast(byte)
+        return true
     }
 
     /**
@@ -77,5 +82,6 @@ public class AdbShellFrameBuffer(private val maxFrameBytes: Int = MAX_FRAME_BYTE
 
     private companion object {
         const val MAX_FRAME_BYTES = 1_048_576
+        const val MAX_PENDING_BYTES = 2 * MAX_FRAME_BYTES
     }
 }

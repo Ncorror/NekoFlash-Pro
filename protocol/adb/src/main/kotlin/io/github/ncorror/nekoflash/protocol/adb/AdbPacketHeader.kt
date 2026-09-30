@@ -102,6 +102,9 @@ public data class AdbPacketHeader(
             require(target.size >= SIZE_BYTES) {
                 "ADB header needs $SIZE_BYTES bytes, got ${target.size}"
             }
+            require(command in 0L..0xFFFF_FFFFL) {
+                "ADB command must fit unsigned 32 bits: $command"
+            }
             writeIntLe(target, OFFSET_COMMAND, command.toInt())
             writeIntLe(target, OFFSET_ARG0, arg0)
             writeIntLe(target, OFFSET_ARG1, arg1)

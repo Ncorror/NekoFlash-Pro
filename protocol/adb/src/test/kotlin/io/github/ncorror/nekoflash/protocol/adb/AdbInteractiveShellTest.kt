@@ -97,6 +97,16 @@ class AdbInteractiveShellTest {
     }
 
     @Test
+    fun invalidWindowSizeIsRejectedBeforeWriting() {
+        val device = Device(okay())
+        val shell = device.opened()
+
+        assertFalse(shell.resize(rows = 0, columns = 100))
+        assertFalse(shell.resize(rows = 100, columns = 2_000))
+        assertTrue(device.handle.sentFrames().none { it.command == AdbCommand.WRTE })
+    }
+
+    @Test
     fun rawModeWithoutShellV2IsThePlainShell() {
         val device = Device()
         device.shell(useShellV2 = false, raw = true).open()

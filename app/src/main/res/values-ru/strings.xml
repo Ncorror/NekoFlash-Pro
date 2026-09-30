@@ -313,7 +313,7 @@
     <string name="shell_history">Недавние команды — нажатие подставляет в поле, а не отправляет</string>
     <string name="diagnostics_recent_title">Записывается прямо сейчас</string>
     <string name="diagnostics_recent_empty">В этом сеансе пока ничего не записано.</string>
-    <string name="diagnostics_recent_note">Последние %1$d строк, свежие сверху. Полный отчёт — это выгрузка выше; панель здесь для того, чтобы прямо на прогоне видеть, пишется ли вообще то, ради чего прогон затеян.</string>
+    <string name="diagnostics_recent_note">Последние %1$d строк, свежие сверху. Полный отчёт — выгрузка выше; здесь видна текущая диагностическая активность.</string>
     <string name="target_bar_state">%1$s · %2$s</string>
     <string name="target_bar_no_device">Устройство не подключено</string>
     <string name="target_bar_others">Сменить устройство (ещё %1$d)</string>

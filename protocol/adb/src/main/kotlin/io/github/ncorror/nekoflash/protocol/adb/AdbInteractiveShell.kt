@@ -82,6 +82,7 @@ public class AdbInteractiveShell(
     /** Защищает диспетчер, писателя и состояние сессии. */
     private val lock = Any()
     private val pendingWrites = ArrayDeque<ByteArray>()
+    private var pendingWriteBytes = 0
     private var awaitingWriteAck = false
 
     /**
@@ -113,6 +114,7 @@ public class AdbInteractiveShell(
      * сочтёт нужным.
      */
     public fun open(): Boolean = synchronized(lock) {
+        if (localId != 0 || finished) return false
         val service = when {
             !useShellV2 -> SERVICE_LEGACY
             term == null -> if (raw) SERVICE_RAW else SERVICE_PTY
@@ -125,7 +127,12 @@ public class AdbInteractiveShell(
         localId = id
         emit("shell_open", mapOf("service" to service, "stream" to id.toString()))
         if (!send(packet)) {
+            // Remove the local router entry even when OPEN itself could not be
+            // written; otherwise a later stream can retain a dead id forever.
+            dispatcher.close(id)?.let(::send)
             finished = true
+            mailbox = null
+            localId = 0
             return false
         }
         return true
@@ -146,8 +153,7 @@ public class AdbInteractiveShell(
         val queued = if (!opened || finished) {
             false
         } else {
-            pendingWrites.addLast(payload)
-            if (awaitingWriteAck) true else flushPendingWrites()
+            enqueue(payload) && if (awaitingWriteAck) true else flushPendingWrites()
         }
         emit(
             "shell_input",
@@ -162,9 +168,19 @@ public class AdbInteractiveShell(
      * Без `shell,v2` размер передать нечем: старые устройства его не знают.
      */
     public fun resize(rows: Int, columns: Int): Boolean = synchronized(lock) {
-        if (!useShellV2 || !opened || finished) return false
+        if (!useShellV2 || !opened || finished || !validWindowSize(rows, columns)) return false
         val text = "${rows}x$columns,0x0\u0000".toByteArray(Charsets.US_ASCII)
-        pendingWrites.addLast(AdbShellProtocol.encode(AdbShellProtocol.ID_WINDOW_SIZE_CHANGE, text))
+        val frame = AdbShellProtocol.encode(AdbShellProtocol.ID_WINDOW_SIZE_CHANGE, text)
+        // A resize burst is common while the IME or rotation settles. Keep only
+        // the newest unsent window frame; sending every intermediate size can
+        // reorder with input and makes full-screen programs redraw repeatedly.
+        if (pendingWrites.lastOrNull()?.firstOrNull()?.toInt()?.and(0xFF) ==
+            AdbShellProtocol.ID_WINDOW_SIZE_CHANGE
+        ) {
+            val old = pendingWrites.removeLast()
+            pendingWriteBytes -= old.size
+        }
+        if (!enqueue(frame)) return false
         return if (awaitingWriteAck) true else flushPendingWrites()
     }
 
@@ -190,7 +206,7 @@ public class AdbInteractiveShell(
      */
     public fun closeInput(): Boolean = synchronized(lock) {
         if (!useShellV2 || !opened || finished) return false
-        pendingWrites.addLast(AdbShellProtocol.closeStdinFrame())
+        if (!enqueue(AdbShellProtocol.closeStdinFrame())) return false
         return if (awaitingWriteAck) true else flushPendingWrites()
     }
 
@@ -202,9 +218,19 @@ public class AdbInteractiveShell(
         if (!opened || finished) return false
         if (awaitingWriteAck) return true
         val payload = pendingWrites.removeFirstOrNull() ?: return true
+        pendingWriteBytes -= payload.size
         val packet = dispatcher.write(localId, payload)
         val sent = packet != null && send(packet)
-        if (sent) awaitingWriteAck = true
+        if (sent) {
+            awaitingWriteAck = true
+        } else {
+            // A failed WRTE can never receive an acknowledgement. Mark the
+            // session finished so the reader leaves its pump instead of
+            // spinning forever with a dead queued write.
+            finished = true
+            pendingWrites.clear()
+            pendingWriteBytes = 0
+        }
         emit(
             "shell_write",
             mapOf("stream" to localId.toString(), "bytes" to payload.size.toString(), "sent" to sent.toString()),
@@ -243,8 +269,10 @@ public class AdbInteractiveShell(
         if (localId == 0 || finished) return
         finished = true
         pendingWrites.clear()
+        pendingWriteBytes = 0
         awaitingWriteAck = false
         dispatcher.close(localId)?.let(::send)
+        mailbox = null
         emit("shell_closed", mapOf("stream" to localId.toString(), "reason" to reason))
     }
 
@@ -284,8 +312,13 @@ public class AdbInteractiveShell(
         }
 
         is AdbMailboxItem.Data -> {
-            if (useShellV2) frames.append(item.payload) else appendLegacyText(item.payload, events)
-            null
+            if (useShellV2) {
+                if (frames.append(item.payload)) null
+                else finish(AdbShellEvent.Broken("shell frame buffer overflow"))
+            } else {
+                appendLegacyText(item.payload, events)
+                null
+            }
         }
 
         is AdbMailboxItem.Ended -> applyEnd(item, events)
@@ -400,6 +433,25 @@ public class AdbInteractiveShell(
     private fun send(packet: AdbOutboundPacket): Boolean =
         writer.write(packet.command, packet.arg0, packet.arg1, packet.payload) == AdbWriteOutcome.Sent
 
+    /** Adds one outbound frame without allowing an unbounded paste backlog. */
+    private fun enqueue(payload: ByteArray): Boolean {
+        if (payload.size > MAX_PENDING_WRITE_BYTES ||
+            pendingWriteBytes > MAX_PENDING_WRITE_BYTES - payload.size
+        ) {
+            emit(
+                "shell_write_rejected",
+                mapOf("stream" to localId.toString(), "bytes" to payload.size.toString()),
+            )
+            return false
+        }
+        pendingWrites.addLast(payload)
+        pendingWriteBytes += payload.size
+        return true
+    }
+
+    private fun validWindowSize(rows: Int, columns: Int): Boolean =
+        rows in 1..MAX_WINDOW_DIMENSION && columns in 1..MAX_WINDOW_DIMENSION
+
     private fun flushTextStreams(): List<AdbShellEvent> {
         if (!useShellV2) {
             return legacyText.finish()
@@ -447,6 +499,12 @@ public class AdbInteractiveShell(
 
         /** `ETX` — то же, что нажатие `Ctrl+C` в терминале. */
         public const val CTRL_C: Byte = 3
+
+        /** Bounds both malformed UI measurements and a hostile caller. */
+        private const val MAX_WINDOW_DIMENSION = 1_000
+
+        /** One MiB is enough for a paste while keeping the session bounded. */
+        private const val MAX_PENDING_WRITE_BYTES = 1_048_576
     }
 }
 

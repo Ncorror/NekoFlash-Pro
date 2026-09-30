@@ -145,6 +145,7 @@ internal class VtBuffer(var columns: Int, var rows: Int, private val historyLimi
         alternate = if (on) MutableList(rows) { VtLine(columns) } else null
         top = 0
         bottom = rows - 1
+        if (on) moveTo(0, 0)
     }
 
     /** Новый размер: содержимое сохраняется, лишние верхние строки уходят в историю. */

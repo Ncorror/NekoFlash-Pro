@@ -98,7 +98,18 @@ internal class AdbDispatchLoop(
             is AdbReadOutcome.Failed -> end(AdbMailboxEnd.FRAMING_LOST, "${outcome.reason.name} ${outcome.detail}")
 
             is AdbReadOutcome.Received -> dispatcher.dispatch(outcome.packet).forEach { packet ->
-                writer.write(packet.command, packet.arg0, packet.arg1, packet.payload)
+                when (val written = writer.write(packet.command, packet.arg0, packet.arg1, packet.payload)) {
+                    AdbWriteOutcome.Sent -> Unit
+                    AdbWriteOutcome.Closed -> end(
+                        AdbMailboxEnd.TRANSPORT_CLOSED,
+                        "dispatch response write: transport closed",
+                    )
+
+                    is AdbWriteOutcome.Interrupted -> end(
+                        AdbMailboxEnd.FRAMING_LOST,
+                        "dispatch response write interrupted after ${written.sentBytes} bytes: ${written.detail}",
+                    )
+                }
             }
         }
     }

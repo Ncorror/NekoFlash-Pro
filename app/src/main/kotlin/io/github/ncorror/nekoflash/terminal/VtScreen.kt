@@ -20,21 +20,30 @@ class VtScreen(
     private var state = State.GROUND
     private val params = StringBuilder()
     private var privateMarker: Char? = null
+    private var revisionValue = 0L
 
     val columns: Int get() = buffer.columns
     val rows: Int get() = buffer.rows
+
+    /** Monotonic visual revision used to suppress no-op UI publications. */
+    val revision: Long get() = revisionValue
 
     /** Включены ли стрелки в режиме приложения (`?1h`): так их и надо слать. */
     var applicationCursorKeys: Boolean = false
         private set
 
     fun feed(text: String) {
+        if (text.isEmpty()) return
         for (char in text) step(char)
+        revisionValue++
     }
 
     fun resize(columns: Int, rows: Int) {
         val changed = columns != buffer.columns || rows != buffer.rows
-        if (columns > 0 && rows > 0 && changed) buffer.resize(columns, rows)
+        if (columns > 0 && rows > 0 && changed) {
+            buffer.resize(columns, rows)
+            revisionValue++
+        }
     }
 
     fun snapshot(): VtSnapshot = buffer.snapshot()
@@ -102,7 +111,22 @@ class VtScreen(
     }
 
     private fun parsedParams(): List<Int> =
-        if (params.isEmpty()) emptyList() else params.split(';', ':').map { it.toIntOrNull() ?: 0 }
+        if (params.isEmpty()) {
+            emptyList()
+        } else {
+            // Modern terminals emit SGR in colon form, for example
+            // `38:2::255:120:0`. Empty sub-fields are separators, not zero:
+            // turning the empty field into 0 shifts RGB and renders the
+            // foreground as the wrong colour. Keep empty semicolon fields as
+            // the ECMA-48 default (zero), but discard empty colon sub-fields.
+            params.split(';').flatMap { field ->
+                if (':' in field) {
+                    field.split(':').filter(String::isNotEmpty).map { it.toIntOrNull() ?: 0 }
+                } else {
+                    listOf(field.toIntOrNull() ?: 0)
+                }
+            }
+        }
 
     private fun dispatch(final: Char, values: List<Int>) {
         when (privateMarker) {

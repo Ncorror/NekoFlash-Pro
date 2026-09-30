@@ -39,6 +39,7 @@ import io.github.ncorror.nekoflash.usb.api.UsbSessionState
 import io.github.ncorror.nekoflash.usb.api.UsbTransportHandle
 import java.time.Instant
 import java.util.concurrent.Executor
+import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -99,6 +100,11 @@ private fun mutationClassOf(outcome: FastbootMutationOutcome): FastbootMutationC
  * `FastbootLane`. Поэтому владелец ничего не мультиплексирует и не пытается:
  * это не упрощение, а свойство протокола.
  */
+/**
+ * The controller deliberately exposes one operation per Fastboot capability;
+ * the function count is the public operation surface, not duplicated logic.
+ */
+@Suppress("TooManyFunctions")
 public class FastbootLinkController(
     /**
      * Откуда берётся захваченный интерфейс.
@@ -129,6 +135,8 @@ public class FastbootLinkController(
 
     private var lane: FastbootLane? = null
     private var handle: UsbTransportHandle? = null
+    private val lifecycleLock = Any()
+    private val lifecycleEpoch = AtomicLong(0L)
 
     private val mutableConsole = MutableStateFlow<FastbootConsoleState>(FastbootConsoleState.Idle)
 
@@ -149,27 +157,44 @@ public class FastbootLinkController(
      * поток раскладки нельзя.
      */
     public fun connect(generation: SessionGeneration) {
-        if (mutableState.value is FastbootLinkState.Probing) return
-        mutableState.value = FastbootLinkState.Probing(generation)
+        val epoch = synchronized(lifecycleLock) {
+            if (mutableState.value is FastbootLinkState.Probing) return
+            val next = lifecycleEpoch.incrementAndGet()
+            mutableState.value = FastbootLinkState.Probing(generation)
+            next
+        }
 
         when (val claimed = claim(generation)) {
             is UsbClaimResult.Failed -> {
-                emit("fastboot_claim_failed", mapOf("reason" to claimed.reason.name))
-                mutableState.value = FastbootLinkState.Failed(generation, claimed.reason.name)
+                val current = synchronized(lifecycleLock) {
+                    if (lifecycleEpoch.get() != epoch || mutableState.value !is FastbootLinkState.Probing) {
+                        false
+                    } else {
+                        mutableState.value = FastbootLinkState.Failed(generation, claimed.reason.name)
+                        true
+                    }
+                }
+                if (current) emit("fastboot_claim_failed", mapOf("reason" to claimed.reason.name))
             }
 
-            is UsbClaimResult.Claimed -> executor.execute { probe(generation, claimed.handle) }
+            is UsbClaimResult.Claimed -> executor.execute { probe(generation, claimed.handle, epoch) }
         }
     }
 
     /** Отпускает интерфейс. Повторный вызов безопасен. */
     public fun disconnect() {
-        lane?.close()
-        lane = null
-        handle?.close()
-        handle = null
-        mutableConsole.value = FastbootConsoleState.Idle
-        mutableState.value = FastbootLinkState.Idle
+        val resources = synchronized(lifecycleLock) {
+            lifecycleEpoch.incrementAndGet()
+            val oldLane = lane
+            val oldHandle = handle
+            lane = null
+            handle = null
+            mutableConsole.value = FastbootConsoleState.Idle
+            mutableState.value = FastbootLinkState.Idle
+            oldLane to oldHandle
+        }
+        resources.first?.close()
+        resources.second?.close()
     }
 
     /**
@@ -197,8 +222,10 @@ public class FastbootLinkController(
             is FastbootLinkState.Failed -> state.generation.takeIf { generation ->
                 sessions.none { it.generation == generation && !it.closed }
             }
-            // Опрос завершится сам и приведёт к одному из двух состояний выше.
-            FastbootLinkState.Idle, is FastbootLinkState.Probing -> null
+            is FastbootLinkState.Probing -> state.generation.takeIf { generation ->
+                sessions.none { it.generation == generation && !it.closed }
+            }
+            FastbootLinkState.Idle -> null
         }
         if (stale != null) {
             emit("fastboot_link_dropped", mapOf("generation" to stale.value.toString()))
@@ -301,7 +328,7 @@ public class FastbootLinkController(
     // stale USB session or rejected server response to the mutating command.
     @Suppress("ReturnCount")
     private fun runMiUnlockOnLane(active: FastbootLane, auth: MiAccountClient.AuthResult): FastbootConsoleState {
-        val connected = mutableState.value as? FastbootLinkState.Connected
+        val connected = synchronized(lifecycleLock) { mutableState.value as? FastbootLinkState.Connected }
             ?: return unlockReporter.fail(active, MiUnlockStatus.Reason.DEVICE)
         unlockReporter.stage(MiUnlockStatus.Stage.DEVICE)
         val product = (FastbootGetVar(active).read("product") as? FastbootVariable.Present)?.value
@@ -313,13 +340,15 @@ public class FastbootLinkController(
         val token = FastbootXiaomiUnlock(active).readToken()
             ?: return unlockReporter.fail(active, MiUnlockStatus.Reason.TOKEN)
         // A new explicit attempt supersedes the previous pending marker only after a fresh token.
-        pendingUnlock = null
+        if (!beginUnlockAttempt(active, connected)) {
+            return unlockReporter.fail(active, MiUnlockStatus.Reason.DEVICE)
+        }
         val client = MiUnlockClient(auth.host, auth.ssecurity, auth.serviceCookies, auth.userId, auth.deviceId)
         unlockReporter.stage(MiUnlockStatus.Stage.NONCE)
         val nonce = client.getNonce()
         unlockReporter.stage(MiUnlockStatus.Stage.CHECK)
         client.checkClear(product, nonce)
-        if (mutableState.value != connected || lane !== active || active.state != FastbootLaneState.IDLE) {
+        if (!isCurrentIdle(active, connected)) {
             return unlockReporter.fail(active, MiUnlockStatus.Reason.DEVICE)
         }
         unlockReporter.stage(MiUnlockStatus.Stage.AUTHORIZE)
@@ -327,7 +356,7 @@ public class FastbootLinkController(
         val encryptedHex = client.requestUnlock(product, token, nonce)
         val bytes = MiUnlockData.decode(encryptedHex)
             ?: return unlockReporter.fail(active, MiUnlockStatus.Reason.SERVER)
-        if (mutableState.value != connected || lane !== active || active.state != FastbootLaneState.IDLE) {
+        if (!isCurrentIdle(active, connected)) {
             return unlockReporter.fail(active, MiUnlockStatus.Reason.DEVICE)
         }
         unlockReporter.stage(MiUnlockStatus.Stage.DOWNLOAD)
@@ -335,19 +364,53 @@ public class FastbootLinkController(
         return when (FastbootXiaomiUnlock(active).unlock(bytes) {
             unlockReporter.stage(MiUnlockStatus.Stage.UNLOCK)
         }) {
-            XiaomiUnlockOutcome.Accepted -> {
-                pendingUnlock = PendingUnlock(connected.generation, product, serial)
-                mutableMiUnlock.value = MiUnlockStatus.AwaitingReconnect
-                emit("mi_unlock_command_accepted", mapOf("verification" to "pending"))
-                FastbootConsoleState.Answered(
-                    "Mi Unlock", FastbootReply.OKAY,
-                    "ожидается проверка после переподключения", emptyList(), active.state,
-                )
-            }
+            XiaomiUnlockOutcome.Accepted -> acceptedUnlock(active, connected, product, serial)
             is XiaomiUnlockOutcome.Refused -> unlockReporter.fail(active, MiUnlockStatus.Reason.REJECTED)
             is XiaomiUnlockOutcome.Unknown -> unlockReporter.fail(active, MiUnlockStatus.Reason.UNKNOWN)
             is XiaomiUnlockOutcome.NotStarted -> unlockReporter.fail(active, MiUnlockStatus.Reason.NOT_STARTED)
         }
+    }
+
+    private fun beginUnlockAttempt(
+        active: FastbootLane,
+        connected: FastbootLinkState.Connected,
+    ): Boolean = synchronized(lifecycleLock) {
+        if (lane !== active || mutableState.value != connected) {
+            false
+        } else {
+            pendingUnlock = null
+            true
+        }
+    }
+
+    private fun isCurrentIdle(
+        active: FastbootLane,
+        connected: FastbootLinkState.Connected,
+    ): Boolean = synchronized(lifecycleLock) {
+        lane === active && mutableState.value == connected && active.state == FastbootLaneState.IDLE
+    }
+
+    private fun acceptedUnlock(
+        active: FastbootLane,
+        connected: FastbootLinkState.Connected,
+        product: String,
+        serial: String?,
+    ): FastbootConsoleState {
+        val published = synchronized(lifecycleLock) {
+            if (lane !== active || mutableState.value != connected) {
+                false
+            } else {
+                pendingUnlock = PendingUnlock(connected.generation, product, serial)
+                mutableMiUnlock.value = MiUnlockStatus.AwaitingReconnect
+                true
+            }
+        }
+        if (!published) return unlockReporter.fail(active, MiUnlockStatus.Reason.DEVICE)
+        emit("mi_unlock_command_accepted", mapOf("verification" to "pending"))
+        return FastbootConsoleState.Answered(
+            "Mi Unlock", FastbootReply.OKAY,
+            "ожидается проверка после переподключения", emptyList(), active.state,
+        )
     }
 
     /** Спрашивает всё, что устройство готово рассказать. */
@@ -482,10 +545,16 @@ public class FastbootLinkController(
                 }
                 val claimed = next?.let { claim(it.generation) as? UsbClaimResult.Claimed }
                 if (next != null && claimed != null) {
-                    lane?.close()
-                    handle?.close()
-                    probe(next.generation, claimed.handle)
-                    return lane
+                    val epoch = synchronized(lifecycleLock) {
+                        lifecycleEpoch.incrementAndGet()
+                        lane?.close()
+                        handle?.close()
+                        lane = null
+                        handle = null
+                        mutableState.value = FastbootLinkState.Probing(next.generation)
+                        lifecycleEpoch.get()
+                    }
+                    return probe(next.generation, claimed.handle, epoch)
                 }
                 pause(REJOIN_POLL_MS)
             }
@@ -540,32 +609,52 @@ public class FastbootLinkController(
         scenario: Boolean = false,
         action: (FastbootLane, String) -> FastbootConsoleState,
     ) {
-        val live = lane
         val trimmed = raw.trim()
-        when {
-            live == null -> mutableConsole.value =
-                FastbootConsoleState.NotAnswered(trimmed, "соединения нет", FastbootLaneState.CLOSED)
+        val operation = synchronized(lifecycleLock) {
+            val live = lane
+            when {
+                live == null -> {
+                    mutableConsole.value = FastbootConsoleState.NotAnswered(
+                        trimmed,
+                        "соединения нет",
+                        FastbootLaneState.CLOSED,
+                    )
+                    null
+                }
 
-            mutableConsole.value is FastbootConsoleState.Running -> Unit
+                mutableConsole.value is FastbootConsoleState.Running -> null
 
-            else -> {
-                mutableConsole.value = FastbootConsoleState.Running(trimmed, clock().toEpochMilli())
-                executor.execute {
-                    emit(event, mapOf("command" to trimmed))
-                    scenarioRunning = scenario
-                    val outcome = runCatching { action(live, trimmed) }
-                    scenarioRunning = false
-                    if (scenario) onUsbSessionsChanged(sessions())
-                    mutableConsole.value = outcome.getOrElse { failure ->
+                else -> {
+                    mutableConsole.value = FastbootConsoleState.Running(trimmed, clock().toEpochMilli())
+                    live to lifecycleEpoch.get()
+                }
+            }
+        } ?: return
+        val (live, epoch) = operation
+        executor.execute {
+            emit(event, mapOf("command" to trimmed))
+            scenarioRunning = scenario
+            val outcome = runCatching { action(live, trimmed) }
+            scenarioRunning = false
+            val current = synchronized(lifecycleLock) {
+                lane === live && lifecycleEpoch.get() == epoch
+            }
+            if (!current) return@execute
+            if (scenario) onUsbSessionsChanged(sessions())
+            val published = synchronized(lifecycleLock) {
+                if (lane !== live || lifecycleEpoch.get() != epoch) {
+                    null
+                } else {
+                    outcome.getOrElse { failure ->
                         FastbootConsoleState.NotAnswered(
                             command = trimmed,
                             detail = failure.message ?: failure.javaClass.simpleName,
                             lane = live.state,
                         )
-                    }
-                    record(event, mutableConsole.value)
+                    }.also { mutableConsole.value = it }
                 }
             }
+            published?.let { record(event, it) }
         }
     }
 
@@ -745,10 +834,12 @@ public class FastbootLinkController(
             payload
         }
 
-    private fun probe(generation: SessionGeneration, claimed: UsbTransportHandle) {
-        handle = claimed
+    private fun probe(
+        generation: SessionGeneration,
+        claimed: UsbTransportHandle,
+        epoch: Long,
+    ): FastbootLane? {
         val opened = FastbootLane(claimed)
-        lane = opened
         emit("fastboot_probe_started", mapOf("generation" to generation.value.toString()))
 
         val variables = FastbootGetVar(opened)
@@ -766,17 +857,7 @@ public class FastbootLinkController(
             FastbootLockStatus(FastbootLockState.UNKNOWN, failure.message ?: failure.javaClass.simpleName)
         }
 
-        pendingUnlock?.takeIf { it.generation != generation && lock.state == FastbootLockState.UNLOCKED }
-            ?.let { pending ->
-                val product = (variables.read("product") as? FastbootVariable.Present)?.value?.trim()
-                val serial = (variables.read("serialno") as? FastbootVariable.Present)?.value?.trim()
-                // Same model alone cannot identify the target when several phones are attached.
-                if (pending.serial != null && pending.serial == serial && pending.product == product) {
-                    mutableMiUnlock.value = MiUnlockStatus.Verified
-                    pendingUnlock = null
-                    emit("mi_unlock_verified", mapOf("outcome" to "unlocked"))
-                }
-            }
+        verifyPendingUnlock(generation, epoch, lock, variables)
 
         emit(
             "fastboot_probe_finished",
@@ -788,7 +869,65 @@ public class FastbootLinkController(
                 "lane" to opened.state.name,
             ),
         )
-        mutableState.value = FastbootLinkState.Connected(generation, identity, lock)
+        val published = publishProbe(generation, epoch, claimed, opened, identity, lock)
+        if (!published) {
+            // A disconnect or a newer connect won while the probe was blocked
+            // in USB I/O. Never publish the stale lane or leak its handle.
+            opened.close()
+            claimed.close()
+            return null
+        }
+        return opened
+    }
+
+    private fun verifyPendingUnlock(
+        generation: SessionGeneration,
+        epoch: Long,
+        lock: FastbootLockStatus,
+        variables: FastbootGetVar,
+    ) {
+        val pending = synchronized(lifecycleLock) {
+            pendingUnlock?.takeIf {
+                lifecycleEpoch.get() == epoch &&
+                    it.generation != generation &&
+                    lock.state == FastbootLockState.UNLOCKED
+            }
+        } ?: return
+        val product = (variables.read("product") as? FastbootVariable.Present)?.value?.trim()
+        val serial = (variables.read("serialno") as? FastbootVariable.Present)?.value?.trim()
+        // Same model alone cannot identify the target when several phones are attached.
+        val verified = synchronized(lifecycleLock) {
+            when {
+                lifecycleEpoch.get() != epoch || pendingUnlock !== pending -> false
+                pending.serial == null || pending.serial != serial || pending.product != product -> false
+                else -> {
+                    mutableMiUnlock.value = MiUnlockStatus.Verified
+                    pendingUnlock = null
+                    true
+                }
+            }
+        }
+        if (verified) emit("mi_unlock_verified", mapOf("outcome" to "unlocked"))
+    }
+
+    private fun publishProbe(
+        generation: SessionGeneration,
+        epoch: Long,
+        claimed: UsbTransportHandle,
+        opened: FastbootLane,
+        identity: FastbootIdentity,
+        lock: FastbootLockStatus,
+    ): Boolean = synchronized(lifecycleLock) {
+        if (lifecycleEpoch.get() != epoch ||
+            mutableState.value != FastbootLinkState.Probing(generation)
+        ) {
+            false
+        } else {
+            handle = claimed
+            lane = opened
+            mutableState.value = FastbootLinkState.Connected(generation, identity, lock)
+            true
+        }
     }
 
     private fun emit(message: String, fields: Map<String, String>) {

@@ -141,6 +141,12 @@ public class FastbootDownload(private val lane: FastbootLane) {
 
             is FastbootExchange.NotReady -> FastbootDownloadOutcome.NotStarted("полоса занята: ${opened.state}")
             is FastbootExchange.NotSent -> FastbootDownloadOutcome.NotStarted(opened.reason)
+            is FastbootExchange.FramingError -> FastbootDownloadOutcome.Unknown(
+                bytesSent = 0L,
+                expectedBytes = sizeBytes,
+                detail = opened.detail,
+                route = route,
+            )
         }
     }
 

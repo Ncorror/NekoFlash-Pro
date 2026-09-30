@@ -16,7 +16,7 @@ package io.github.ncorror.nekoflash.protocol.adb
  * повторными кусками по 16 КиБ, и на железе приём `/tmp/recovery.log` размером
  * 50–65 КиБ детерминированно падал ровно после 32768 байт, унося транспорт
  * раньше, чем удавалось снять baseline перед Sideload. Разбор —
- * `reference/archives/NekoFlash-A2-frozen.zip`, `docs/ADB_INBOUND_USB_FRAMING.md`.
+ * исторических источников проекта, `docs/ADB_INBOUND_USB_FRAMING.md`.
  *
  * Инвариант записан в `docs/03_PROTOCOL_AND_SAFETY_INVARIANTS_RU.md` §4 как
  * correctness invariant нового ядра, а не как архитектура A2.

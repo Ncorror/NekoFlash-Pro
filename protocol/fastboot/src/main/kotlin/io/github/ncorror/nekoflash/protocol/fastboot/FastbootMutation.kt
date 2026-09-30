@@ -207,6 +207,8 @@ public class FastbootMutation(
                 FastbootMutationOutcome.NotStarted(command, "полоса занята: ${exchange.state}")
 
             is FastbootExchange.NotSent -> FastbootMutationOutcome.NotStarted(command, exchange.reason)
+
+            is FastbootExchange.FramingError -> FastbootMutationOutcome.Unknown(command, mutation, exchange.detail)
         }
     }
 

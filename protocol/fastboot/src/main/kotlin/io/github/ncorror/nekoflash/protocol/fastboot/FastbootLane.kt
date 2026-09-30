@@ -67,6 +67,9 @@ public sealed interface FastbootExchange {
 
     /** Команду не удалось отправить. Устройство её не видело. */
     public data class NotSent(val reason: String) : FastbootExchange
+
+    /** Кадр пришёл, но его длина или содержимое нарушает рамку Fastboot. */
+    public data class FramingError(val detail: String, val info: List<String>) : FastbootExchange
 }
 
 /** Чем кончилась передача байтов в открытой фазе данных. */
@@ -158,6 +161,11 @@ public class FastbootLane(
      */
     private val pauseMillis: (Long) -> Unit = { Thread.sleep(it) },
 ) {
+    init {
+        require(readBufferBytes > 0) { "буфер чтения должен быть положительным" }
+    }
+
+    @Volatile
     private var currentState: FastbootLaneState = FastbootLaneState.IDLE
 
     /** Состояние полосы прямо сейчас. */
@@ -226,6 +234,7 @@ public class FastbootLane(
         writeTimeoutMillis: Int = DATA_WRITE_TIMEOUT_MS,
     ): FastbootDataOutcome {
         require(expectedBytes >= 0L) { "объявленный размер не может быть отрицательным" }
+        require(inactivityMillis > 0L) { "бюджет бездействия должен быть положительным" }
         return if (currentState != FastbootLaneState.AWAITING_DATA) {
             FastbootDataOutcome.NotReady(currentState)
         } else {
@@ -261,6 +270,7 @@ public class FastbootLane(
         inactivityMillis: Long = DEFAULT_INACTIVITY_MS,
     ): FastbootDataOutcome {
         require(expectedBytes >= 0L) { "объявленный размер не может быть отрицательным" }
+        require(inactivityMillis > 0L) { "бюджет бездействия должен быть положительным" }
         val sender = transport.fileSender
         return when {
             currentState != FastbootLaneState.AWAITING_DATA -> FastbootDataOutcome.NotReady(currentState)
@@ -366,6 +376,12 @@ public class FastbootLane(
                 detail = "байты переданы, ответа не было ${exchange.waitedMillis} мс",
             )
 
+            is FastbootExchange.FramingError -> FastbootDataOutcome.Interrupted(
+                sent,
+                expectedBytes,
+                exchange.detail,
+            )
+
             // Вторая фаза данных подряд не предусмотрена протоколом, и что
             // устройство при этом делает — неизвестно. Рамку считаем потерянной.
             else -> {
@@ -404,6 +420,7 @@ public class FastbootLane(
         readTimeoutMillis: Int = DATA_READ_TIMEOUT_MS,
     ): FastbootReceiveOutcome {
         require(expectedBytes >= 0L) { "объявленный размер не может быть отрицательным" }
+        require(inactivityMillis > 0L) { "бюджет бездействия должен быть положительным" }
         return if (currentState != FastbootLaneState.AWAITING_DATA) {
             FastbootReceiveOutcome.NotReady(currentState)
         } else {
@@ -537,6 +554,12 @@ public class FastbootLane(
                 detail = "байты приняты, ответа не было ${exchange.waitedMillis} мс",
             )
 
+            is FastbootExchange.FramingError -> FastbootReceiveOutcome.Interrupted(
+                received,
+                received,
+                exchange.detail,
+            )
+
             else -> {
                 currentState = FastbootLaneState.STALLED
                 FastbootReceiveOutcome.Interrupted(received, received, "непредусмотренный ответ после данных")
@@ -595,7 +618,7 @@ public class FastbootLane(
 
             // Короткая запись — не «почти отправили». Устройство получило
             // обрезанную команду, и что оно с ней сделало, мы не знаем.
-            written is UsbTransferResult.Completed && written.bytes < bytes.size -> {
+            written is UsbTransferResult.Completed && written.bytes != bytes.size -> {
                 currentState = FastbootLaneState.STALLED
                 FastbootExchange.NotSent("отправлено ${written.bytes} из ${bytes.size} байт")
             }
@@ -623,12 +646,17 @@ public class FastbootLane(
                 outcome = FastbootExchange.TimedOut(idleMillis, info.toList())
             } else {
                 val slice = minOf(READ_SLICE_MS.toLong(), remaining).toInt().coerceAtLeast(1)
-                val packet = packetOf(transport.receive(buffer, 0, buffer.size, slice), buffer)
-                if (packet == null) {
-                    pauseMillis(minOf(EMPTY_READ_PAUSE_MS, remaining))
-                } else {
-                    quietSince = elapsedMillis()
-                    outcome = classify(packet, info)
+                when (val packet = packetOf(transport.receive(buffer, 0, buffer.size, slice), buffer)) {
+                    PacketRead.Empty -> pauseMillis(minOf(EMPTY_READ_PAUSE_MS, remaining))
+                    is PacketRead.Invalid -> {
+                        currentState = FastbootLaneState.STALLED
+                        outcome = FastbootExchange.FramingError(packet.detail, info.toList())
+                    }
+
+                    is PacketRead.Frame -> {
+                        quietSince = elapsedMillis()
+                        outcome = classify(packet.packet, info)
+                    }
                 }
             }
         }
@@ -636,15 +664,34 @@ public class FastbootLane(
     }
 
     /**
-     * Кадр из результата приёма, либо `null`, если кадра не было.
-     *
-     * Пустой успешный приём — тоже «кадра не было»: устройство молчит, а не
+     * Кадр из результата приёма с явным отличием тишины от нарушения длины.
+     * Пустой успешный приём — «кадра не было»: устройство молчит, а не
      * прислало пустоту.
      */
-    private fun packetOf(received: UsbTransferResult, buffer: ByteArray): FastbootPacket? =
-        (received as? UsbTransferResult.Completed)
-            ?.takeIf { it.bytes > 0 }
-            ?.let { FastbootPacketCodec.parse(buffer, it.bytes) }
+    private fun packetOf(received: UsbTransferResult, buffer: ByteArray): PacketRead =
+        when (received) {
+            is UsbTransferResult.Failed -> PacketRead.Empty
+            is UsbTransferResult.Completed -> when {
+                received.bytes == 0 -> PacketRead.Empty
+                received.bytes !in 1..buffer.size -> PacketRead.Invalid(
+                    "приём Fastboot вернул ${received.bytes} байт при буфере ${buffer.size}",
+                )
+
+                else -> runCatching { FastbootPacketCodec.parse(buffer, received.bytes) }
+                    .fold(
+                        onSuccess = { packet -> PacketRead.Frame(packet) },
+                        onFailure = { error ->
+                            PacketRead.Invalid("кадр Fastboot не разобран: ${error.message ?: error.javaClass.simpleName}")
+                        },
+                    )
+            }
+        }
+
+    private sealed interface PacketRead {
+        data object Empty : PacketRead
+        data class Frame(val packet: FastbootPacket) : PacketRead
+        data class Invalid(val detail: String) : PacketRead
+    }
 
     private fun classify(packet: FastbootPacket, info: MutableList<String>): FastbootExchange? = when {
         packet.terminal -> {

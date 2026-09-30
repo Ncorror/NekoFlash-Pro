@@ -45,7 +45,7 @@ def read(path: Path) -> str:
 
 
 def markdown_files() -> list[Path]:
-    files = [ROOT / "README.md", ROOT / "CLAUDE.md", ROOT / "reference/README.md"]
+    files = [ROOT / "README.md", ROOT / "reference/README.md"]
     files += sorted(DOCS.rglob("*.md"))
     return [path for path in files if path.is_file()]
 

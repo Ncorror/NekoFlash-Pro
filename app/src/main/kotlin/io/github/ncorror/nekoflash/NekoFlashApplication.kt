@@ -13,6 +13,7 @@ import io.github.ncorror.nekoflash.core.model.SessionGeneration
 import io.github.ncorror.nekoflash.adb.AdbLinkController
 import io.github.ncorror.nekoflash.fastboot.FastbootLinkController
 import io.github.ncorror.nekoflash.miunlock.MiAccountSession
+import io.github.ncorror.nekoflash.terminal.StarshipInstaller
 import io.github.ncorror.nekoflash.diagnostics.ExportIdentifiers
 import io.github.ncorror.nekoflash.diagnostics.HostFacts
 import io.github.ncorror.nekoflash.protocol.adb.AdbKeyStore
@@ -53,6 +54,9 @@ public class NekoFlashApplication : Application() {
      * Compose.
      */
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    /** Optional local-shell integration; the ADB PTY remains a remote process. */
+    public val starshipInstaller: StarshipInstaller by lazy { StarshipInstaller(this) }
 
     private val host by lazy {
         AndroidUsbHost(
@@ -210,6 +214,9 @@ public class NekoFlashApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        // Asset extraction is best effort and never blocks startup. If the
+        // optional binary is absent, the installer returns MissingAsset.
+        scope.launch(Dispatchers.IO) { starshipInstaller.install() }
         // Операции, застигнутые гибелью процесса, читаются и закрываются здесь
         // — до того, как экран успеет показать их идущими. Продолжения среди
         // исходов нет: транспорт ушёл вместе с процессом, и «сейчас дожмём»

@@ -25,6 +25,9 @@ import io.github.ncorror.nekoflash.usb.api.UsbTransferResult
 import io.github.ncorror.nekoflash.usb.api.UsbTransportHandle
 import io.github.ncorror.nekoflash.usb.usbfs.NativeUsbfsFileSender
 import io.github.ncorror.nekoflash.usb.usbfs.NativeUsbfsShutdown
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Владение USB на стороне Android: перечисление устройств, приёмники
@@ -51,24 +54,52 @@ public class AndroidUsbHost(
     private val usbManager: UsbManager =
         appContext.getSystemService(Context.USB_SERVICE) as UsbManager
 
+    @Volatile
     private var listener: UsbHost.Listener? = null
+
+    @Volatile
     private var permissionAction: String? = null
+
+    /**
+     * BroadcastReceiver callbacks arrive on the main thread. USB close can
+     * wait for native URB drain, so listener callbacks must never perform that
+     * work on the receiver thread. A generation check drops callbacks queued
+     * for a previous start/stop activation.
+     */
+    private val observationGeneration = AtomicLong(0L)
+    private val callbackExecutor = Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "NekoFlash-UsbCallbacks").apply { isDaemon = true }
+    }
+    private val closeExecutor = Executors.newCachedThreadPool { runnable ->
+        Thread(runnable, "NekoFlash-UsbClose").apply { isDaemon = true }
+    }
 
     private val permissionReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent == null) return
             if (!callbackIdentity.matchesCurrent(intent.action)) return
+            val expectedListener = listener ?: return
+            val generation = observationGeneration.get()
             val granted = intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)
-            listener?.onPermissionResult(intent.usbDevice()?.let(AndroidUsbDescriptorMapper::map), granted)
+            val device = intent.usbDevice()?.let(AndroidUsbDescriptorMapper::map)
+            dispatch(generation, expectedListener) { current ->
+                current.onPermissionResult(device, granted)
+            }
         }
     }
 
     private val attachDetachReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             val device = intent?.usbDevice()?.let(AndroidUsbDescriptorMapper::map) ?: return
+            val expectedListener = listener ?: return
+            val generation = observationGeneration.get()
             when (intent.action) {
-                UsbManager.ACTION_USB_DEVICE_ATTACHED -> listener?.onDeviceAttached(device)
-                UsbManager.ACTION_USB_DEVICE_DETACHED -> listener?.onDeviceDetached(device)
+                UsbManager.ACTION_USB_DEVICE_ATTACHED ->
+                    dispatch(generation, expectedListener) { current -> current.onDeviceAttached(device) }
+
+                UsbManager.ACTION_USB_DEVICE_DETACHED ->
+                    dispatch(generation, expectedListener) { current -> current.onDeviceDetached(device) }
+
                 else -> Unit
             }
         }
@@ -83,11 +114,29 @@ public class AndroidUsbHost(
      */
     override fun start(listener: UsbHost.Listener) {
         stop()
+        observationGeneration.incrementAndGet()
         this.listener = listener
         val action = callbackIdentity.nextAction()
         permissionAction = action
-        registerPermissionReceiver(action)
-        registerAttachDetachReceiver()
+        val resetAfterFailure = {
+            // A partial registration must not leave a receiver or a stale
+            // listener alive when Android rejects the second registration.
+            observationGeneration.incrementAndGet()
+            permissionAction = null
+            this.listener = null
+            runCatching { appContext.unregisterReceiver(permissionReceiver) }
+            runCatching { appContext.unregisterReceiver(attachDetachReceiver) }
+        }
+        try {
+            registerPermissionReceiver(action)
+            registerAttachDetachReceiver()
+        } catch (error: SecurityException) {
+            resetAfterFailure()
+            throw error
+        } catch (error: IllegalArgumentException) {
+            resetAfterFailure()
+            throw error
+        }
     }
 
     /**
@@ -98,11 +147,13 @@ public class AndroidUsbHost(
      * завершении, а не сбой.
      */
     override fun stop() {
-        if (permissionAction == null) return
+        observationGeneration.incrementAndGet()
+        listener = null
+        val wasRegistered = permissionAction != null
+        permissionAction = null
+        if (!wasRegistered) return
         runCatching { appContext.unregisterReceiver(permissionReceiver) }
         runCatching { appContext.unregisterReceiver(attachDetachReceiver) }
-        permissionAction = null
-        listener = null
     }
 
     /** Дескрипторы всех подключённых сейчас устройств. */
@@ -187,7 +238,7 @@ public class AndroidUsbHost(
             when {
                 connection == null -> UsbClaimResult.Failed(UsbClaimFailure.OPEN_REFUSED)
 
-                !connection.claimInterface(usbInterface, true) -> {
+                !runCatching { connection.claimInterface(usbInterface, true) }.getOrDefault(false) -> {
                     runCatching { connection.close() }
                     UsbClaimResult.Failed(UsbClaimFailure.INTERFACE_REFUSED)
                 }
@@ -199,6 +250,7 @@ public class AndroidUsbHost(
                         candidate,
                         endpointIn,
                         endpointOut,
+                        closeExecutor,
                     ),
                 )
             }
@@ -237,18 +289,29 @@ public class AndroidUsbHost(
         override val candidate: UsbInterfaceCandidate,
         private val endpointIn: UsbEndpoint,
         private val endpointOut: UsbEndpoint,
+        private val closeExecutor: java.util.concurrent.Executor,
     ) : UsbTransportHandle {
+        private val lifecycleLock = Any()
+
         @Volatile
         private var released = false
+
+        private val activeTransfers = AtomicInteger(0)
+        private val closeScheduled = java.util.concurrent.atomic.AtomicBoolean(false)
 
         override val held: Boolean
             get() = !released
 
         /** Нативный DATA OUT по дескриптору этого соединения (D077). */
-        private val nativeSender = NativeUsbfsFileSender(connection, endpointOut)
+        private val nativeSender = NativeUsbfsFileSender(
+            connection = connection,
+            endpointOut = endpointOut,
+            lifecycleLock = lifecycleLock,
+            isReleased = { released },
+        )
 
-        override val fileSender: UsbFileSender
-            get() = nativeSender
+        override val fileSender: UsbFileSender?
+            get() = nativeSender.takeIf { !released }
 
         override fun receive(
             destination: ByteArray,
@@ -285,15 +348,21 @@ public class AndroidUsbHost(
             timeoutMillis: Int,
         ): UsbTransferResult {
             UsbTransferArguments.validate(buffer.size, offset, length, timeoutMillis)
-            return if (released) {
-                UsbTransferResult.Failed(UsbTransferFailure.NOT_HELD)
-            } else {
+            synchronized(lifecycleLock) {
+                if (released) {
+                    return UsbTransferResult.Failed(UsbTransferFailure.NOT_HELD)
+                }
+                activeTransfers.incrementAndGet()
+            }
+            return try {
                 val transferred = connection.bulkTransfer(endpoint, buffer, offset, length, timeoutMillis)
                 val result = bulkTransferResult(transferred)
                 if (result !is UsbTransferResult.Completed && endpoint === endpointOut) {
                     clearEndpointHalt(endpoint)
                 }
                 result
+            } finally {
+                if (activeTransfers.decrementAndGet() == 0 && released) schedulePhysicalClose()
             }
         }
 
@@ -338,11 +407,29 @@ public class AndroidUsbHost(
          * процесс больше не открывает новых ([NativeUsbfsShutdown]).
          */
         override fun close() {
-            if (released) return
-            released = true
-            if (NativeUsbfsShutdown.prepareClose(nativeSender)) {
-                runCatching { connection.releaseInterface(usbInterface) }
-                runCatching { connection.close() }
+            synchronized(lifecycleLock) {
+                if (released) return
+                released = true
+            }
+            schedulePhysicalClose()
+        }
+
+        /** Performs potentially blocking native drain off the caller thread. */
+        private fun schedulePhysicalClose() {
+            if (!closeScheduled.compareAndSet(false, true)) return
+            closeExecutor.execute {
+                while (activeTransfers.get() != 0) {
+                    try {
+                        Thread.sleep(CLOSE_POLL_MS)
+                    } catch (_: InterruptedException) {
+                        Thread.currentThread().interrupt()
+                        return@execute
+                    }
+                }
+                if (NativeUsbfsShutdown.prepareClose(nativeSender)) {
+                    runCatching { connection.releaseInterface(usbInterface) }
+                    runCatching { connection.close() }
+                }
             }
         }
 
@@ -357,6 +444,7 @@ public class AndroidUsbHost(
             const val FEATURE_ENDPOINT_HALT = 0x00
 
             const val CLEAR_HALT_TIMEOUT_MS = 500
+            const val CLOSE_POLL_MS = 10L
         }
     }
 
@@ -413,6 +501,17 @@ public class AndroidUsbHost(
 
     private fun mutabilityFlag(): Int =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) PendingIntent.FLAG_MUTABLE else 0
+
+    private fun dispatch(
+        generation: Long,
+        expectedListener: UsbHost.Listener,
+        callback: (UsbHost.Listener) -> Unit,
+    ) {
+        callbackExecutor.execute {
+            if (observationGeneration.get() != generation || listener !== expectedListener) return@execute
+            runCatching { callback(expectedListener) }
+        }
+    }
 
     private fun Intent.usbDevice(): UsbDevice? =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {

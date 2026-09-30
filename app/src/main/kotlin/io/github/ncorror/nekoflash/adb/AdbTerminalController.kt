@@ -113,19 +113,23 @@ public class AdbTerminalController(
             mutableState.value = AdbTerminalState(active = true, mode = mode, title = firstLine?.substringBefore(' '))
             nextRequestId
         }
-        readerExecutor.execute { openAndPump(connection, requestId, mode) }
+        try {
+            readerExecutor.execute { openAndPump(connection, requestId, mode) }
+        } catch (error: RuntimeException) {
+            finishWithoutSession(requestId, "reader unavailable: ${error.message ?: error.javaClass.simpleName}")
+        }
     }
 
     /** Передаёт строку вместе с Enter, только когда peer подтвердил `OPEN`. */
     public fun sendInput(text: String, enter: Boolean = true) {
         val session = currentReadyShell() ?: return
-        writerExecutor.execute { session.sendInput(if (enter) text + "\n" else text) }
+        enqueueWriter("input") { session.sendInput(if (enter) text + "\n" else text) }
     }
 
     /** Прерывает текущую команду, не закрывая оболочку. */
     public fun interrupt() {
         val session = currentReadyShell() ?: return
-        writerExecutor.execute { session.interrupt() }
+        enqueueWriter("interrupt") { session.interrupt() }
     }
 
     /**
@@ -177,16 +181,30 @@ public class AdbTerminalController(
     private fun openAndPump(connection: AdbConnection, requestId: Long, mode: AdbShellMode) {
         if (markReaderStarted(requestId)) {
             val styled = profile && mode == AdbShellMode.PTY
-            val session = connection.interactiveShell(
-                diagnostics = diagnostics,
-                mode = mode,
-                term = VtScreen.TERM,
-                command = if (styled) TerminalShellProfile.command else "",
-            )
-            when {
-                !session.open() -> finishSession(session, requestId, OPEN_FAILED)
-                bindShell(session, requestId) -> pumpUntilClosed(session, requestId, styled)
-                else -> session.close()
+            var session: AdbInteractiveShell? = null
+            try {
+                session = connection.interactiveShell(
+                    diagnostics = diagnostics,
+                    mode = mode,
+                    term = VtScreen.TERM,
+                    command = if (styled) TerminalShellProfile.command else "",
+                )
+                when {
+                    !session.open() -> finishSession(session, requestId, OPEN_FAILED)
+                    bindShell(session, requestId) -> pumpUntilClosed(session, requestId, styled)
+                    else -> session.close()
+                }
+            } catch (error: Throwable) {
+                // A transport/parser exception must release the lifecycle slot;
+                // otherwise the UI remains active forever and later starts are
+                // silently ignored.
+                runCatching { session?.close("terminal failure") }
+                val detail = error.message ?: error.javaClass.simpleName
+                if (session == null) {
+                    finishWithoutSession(requestId, "terminal failure: $detail")
+                } else {
+                    finishSession(session, requestId, "terminal failure: $detail")
+                }
             }
         }
     }
@@ -227,7 +245,7 @@ public class AdbTerminalController(
     private fun pumpUntilClosed(session: AdbInteractiveShell, requestId: Long, styled: Boolean) {
         // Ответы терминала (`DSR`, `DA`) уходят в оболочку тем же вводом.
         val terminal = VtScreen(size.columns, size.rows) { answer ->
-            writerExecutor.execute { session.sendInput(answer) }
+            enqueueWriter("terminal reply") { session.sendInput(answer) }
         }
         synchronized(screenLock) {
             if (styled) terminal.feed(TerminalShellProfile.banner(size.columns))
@@ -240,9 +258,9 @@ public class AdbTerminalController(
 
         while (session.active && isCurrent(requestId)) {
             progress = consumePumpEvents(session, requestId, terminal, progress)
-            if (shown.shouldPublish(progress, elapsedNanos())) {
+            if (shown.shouldPublish(progress, terminal.revision, elapsedNanos())) {
                 publishRunningState(requestId, progress.ready, terminal)
-                shown = ShownState(progress.received, progress.ready, elapsedNanos())
+                shown = ShownState(progress.received, progress.ready, elapsedNanos(), terminal.revision)
             }
         }
 
@@ -262,8 +280,17 @@ public class AdbTerminalController(
         val next = WindowSize(columns, rows)
         if (columns <= 0 || rows <= 0 || next == size) return
         size = next
-        synchronized(screenLock) { screen?.resize(columns, rows) }
-        currentReadyShell()?.let { session -> writerExecutor.execute { session.resize(rows, columns) } }
+        val resized = synchronized(screenLock) {
+            screen?.also { it.resize(columns, rows) }
+        }
+        if (resized != null) {
+            val requestId = synchronized(lifecycleLock) { activeRequestId }
+            if (requestId != null) {
+                val ready = synchronized(lifecycleLock) { mutableState.value.ready }
+                publishRunningState(requestId, ready, resized)
+            }
+        }
+        currentReadyShell()?.let { session -> enqueueWriter("resize") { session.resize(rows, columns) } }
     }
 
     /** Клавиша без Enter; стрелки — в режиме, который включила программа (`?1h`). */
@@ -284,7 +311,7 @@ public class AdbTerminalController(
             TerminalKey.PAGE_UP -> "\u001B[5~"
             TerminalKey.PAGE_DOWN -> "\u001B[6~"
         }
-        writerExecutor.execute { session.sendInput(bytes) }
+        enqueueWriter("key") { session.sendInput(bytes) }
     }
 
     private data class WindowSize(val columns: Int, val rows: Int)
@@ -299,6 +326,7 @@ public class AdbTerminalController(
         val received: Long = -1,
         val ready: Boolean = false,
         val atNanos: Long = 0,
+        val revision: Long = -1,
     ) {
         /**
          * Показывать ли сейчас.
@@ -306,8 +334,9 @@ public class AdbTerminalController(
          * Готовность оболочки показывается сразу: её ждёт человек, и придержать
          * её на интервал значило бы соврать, что приглашения ещё нет.
          */
-        fun shouldPublish(progress: PumpProgress, nowNanos: Long): Boolean {
+        fun shouldPublish(progress: PumpProgress, currentRevision: Long, nowNanos: Long): Boolean {
             if (progress.ready != ready) return true
+            if (currentRevision == revision) return false
             if (progress.received == received) return false
             return nowNanos - atNanos >= PUBLISH_INTERVAL_NANOS
         }
@@ -329,7 +358,7 @@ public class AdbTerminalController(
                     ready = true
                     onOpened(session, requestId)
                 }
-                AdbShellEvent.WriteReady -> writerExecutor.execute { session.flushPendingWrites() }
+                AdbShellEvent.WriteReady -> enqueueWriter("flush") { session.flushPendingWrites() }
                 else -> ended = applyEvent(event, terminal, screenLock) ?: ended
             }
         }
@@ -344,9 +373,9 @@ public class AdbTerminalController(
         }
         // Размер окна — первым, как `stdin_read_thread_loop` настольного клиента.
         val current = size
-        writerExecutor.execute { session.resize(current.rows, current.columns) }
+        enqueueWriter("initial resize") { session.resize(current.rows, current.columns) }
         synchronized(lifecycleLock) { pendingLine.also { pendingLine = null } }
-            ?.let { line -> writerExecutor.execute { session.sendInput(line + "\n") } }
+            ?.let { line -> enqueueWriter("initial input") { session.sendInput(line + "\n") } }
     }
 
     private fun publishRunningState(requestId: Long, ready: Boolean, terminal: VtScreen) {
@@ -375,7 +404,7 @@ public class AdbTerminalController(
                 true
             }
         }
-        if (schedule) writerExecutor.execute { session.close() }
+        if (schedule) enqueueWriter("close") { session.close() }
     }
 
     private fun currentReadyShell(): AdbInteractiveShell? = synchronized(lifecycleLock) {
@@ -413,6 +442,61 @@ public class AdbTerminalController(
                 ended = ended,
                 mode = mutableState.value.mode,
                 title = mutableState.value.title,
+            )
+        }
+    }
+
+    private fun finishWithoutSession(requestId: Long, ended: String) {
+        val last = synchronized(screenLock) {
+            screen?.snapshot() ?: VtSnapshot.EMPTY
+        }
+        synchronized(lifecycleLock) {
+            if (activeRequestId != requestId) return
+            activeRequestId = null
+            if (readerRequestId == requestId) readerRequestId = null
+            if (closeScheduledRequestId == requestId) closeScheduledRequestId = null
+            mutableState.value = AdbTerminalState(
+                active = false,
+                ready = false,
+                screen = last,
+                ended = ended,
+                mode = mutableState.value.mode,
+                title = mutableState.value.title,
+            )
+        }
+        synchronized(screenLock) { screen = null }
+    }
+
+    /** Keeps every potentially blocking writer callback off the UI thread. */
+    private fun enqueueWriter(operation: String, task: () -> Unit) {
+        try {
+            writerExecutor.execute {
+                runCatching { task() }.onFailure { error ->
+                    diagnostics.emit(
+                        io.github.ncorror.nekoflash.core.diagnostics.DiagnosticEvent(
+                            timestamp = java.time.Instant.now(),
+                            category = "terminal",
+                            message = "writer_failed",
+                            fields = mapOf(
+                                "operation" to operation,
+                                "detail" to (error.message ?: error.javaClass.simpleName),
+                            ),
+                        ),
+                    )
+                    synchronized(lifecycleLock) { shell?.close("writer failure") }
+                }
+            }
+        } catch (error: RuntimeException) {
+            diagnostics.emit(
+                io.github.ncorror.nekoflash.core.diagnostics.DiagnosticEvent(
+                    timestamp = java.time.Instant.now(),
+                    category = "terminal",
+                    message = "writer_unavailable",
+                    fields = mapOf(
+                        "operation" to operation,
+                        "detail" to (error.message ?: error.javaClass.simpleName),
+                    ),
+                ),
             )
         }
     }

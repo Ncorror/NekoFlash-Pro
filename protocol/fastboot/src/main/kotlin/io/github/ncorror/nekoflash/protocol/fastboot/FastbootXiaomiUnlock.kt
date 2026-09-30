@@ -44,6 +44,7 @@ public class FastbootXiaomiUnlock(private val lane: FastbootLane) {
             is FastbootExchange.NotSent -> XiaomiUnlockOutcome.NotStarted("oem unlock не отправлена")
             is FastbootExchange.NotReady -> XiaomiUnlockOutcome.NotStarted("Fastboot недоступен")
             is FastbootExchange.DataPhase -> { lane.stall(); XiaomiUnlockOutcome.Unknown("неожиданная фаза данных") }
+            is FastbootExchange.FramingError -> XiaomiUnlockOutcome.Unknown(reply.detail)
         }
     }
 

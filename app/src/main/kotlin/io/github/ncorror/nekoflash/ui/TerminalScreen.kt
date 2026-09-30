@@ -25,7 +25,6 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
@@ -54,8 +53,9 @@ internal fun TerminalScreen(
     onTap: () -> Unit = {},
 ) {
     val colors = TerminalColors(foreground = TerminalPalette.foreground, background = TerminalPalette.background)
+    val terminalFont = rememberTerminalFontFamily()
     val style = TextStyle(
-        fontFamily = FontFamily.Monospace,
+        fontFamily = terminalFont,
         fontSize = TEXT_SIZE,
         lineHeight = LINE_HEIGHT,
         color = colors.foreground,

@@ -37,7 +37,7 @@
 | detekt и машинная проверка границ модулей | `в репо` | `config/detekt/`, `scripts/ci/check_kotlin_style.sh` |
 | Проверки гигиены дерева, локализации, Compose wiring | `в репо` | `scripts/ci/` |
 | Постоянная debug-подпись из секрета CI | `в репо` | секрет `NEKOFLASH_DEBUG_KEYSTORE_BASE64` задаёт владелец репозитория ([07](07_BUILD_AND_TESTING.md#сборка)) |
-| Локальная сборка: JDK 17, Android SDK, зеркало Maven Central, SessionStart hook | `в репо` | `scripts/dev/provision_android_toolchain.sh`, `.claude/` |
+| Локальная сборка: JDK 17, Android SDK, зеркало Maven Central, SessionStart hook | `в репо` | `scripts/dev/provision_android_toolchain.sh`, `scripts/dev/` |
 | Правила бэкапа и locale config | `в репо` | `app/src/main/res/xml/`, `app/build.gradle.kts` |
 | Один workflow CI с быстрыми проверками до Gradle | `в репо` | `.github/workflows/build.yml` |
 

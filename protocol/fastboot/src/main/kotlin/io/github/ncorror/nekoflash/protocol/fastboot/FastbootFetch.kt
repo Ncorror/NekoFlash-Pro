@@ -180,6 +180,7 @@ public class FastbootFetch(
 
             is FastbootExchange.NotReady -> ChunkOutcome.NotStarted("полоса занята: ${opened.state}")
             is FastbootExchange.NotSent -> ChunkOutcome.NotStarted(opened.reason)
+            is FastbootExchange.FramingError -> ChunkOutcome.Broken(0L, opened.detail)
         }
 
     private fun transfer(opened: FastbootExchange.DataPhase, sink: OutputStream): ChunkOutcome {

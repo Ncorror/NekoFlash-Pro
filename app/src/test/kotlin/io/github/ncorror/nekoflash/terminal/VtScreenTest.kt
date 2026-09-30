@@ -85,6 +85,16 @@ class VtScreenTest {
     }
 
     @Test
+    fun colonSeparatedTrueColorDoesNotTreatEmptySubparameterAsRed() {
+        val screen = screen()
+
+        screen.feed("\u001B[38:2::255:120:0mX")
+
+        val style = screen.snapshot().rows.first().runs.single().style
+        assertEquals(VtStyle.RGB_FLAG or 0xFF7800, style.foreground)
+    }
+
+    @Test
     fun resizeKeepsTheCursorOnScreen() {
         val screen = screen(columns = 10, rows = 4)
         screen.feed("1\r\n2\r\n3\r\n4")

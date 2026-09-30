@@ -6,7 +6,7 @@ import androidx.compose.ui.graphics.Color
  * Опорная палитра NekoFlash.
  *
  * Источник — **не подбор на глаз**, а действующая палитра Legacy
- * (`values/colors.xml` в `reference/archives/NekoFlash-main-legacy.zip`,
+ * (`values/colors.xml` в исторических источников проекта,
  * помеченная там «NekoFlash V6 — restrained cyber-dark palette»), с ролями из
  * `values/styles.xml` того же снапшота. Значения и роли перечислены в
  * `05_FINAL_UI_UX_AND_BRAND_RU.md` §2 и взяты оттуда дословно.

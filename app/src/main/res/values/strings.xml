@@ -312,7 +312,7 @@
     <string name="shell_history">Recent commands — tapping one fills the field, it does not send it</string>
     <string name="diagnostics_recent_title">Being recorded right now</string>
     <string name="diagnostics_recent_empty">Nothing recorded yet in this session.</string>
-    <string name="diagnostics_recent_note">The last %1$d lines, newest first. The full report is the export above — this pane is here so you can see during a run whether the thing you are testing is being recorded at all.</string>
+    <string name="diagnostics_recent_note">The last %1$d lines, newest first. Export the full report above; this pane shows recent diagnostic activity while you work.</string>
     <string name="target_bar_state">%1$s · %2$s</string>
     <string name="target_bar_no_device">No device connected</string>
     <string name="target_bar_others">Switch device (%1$d more)</string>

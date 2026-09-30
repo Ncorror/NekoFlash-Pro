@@ -29,6 +29,9 @@ public enum class AdbReadFailure {
     /** `magic` или объявленная длина непригодны. */
     INVALID_HEADER,
 
+    /** Транспорт сообщил число байт за пределами запрошенного окна. */
+    INVALID_TRANSFER_LENGTH,
+
     /**
      * Приём объявленного payload завершился короче объявленного.
      *
@@ -170,7 +173,15 @@ public class AdbPacketReader(
                 )
             ) {
                 is UsbTransferResult.Completed -> {
-                    if (result.bytes == 0) {
+                    val requested = AdbPacketHeader.SIZE_BYTES - received
+                    if (result.bytes !in 0..requested) {
+                        terminal = HeaderOutcome.Other(
+                            AdbReadOutcome.Failed(
+                                AdbReadFailure.INVALID_TRANSFER_LENGTH,
+                                "header requested=$requested actual=${result.bytes}",
+                            ),
+                        )
+                    } else if (result.bytes == 0) {
                         terminal = HeaderOutcome.Other(idleOrPartialHeader(received))
                     } else {
                         received += result.bytes
@@ -225,7 +236,14 @@ public class AdbPacketReader(
         )
         return when (result) {
             is UsbTransferResult.Completed ->
-                if (AdbInboundFraming.payloadReadIsComplete(length, result.bytes)) {
+                if (result.bytes !in 0..length) {
+                    PayloadOutcome.Other(
+                        AdbReadOutcome.Failed(
+                            AdbReadFailure.INVALID_TRANSFER_LENGTH,
+                            "payload requested=$length actual=${result.bytes}",
+                        ),
+                    )
+                } else if (AdbInboundFraming.payloadReadIsComplete(length, result.bytes)) {
                     PayloadOutcome.Ready(payload)
                 } else {
                     PayloadOutcome.Other(

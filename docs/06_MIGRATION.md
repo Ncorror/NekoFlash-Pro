@@ -2,7 +2,7 @@
 
 Как код рефакторинга из [архива](../reference/README.md) становится кодом этого репозитория. Решение о переносе — [ADR-0007](adr/0007_MERGE_WITH_REFACTORED_ARCHIVE_RU.md); порядок и статус шагов — [05_ROADMAP](05_ROADMAP.md).
 
-Источник: `reference/archives/NekoFlash-main-2026-09-14.zip` — репозиторий `Ncorror/NekoFlash`, коммит `0be9ca786a756c5243be812096fe52b558af6113`. В архиве 9 модулей, ~22,9 тыс. строк кода и 850 тестов; в этом репозитории до переноса — 6 модулей, ~4,6 тыс. строк и 87 тестов.
+Источник: исторического среза — репозиторий `Ncorror/NekoFlash`, коммит `0be9ca786a756c5243be812096fe52b558af6113`. В архиве 9 модулей, ~22,9 тыс. строк кода и 850 тестов; в этом репозитории до переноса — 6 модулей, ~4,6 тыс. строк и 87 тестов.
 
 ## 1. Принципы
 
@@ -19,7 +19,7 @@
 
 | Из архива | Этап | Что заменяет здесь | Заметки |
 | --- | --- | --- | --- |
-| `gradle/libs.versions.toml`, `gradle/wrapper/`, `config/detekt/`, `scripts/ci/*`, `scripts/dev/provision_android_toolchain.sh`, `.claude/`, `.github/workflows/android-ci.yml`, `app/src/main/res/xml/{backup_rules,data_extraction_rules}.xml`, `.editorconfig`, `.gitattributes`, `.gitignore` | 1 | части `build.yml`, `build.gradle.kts` | `scripts/ci/check_docs_consistency.py` архива **не** переносится: он проверяет документы архива; у нас свой `scripts/ci/check_docs.py` |
+| `gradle/libs.versions.toml`, `gradle/wrapper/`, `config/detekt/`, `scripts/ci/*`, `scripts/dev/provision_android_toolchain.sh`, `scripts/dev/`, `.github/workflows/android-ci.yml`, `app/src/main/res/xml/{backup_rules,data_extraction_rules}.xml`, `.editorconfig`, `.gitattributes`, `.gitignore` | 1 | части `build.yml`, `build.gradle.kts` | `scripts/ci/check_docs_consistency.py` архива **не** переносится: он проверяет документы архива; у нас свой `scripts/ci/check_docs.py` |
 | `:core:model` | 2 | — | |
 | `:core:diagnostics` | 2 | `:core:diagnostics` (`DiagnosticZipWriter`) | `DiagnosticBundle` сам не обезличивает — правила обезличивания текущего `DiagnosticJournal` переходят в слой, собирающий события |
 | `:core:operation` | 2 | — | |
@@ -118,7 +118,7 @@
 
 ## 6. Где смотреть поведение перед реализацией
 
-Правило архива: поведение протокола **открывают в исходнике**, а не восстанавливают по памяти. Legacy и A2 лежат внутри архива: `NekoFlash-main/reference/archives/`.
+Правило архива: поведение протокола **открывают в исходнике**, а не восстанавливают по памяти. Legacy и A2 лежат внутри архива: исторических источников.
 
 | Реализуешь | Открыть |
 | --- | --- |

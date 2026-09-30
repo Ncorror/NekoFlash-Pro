@@ -52,6 +52,8 @@ public class FastbootGetVar(private val lane: FastbootLane) {
             is FastbootExchange.NotReady -> FastbootVariable.Unavailable(name, "полоса занята: ${exchange.state}")
             is FastbootExchange.NotSent -> FastbootVariable.Unavailable(name, exchange.reason)
 
+            is FastbootExchange.FramingError -> FastbootVariable.Unavailable(name, exchange.detail)
+
             // `getvar` фазы данных не открывает. Если она всё же открыта,
             // устройство ждёт байты, а мы о них не договаривались: рамка
             // потеряна, и молчать об этом нельзя.
@@ -98,6 +100,8 @@ public class FastbootGetVar(private val lane: FastbootLane) {
 
             is FastbootExchange.NotReady -> unreadable(emptyList(), "полоса занята: ${exchange.state}")
             is FastbootExchange.NotSent -> unreadable(emptyList(), exchange.reason)
+
+            is FastbootExchange.FramingError -> unreadable(exchange.info, exchange.detail)
         }
 
     private fun unreadable(lines: List<String>, detail: String): FastbootVariableSnapshot =

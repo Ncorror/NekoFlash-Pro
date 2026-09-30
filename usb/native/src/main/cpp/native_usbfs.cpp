@@ -6,6 +6,7 @@
 #include <cstring>
 #include <fcntl.h>
 #include <linux/usbdevice_fs.h>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <new>
@@ -27,10 +28,6 @@
 
 #ifndef USBDEVFS_DISCARDURB
 #define USBDEVFS_DISCARDURB _IO('U', 11)
-#endif
-
-#ifndef USBDEVFS_RESET
-#define USBDEVFS_RESET _IO('U', 20)
 #endif
 
 namespace {
@@ -181,6 +178,11 @@ jlongArray make_backend_state_result(JNIEnv* env, int64_t poisoned,
 }
 
 bool pread_exact(int file_fd, unsigned char* buffer, size_t size, int64_t offset, int* err) {
+    if (offset < 0 || offset > static_cast<int64_t>(std::numeric_limits<off_t>::max()) ||
+        size > static_cast<size_t>(std::numeric_limits<off_t>::max() - static_cast<off_t>(offset))) {
+        *err = EOVERFLOW;
+        return false;
+    }
     size_t total = 0;
     while (total < size) {
         const ssize_t read_result = pread(
@@ -424,24 +426,6 @@ bool backend_poisoned_noexcept() noexcept {
 }
 }  // namespace
 
-// Clears a wedged bulk OUT endpoint by forcing the device to re-enumerate.
-// Mirrors upstream fastboot LinuxUsbTransport::Reset(): ioctl(fd, USBDEVFS_RESET, 0).
-// The onyx bootloader wedges its OUT endpoint after an aborted DATA transfer and a
-// plain re-handshake does not clear it; only a device reset does. Returns 0 on success,
-// otherwise the positive errno (or -1 for an invalid fd). After a successful reset the
-// caller's UsbDeviceConnection is invalidated and the device must be re-enumerated.
-extern "C" JNIEXPORT jint JNICALL
-Java_io_github_ncorror_nekoflash_fastboot_transport_NativeUsbfsBackend_nativeUsbfsResetDevice(
-    JNIEnv* /*env*/, jobject /*thiz*/, jint fd) {
-    if (fd < 0) return static_cast<jint>(-1);
-    const int ret = ioctl(static_cast<int>(fd), USBDEVFS_RESET, 0);
-    if (ret != 0) {
-        const int saved = errno;
-        return static_cast<jint>(saved > 0 ? saved : -1);
-    }
-    return static_cast<jint>(0);
-}
-
 extern "C" JNIEXPORT jboolean JNICALL
 Java_io_github_ncorror_nekoflash_fastboot_transport_NativeUsbfsBackend_nativeCancelTransfer(
     JNIEnv* /*env*/, jobject /*thiz*/, jlong transfer_token) {
@@ -512,9 +496,12 @@ static jlongArray native_bulk_out_urb_impl(
     jlong transfer_token) {
 
     const int64_t started = now_ms();
-    if (fd < 0 || payload_fd_input < 0 || total_bytes <= 0 || block_bytes <= 0 ||
+    if (fd < 0 || payload_fd_input < 0 || total_bytes <= 0 ||
+        total_bytes > static_cast<jlong>(std::numeric_limits<off_t>::max()) ||
+        block_bytes <= 0 ||
         stall_timeout_ms <= 0 || hard_timeout_ms <= 0 || hard_timeout_ms < stall_timeout_ms ||
-        transfer_token <= 0 || (endpoint_address & 0x80) != 0 || (endpoint_address & 0x0F) == 0) {
+        transfer_token <= 0 || endpoint_address < 0 || endpoint_address > 0xFF ||
+        (endpoint_address & 0x80) != 0 || (endpoint_address & 0x0F) == 0) {
         return make_result(env, 0, 0, EINVAL, 0, 0, 0, STAGE_PREFLIGHT);
     }
 

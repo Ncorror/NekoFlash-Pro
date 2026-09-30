@@ -7,6 +7,7 @@ import io.github.ncorror.nekoflash.fastboot.transport.NativeUsbfsBackend
 import io.github.ncorror.nekoflash.usb.api.UsbFileSendResult
 import io.github.ncorror.nekoflash.usb.api.UsbFileSender
 import io.github.ncorror.nekoflash.usb.transport.UsbTransportShutdownPolicy
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * [UsbFileSender] поверх `NativeUsbfsBackend` из A2 (D077).
@@ -21,30 +22,66 @@ import io.github.ncorror.nekoflash.usb.transport.UsbTransportShutdownPolicy
 public class NativeUsbfsFileSender(
     private val connection: UsbDeviceConnection,
     private val endpointOut: UsbEndpoint,
+    private val lifecycleLock: Any,
+    private val isReleased: () -> Boolean,
 ) : UsbFileSender {
+    private data class SendPreparation(
+        val descriptor: ParcelFileDescriptor?,
+        val failure: String?,
+        val reserved: Boolean,
+    )
+
     /** Идёт ли передача **этого** соединения: чужую закрытие не трогает. */
-    @Volatile
-    public var sending: Boolean = false
-        private set
+    public val sending: Boolean
+        get() = sendingState.get()
+
+    private val sendingState = AtomicBoolean(false)
 
     override fun unavailable(payloadFd: Int, totalBytes: Long): String? {
-        val transport = NativeUsbfsBackend.transportPreflightError(connection, endpointOut)
-        val descriptor = if (transport == null) duplicate(payloadFd) else null
-        return when {
-            transport != null -> transport
-            descriptor == null -> "Payload descriptor $payloadFd cannot be duplicated"
-            else -> descriptor.use { NativeUsbfsBackend.payloadPreflightError(it, totalBytes) }
+        synchronized(lifecycleLock) {
+            if (isReleased()) return "USB transport handle is closed"
+            val transport = NativeUsbfsBackend.transportPreflightError(connection, endpointOut)
+            val descriptor = if (transport == null) duplicate(payloadFd) else null
+            return when {
+                transport != null -> transport
+                descriptor == null -> "Payload descriptor $payloadFd cannot be duplicated"
+                else -> descriptor.use { NativeUsbfsBackend.payloadPreflightError(it, totalBytes) }
+            }
         }
     }
 
     override fun send(payloadFd: Int, totalBytes: Long, progress: (Long) -> Unit): UsbFileSendResult {
-        val descriptor = duplicate(payloadFd)
-            ?: return UsbFileSendResult(false, 0L, false, "Payload descriptor $payloadFd cannot be duplicated")
-        sending = true
-        val result = try {
-            descriptor.use { transfer(it, totalBytes, progress) }
-        } finally {
-            sending = false
+        val preparation = synchronized(lifecycleLock) {
+            when {
+                isReleased() -> SendPreparation(null, "USB transport handle is closed", false)
+                !sendingState.compareAndSet(false, true) -> SendPreparation(
+                    null,
+                    "Native USBFS transfer is already active for this handle",
+                    false,
+                )
+
+                else -> SendPreparation(
+                    descriptor = duplicate(payloadFd),
+                    failure = null,
+                    reserved = true,
+                )
+            }
+        }
+        val descriptor = preparation.descriptor
+        val result = if (descriptor == null) {
+            if (preparation.reserved) sendingState.set(false)
+            UsbFileSendResult(
+                false,
+                0L,
+                false,
+                preparation.failure ?: "Payload descriptor $payloadFd cannot be duplicated",
+            )
+        } else {
+            try {
+                descriptor.use { transfer(it, totalBytes, progress) }
+            } finally {
+                sendingState.set(false)
+            }
         }
         return UsbFileSendResult(result.success, result.bytesTransferred, result.cancelled, result.message)
     }

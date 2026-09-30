@@ -200,7 +200,7 @@ internal object NativeUsbfsBackend {
         }
 
         var progressThreadStopped = progressThread == null
-        val raw = try {
+        val raw: LongArray? = try {
             nativeBulkOutUrb(
                 connection.fileDescriptor,
                 outEndpoint.address,
@@ -228,6 +228,10 @@ internal object NativeUsbfsBackend {
                 }
             }
             activeTransferToken.compareAndSet(token, NO_ACTIVE_TRANSFER)
+        }
+
+        if (raw == null) {
+            return jniFailure(IllegalStateException("Native USBFS JNI returned a null result"))
         }
 
         val success = raw.getOrNull(IDX_SUCCESS) == 1L
@@ -355,20 +359,6 @@ internal object NativeUsbfsBackend {
 
     private external fun nativeCancelTransfer(transferToken: Long): Boolean
     private external fun nativeBackendState(): LongArray
-    private external fun nativeUsbfsResetDevice(fd: Int): Int
-
-    fun resetUsbDevice(connection: UsbDeviceConnection): Int {
-        val fd = runCatching { connection.fileDescriptor }.getOrDefault(-1)
-        if (fd < 0) return -1
-        return try {
-            nativeUsbfsResetDevice(fd)
-        } catch (_: Exception) {
-            -1
-        } catch (_: LinkageError) {
-            -1
-        }
-    }
-
     fun stageLabel(stage: Int): String = when (stage) {
         STAGE_PREFLIGHT -> "preflight"
         STAGE_OPEN -> "open"

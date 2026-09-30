@@ -121,10 +121,10 @@ public class AdbPacketWriter(
                 )
             ) {
                 is UsbTransferResult.Completed -> {
-                    if (result.bytes == 0) {
+                    if (result.bytes !in 1..chunk) {
                         outcome = AdbWriteOutcome.Interrupted(
                             alreadySent + sent,
-                            "transfer moved no bytes with $chunk requested",
+                            "transfer returned ${result.bytes} bytes with $chunk requested",
                         )
                     } else {
                         sent += result.bytes

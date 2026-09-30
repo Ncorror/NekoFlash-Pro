@@ -118,9 +118,16 @@ public object TerminalShellProfile {
         "alias ls='ls --color=auto' grep='grep --color=auto'",
         "if [ \"\$(id -u)\" = 0 ]; then _nfc=\$'\\e[0;34m' _nfh=\$'\\e[1;31m' _nfp='#';" +
             " else _nfc=\$'\\e[0;32m' _nfh=\$'\\e[1;34m' _nfp='\$'; fi",
-        "PS1=\$'\\001\\r\\001\${_nfc}\\001\\u250c\\u2500\\u2500(\\001\${_nfh}\\001\${USER:-shell}\\u327f" +
+        // Prefer Starship when the target itself provides a compatible bash
+        // binary. Android's stock mksh deliberately takes the fallback below;
+        // an app-private APK asset is not visible to the remote ADB shell.
+        "if command -v starship >/dev/null 2>&1 && [ -n \"\${BASH_VERSION:-}\" ]; then",
+        "  eval \"\$(starship init bash)\"",
+        "else",
+        "  PS1=\$'\\001\\r\\001\${_nfc}\\001\\u250c\\u2500\\u2500(\\001\${_nfh}\\001\${USER:-shell}\\u327f" +
             "\${HOSTNAME:-android}\\001\${_nfc}\\001)-[\\001\\e[0;1m\\001\${PWD:-?}\\001\${_nfc}\\001]\\n" +
             "\\u2514\\u2500\\001\${_nfh}\\001\${_nfp}\\001\\e[0m\\001 '",
+        "fi",
         "printf '\\033[1;36m%s %s\\033[0m \\033[2m|\\033[0m Android %s \\033[2m|\\033[0m SDK %s" +
             " \\033[2m|\\033[0m %s\\n\\n' \"\$(getprop ro.product.manufacturer)\" \"\$(getprop ro.product.model)\"" +
             " \"\$(getprop ro.build.version.release)\" \"\$(getprop ro.build.version.sdk)\" \"\$(uname -m)\"",

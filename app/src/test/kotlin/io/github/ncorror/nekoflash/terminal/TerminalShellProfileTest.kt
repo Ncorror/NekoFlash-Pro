@@ -37,6 +37,13 @@ class TerminalShellProfileTest {
     }
 
     @Test
+    fun starshipIsOptInOnTheRemoteShellAndHasAStockShellFallback() {
+        assertTrue(TerminalShellProfile.settings.contains("command -v starship"))
+        assertTrue(TerminalShellProfile.settings.contains("starship init bash"))
+        assertTrue(TerminalShellProfile.settings.contains("else"))
+    }
+
+    @Test
     fun theBannerFitsTheWindow() {
         for (columns in listOf(14, 28, 30, 46, 47, 80, 120)) {
             val widest = TerminalShellProfile.banner(columns).split("\r\n").maxOf { visible(it).length }
