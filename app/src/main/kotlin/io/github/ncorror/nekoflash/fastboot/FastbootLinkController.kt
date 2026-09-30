@@ -138,6 +138,13 @@ public class FastbootLinkController(
     private val lifecycleLock = Any()
     private val lifecycleEpoch = AtomicLong(0L)
 
+    /** Только собственный rejoin операции вправе перенести эту привязку на новую полосу. */
+    private class ConsoleOwnership(var lane: FastbootLane?, var epoch: Long)
+
+    /** Вызывается под [lifecycleLock]. */
+    private fun ownsConnection(owner: ConsoleOwnership): Boolean =
+        lane === owner.lane && lifecycleEpoch.get() == owner.epoch
+
     private val mutableConsole = MutableStateFlow<FastbootConsoleState>(FastbootConsoleState.Idle)
 
     /** Исход последнего обмена. */
@@ -160,6 +167,7 @@ public class FastbootLinkController(
         val epoch = synchronized(lifecycleLock) {
             if (mutableState.value is FastbootLinkState.Probing) return
             val next = lifecycleEpoch.incrementAndGet()
+            scenarioRunning = false
             mutableState.value = FastbootLinkState.Probing(generation)
             next
         }
@@ -185,6 +193,7 @@ public class FastbootLinkController(
     public fun disconnect() {
         val resources = synchronized(lifecycleLock) {
             lifecycleEpoch.incrementAndGet()
+            scenarioRunning = false
             val oldLane = lane
             val oldHandle = handle
             lane = null
@@ -479,8 +488,12 @@ public class FastbootLinkController(
          * `FlashAllTool` настольного клиента ([FastbootFlashAll]).
          */
         internal fun flashAll(request: FlashAllRequest, images: () -> FastbootImageSet) {
-            busy("fastboot_flashall", if (request.flashAll) "flashall" else "update", scenario = true) { lane, _ ->
-                FastbootFlashAll(lane, images(), request, rejoin()).run()
+            busyOwned(
+                "fastboot_flashall",
+                if (request.flashAll) "flashall" else "update",
+                scenario = true,
+            ) { lane, _, owner ->
+                FastbootFlashAll(lane, images(), request, rejoin(owner)).run()
             }
         }
 
@@ -515,13 +528,15 @@ public class FastbootLinkController(
         }
 
         /** Как вернуться к этой цели после её перезагрузки: по серийному номеру текущей сессии. */
-        private fun rejoin(): FastbootRejoin {
-            val generation = (mutableState.value as? FastbootLinkState.Connected)?.generation
+        private fun rejoin(owner: ConsoleOwnership): FastbootRejoin {
+            val generation = synchronized(lifecycleLock) {
+                if (ownsConnection(owner)) (mutableState.value as? FastbootLinkState.Connected)?.generation else null
+            }
             val previous = generation?.let { current -> sessions().firstOrNull { it.generation == current } }
             return if (previous == null || !previous.identity.survivesReattachment) {
                 FastbootRejoin.NONE
             } else {
-                SessionReturn(previous)
+                SessionReturn(previous, owner)
             }
         }
     }
@@ -532,34 +547,68 @@ public class FastbootLinkController(
      * системы; ожидание ограничено [REJOIN_BUDGET_MS], чтобы полоса не
      * оставалась занятой навсегда.
      */
-    private inner class SessionReturn(private val previous: UsbSession) : FastbootRejoin {
+    private inner class SessionReturn(
+        private val previous: UsbSession,
+        private val owner: ConsoleOwnership,
+    ) : FastbootRejoin {
         override val possible = true
 
         override fun await(): FastbootLane? {
             emit("fastboot_rejoin_waiting", mapOf("generation" to previous.generation.value.toString()))
             val deadline = clock().toEpochMilli() + REJOIN_BUDGET_MS
-            while (clock().toEpochMilli() < deadline) {
+            while (clock().toEpochMilli() < deadline && synchronized(lifecycleLock) { ownsConnection(owner) }) {
                 val next = sessions().firstOrNull { session ->
                     session.targetId == previous.targetId && session.generation != previous.generation &&
                         session.candidate.kind == UsbInterfaceKind.FASTBOOT && session.state == UsbSessionState.READY
                 }
                 val claimed = next?.let { claim(it.generation) as? UsbClaimResult.Claimed }
                 if (next != null && claimed != null) {
-                    val epoch = synchronized(lifecycleLock) {
-                        lifecycleEpoch.incrementAndGet()
-                        lane?.close()
-                        handle?.close()
-                        lane = null
-                        handle = null
-                        mutableState.value = FastbootLinkState.Probing(next.generation)
-                        lifecycleEpoch.get()
-                    }
-                    return probe(next.generation, claimed.handle, epoch)
+                    return reclaim(next, claimed.handle)
                 }
                 pause(REJOIN_POLL_MS)
             }
-            emit("fastboot_rejoin_timed_out", mapOf("generation" to previous.generation.value.toString()))
+            if (synchronized(lifecycleLock) { ownsConnection(owner) }) {
+                emit("fastboot_rejoin_timed_out", mapOf("generation" to previous.generation.value.toString()))
+            }
             return null
+        }
+
+        private fun beginRejoin(next: UsbSession): Long? = synchronized(lifecycleLock) {
+            if (!ownsConnection(owner)) {
+                null
+            } else {
+                owner.epoch = lifecycleEpoch.incrementAndGet()
+                lane?.close()
+                handle?.close()
+                lane = null
+                handle = null
+                owner.lane = null
+                mutableState.value = FastbootLinkState.Probing(next.generation)
+                owner.epoch
+            }
+        }
+
+        private fun reclaim(next: UsbSession, claimed: UsbTransportHandle): FastbootLane? {
+            val epoch = beginRejoin(next)
+            if (epoch == null) {
+                claimed.close()
+                return null
+            }
+            return probe(next.generation, claimed, epoch)?.let { returned ->
+                val current = synchronized(lifecycleLock) {
+                    if (lifecycleEpoch.get() != epoch || lane !== returned) {
+                        false
+                    } else {
+                        owner.lane = returned
+                        true
+                    }
+                }
+                if (!current) {
+                    returned.close()
+                    claimed.close()
+                }
+                returned.takeIf { current }
+            }
         }
     }
 
@@ -606,8 +655,16 @@ public class FastbootLinkController(
     private fun busy(
         event: String,
         raw: String,
-        scenario: Boolean = false,
         action: (FastbootLane, String) -> FastbootConsoleState,
+    ) {
+        busyOwned(event, raw) { lane, typed, _ -> action(lane, typed) }
+    }
+
+    private fun busyOwned(
+        event: String,
+        raw: String,
+        scenario: Boolean = false,
+        action: (FastbootLane, String, ConsoleOwnership) -> FastbootConsoleState,
     ) {
         val trimmed = raw.trim()
         val operation = synchronized(lifecycleLock) {
@@ -626,36 +683,54 @@ public class FastbootLinkController(
 
                 else -> {
                     mutableConsole.value = FastbootConsoleState.Running(trimmed, clock().toEpochMilli())
-                    live to lifecycleEpoch.get()
+                    ConsoleOwnership(live, lifecycleEpoch.get())
                 }
             }
         } ?: return
-        val (live, epoch) = operation
+        val live = operation.lane ?: return
         executor.execute {
-            emit(event, mapOf("command" to trimmed))
-            scenarioRunning = scenario
-            val outcome = runCatching { action(live, trimmed) }
-            scenarioRunning = false
-            val current = synchronized(lifecycleLock) {
-                lane === live && lifecycleEpoch.get() == epoch
-            }
-            if (!current) return@execute
-            if (scenario) onUsbSessionsChanged(sessions())
-            val published = synchronized(lifecycleLock) {
-                if (lane !== live || lifecycleEpoch.get() != epoch) {
-                    null
+            val started = synchronized(lifecycleLock) {
+                if (ownsConnection(operation)) {
+                    scenarioRunning = scenario
+                    true
                 } else {
-                    outcome.getOrElse { failure ->
-                        FastbootConsoleState.NotAnswered(
-                            command = trimmed,
-                            detail = failure.message ?: failure.javaClass.simpleName,
-                            lane = live.state,
-                        )
-                    }.also { mutableConsole.value = it }
+                    false
                 }
             }
-            published?.let { record(event, it) }
+            if (!started) return@execute
+            emit(event, mapOf("command" to trimmed))
+            val outcome = runCatching { action(live, trimmed, operation) }
+            completeConsoleOperation(event, trimmed, operation, scenario, outcome, live)
         }
+    }
+
+    private fun completeConsoleOperation(
+        event: String,
+        command: String,
+        operation: ConsoleOwnership,
+        scenario: Boolean,
+        outcome: Result<FastbootConsoleState>,
+        previousLane: FastbootLane,
+    ) {
+        val current = synchronized(lifecycleLock) {
+            ownsConnection(operation).also { if (it) scenarioRunning = false }
+        }
+        if (!current) return
+        if (scenario) onUsbSessionsChanged(sessions())
+        val published = synchronized(lifecycleLock) {
+            if (!ownsConnection(operation)) {
+                null
+            } else {
+                outcome.getOrElse { failure ->
+                    FastbootConsoleState.NotAnswered(
+                        command = command,
+                        detail = failure.message ?: failure.javaClass.simpleName,
+                        lane = operation.lane?.state ?: previousLane.state,
+                    )
+                }.also { mutableConsole.value = it }
+            }
+        }
+        published?.let { record(event, it) }
     }
 
     private fun record(event: String, state: FastbootConsoleState) {

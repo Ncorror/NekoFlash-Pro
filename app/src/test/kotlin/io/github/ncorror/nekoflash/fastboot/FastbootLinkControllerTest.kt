@@ -16,6 +16,7 @@ import io.github.ncorror.nekoflash.usb.api.UsbSessionState
 import io.github.ncorror.nekoflash.usb.api.UsbTargetIdentity
 import io.github.ncorror.nekoflash.usb.api.UsbTransferType
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -242,6 +243,90 @@ class FastbootLinkControllerTest {
         assertEquals(null, planned.stoppedAt)
         assertTrue(fastbootd.sent.contains("update-super:super"))
         assertEquals(SessionGeneration(2), (controller.state.value as FastbootLinkState.Connected).generation)
+    }
+
+    @Test
+    fun aQueuedScenarioDoesNotStartAfterTheOperatorChangesConnections() {
+        val bootloader = ScriptedBootloader(mapOf("is-userspace" to "no", "unlocked" to "yes"))
+        val replacement = ScriptedBootloader(mapOf("is-userspace" to "yes", "unlocked" to "yes"))
+        val tasks = ArrayDeque<Runnable>()
+        val controller = FastbootLinkController(
+            claim = { generation -> UsbClaimResult.Claimed(if (generation.value == 1L) bootloader else replacement) },
+            executor = { tasks.addLast(it) },
+            diagnostics = InMemoryDiagnosticSink(),
+        )
+        controller.connect(SessionGeneration(1))
+        tasks.removeFirst().run()
+        var imagesOpened = false
+        controller.scenarios.flashAll(FlashAllRequest(skipReboot = true)) {
+            imagesOpened = true
+            scenarioImages()
+        }
+
+        controller.disconnect()
+        controller.connect(SessionGeneration(2))
+        tasks.removeLast().run()
+        tasks.removeFirst().run()
+
+        assertFalse("старый сценарий не открывает образы", imagesOpened)
+        assertEquals(SessionGeneration(2), (controller.state.value as FastbootLinkState.Connected).generation)
+        assertEquals(FastbootConsoleState.Idle, controller.console.value)
+    }
+
+    @Test
+    fun aLateRejoinClaimDoesNotReplaceAnOperatorSelectedConnection() {
+        val bootloader = ScriptedBootloader(mapOf("product" to "vayu", "is-userspace" to "no", "unlocked" to "yes"))
+        val fastbootd = ScriptedBootloader(mapOf("product" to "vayu", "is-userspace" to "yes", "unlocked" to "yes"))
+        val replacement = ScriptedBootloader(mapOf("is-userspace" to "no", "unlocked" to "yes"))
+        var operatorChanged = false
+        lateinit var controller: FastbootLinkController
+        controller = FastbootLinkController(
+            claim = { generation ->
+                when (generation.value) {
+                    1L -> UsbClaimResult.Claimed(bootloader)
+                    2L -> {
+                        operatorChanged = true
+                        controller.disconnect()
+                        controller.connect(SessionGeneration(3))
+                        UsbClaimResult.Claimed(fastbootd)
+                    }
+                    else -> UsbClaimResult.Claimed(replacement)
+                }
+            },
+            executor = { it.run() },
+            diagnostics = InMemoryDiagnosticSink(),
+            sessions = {
+                when {
+                    operatorChanged -> listOf(fastbootSession(3, UsbSessionState.CLAIMED))
+                    "reboot-fastboot" in bootloader.sent -> listOf(
+                        fastbootSession(1, UsbSessionState.CLOSED, UsbSessionClosureReason.DETACHED),
+                        fastbootSession(2, UsbSessionState.READY),
+                    )
+                    else -> listOf(fastbootSession(1, UsbSessionState.CLAIMED))
+                }
+            },
+            pause = {},
+        )
+        controller.connect(SessionGeneration(1))
+
+        controller.scenarios.flashAll(FlashAllRequest(skipReboot = true)) { scenarioImages() }
+
+        assertTrue("запоздалый захват не начинает опрос или запись", fastbootd.sent.isEmpty())
+        assertEquals(SessionGeneration(3), (controller.state.value as FastbootLinkState.Connected).generation)
+        assertEquals(FastbootConsoleState.Idle, controller.console.value)
+    }
+
+    private fun scenarioImages(): FastbootImageSet {
+        val images = mapOf(
+            "android-info.txt" to "require board=vayu".toByteArray(),
+            "boot.img" to ByteArray(4),
+            "system.img" to ByteArray(4),
+            "super_empty.img" to FastbootFlashAllTest.superEmpty(),
+        )
+        return object : FastbootImageSet {
+            override fun bytes(name: String) = images[name]
+            override fun source(name: String) = images[name]?.let { bytes -> MemorySource(name, bytes) }
+        }
     }
 
     private class MemorySource(name: String, private val bytes: ByteArray) :
