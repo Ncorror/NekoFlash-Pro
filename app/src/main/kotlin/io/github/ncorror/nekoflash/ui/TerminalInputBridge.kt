@@ -7,6 +7,7 @@ import android.view.View
 import android.view.inputmethod.BaseInputConnection
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
+import android.view.inputmethod.InputMethodManager
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
@@ -40,23 +41,32 @@ internal fun TerminalInputBridge(
             TerminalInputBridgeView(context).also(onViewChanged)
         },
         update = { view ->
-            view.terminalEnabled = enabled
             view.enterText = enterText
             view.stickyCtrl = ctrl
             view.stickyAlt = alt
             view.textSink = onText
             view.keySink = onKey
             view.modifiersConsumedSink = onModifiersConsumed
+            // Ready goes last: a buffered IME commit must flush through the
+            // current tab's sinks and current Enter convention.
+            view.terminalEnabled = enabled
         },
-        // View должен быть attached + visible для InputMethodManager, но ему не
-        // нужен визуальный размер: рисует терминал Compose-слой рядом.
+        // View полноразмерный и лежит под Compose-рендером терминала: так OEM IME
+        // получает обычную attached/focusable input surface, а не 1 dp заглушку.
         modifier = modifier,
     )
 }
 
 /** Android-side bridge; открыт для package-тестов чистых преобразований рядом. */
 internal class TerminalInputBridgeView(context: Context) : View(context) {
+    private var activeInputConnection: BaseInputConnection? = null
+
     internal var terminalEnabled: Boolean = false
+        set(value) {
+            val becameReady = value && !field
+            field = value
+            if (becameReady) activeInputConnection?.let(::flushEditableToTerminal)
+        }
     internal var enterText: String = "\r"
     internal var stickyCtrl: Boolean = false
     internal var stickyAlt: Boolean = false
@@ -80,16 +90,16 @@ internal class TerminalInputBridgeView(context: Context) : View(context) {
             InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
         outAttrs.imeOptions = EditorInfo.IME_FLAG_NO_EXTRACT_UI or EditorInfo.IME_FLAG_NO_FULLSCREEN
 
-        return object : BaseInputConnection(this@TerminalInputBridgeView, true) {
+        val connection = object : BaseInputConnection(this@TerminalInputBridgeView, true) {
             override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean {
                 val accepted = super.commitText(text, newCursorPosition)
-                flushEditableToTerminal()
+                flushEditableToTerminal(this)
                 return accepted
             }
 
             override fun finishComposingText(): Boolean {
                 val accepted = super.finishComposingText()
-                flushEditableToTerminal()
+                flushEditableToTerminal(this)
                 return accepted
             }
 
@@ -105,25 +115,39 @@ internal class TerminalInputBridgeView(context: Context) : View(context) {
                 if (handleTerminalKeyEvent(event)) true else super.sendKeyEvent(event)
 
             override fun performEditorAction(editorAction: Int): Boolean {
-                if (!terminalEnabled) return false
+                if (!terminalEnabled) {
+                    return super.commitText(enterText, 1)
+                }
                 emitText(enterText)
                 consumeStickyModifiers()
                 return true
             }
-
-            private fun flushEditableToTerminal() {
-                val content = editable ?: return
-                if (!terminalEnabled || content.isEmpty()) return
-                val normalized = normalizeCommittedTerminalText(content.toString(), enterText)
-                emitText(withModifiers(normalized, stickyCtrl, stickyAlt))
-                content.clear()
-                consumeStickyModifiers()
-            }
         }
+        activeInputConnection = connection
+        return connection
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean =
         if (handleTerminalKeyEvent(event)) true else super.onKeyDown(keyCode, event)
+
+    /** Opens the system IME for the terminal from a screen tap or toolbar button. */
+    internal fun showKeyboard() {
+        post {
+            requestFocus()
+            val input = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+            input?.restartInput(this)
+            input?.showSoftInput(this, InputMethodManager.SHOW_IMPLICIT)
+        }
+    }
+
+    private fun flushEditableToTerminal(connection: BaseInputConnection) {
+        val content = connection.editable ?: return
+        if (!terminalEnabled || content.isEmpty()) return
+        val normalized = normalizeCommittedTerminalText(content.toString(), enterText)
+        emitText(withModifiers(normalized, stickyCtrl, stickyAlt))
+        content.clear()
+        consumeStickyModifiers()
+    }
 
     private fun handleTerminalKeyEvent(event: KeyEvent): Boolean {
         if (!terminalEnabled || event.action != KeyEvent.ACTION_DOWN) return false

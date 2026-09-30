@@ -7,7 +7,6 @@ import android.text.InputType
 import android.text.TextWatcher
 import android.view.KeyEvent as AndroidKeyEvent
 import android.view.inputmethod.EditorInfo
-import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -84,12 +83,9 @@ internal fun TerminalWorkspace(
     val current = terminal.current
     var terminalInput by remember { mutableStateOf<TerminalInputBridgeView?>(null) }
     val openKeyboard = {
-        if (current.ready && !showCommands) terminalInput?.let { inputView ->
-            inputView.requestFocus()
-            inputView.post {
-                val input = inputView.context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
-                input?.showSoftInput(inputView, InputMethodManager.SHOW_IMPLICIT)
-            }
+        if (connected && !showCommands) {
+            if (!current.active && !current.closing) actions.onStart()
+            terminalInput?.showKeyboard()
         }
         Unit
     }
@@ -157,7 +153,11 @@ private fun TerminalToolbar(
             }
             ToolbarIcon(R.drawable.ic_add, stringResource(R.string.terminal_new_tab), onClick = actions.onAddTab)
         }
-        ToolbarIcon(R.drawable.ic_keyboard, stringResource(R.string.terminal_keyboard), enabled = current.ready) {
+        ToolbarIcon(
+            R.drawable.ic_keyboard,
+            stringResource(R.string.terminal_keyboard),
+            enabled = connected && !current.closing && !view.showCommands,
+        ) {
             onKeyboard()
         }
         if (current.active) {
@@ -348,14 +348,9 @@ private fun TerminalLiveScreen(
     modifier: Modifier = Modifier,
 ) {
     Box(modifier = modifier.fillMaxWidth()) {
-        TerminalScreen(
-            screen = terminal.screen,
-            placeholder = terminalPlaceholder(terminal, connected),
-            showCursor = terminal.ready,
-            onResize = actions.onResize,
-            onTap = onTap,
-            modifier = Modifier.fillMaxSize(),
-        )
+        // Full-size native text editor stays attached and focusable for the IME.
+        // Compose renders the terminal above it and observes taps without making
+        // Android serve a 1 dp editor, which some OEM IMEs simply ignore.
         TerminalInputBridge(
             enabled = terminal.ready,
             enterText = if (terminal.mode == AdbShellMode.RAW) "\n" else "\r",
@@ -365,7 +360,15 @@ private fun TerminalLiveScreen(
             onKey = onKey,
             onModifiersConsumed = onModifiersConsumed,
             onViewChanged = onInputBridgeChanged,
-            modifier = Modifier.align(Alignment.TopStart).size(1.dp),
+            modifier = Modifier.fillMaxSize(),
+        )
+        TerminalScreen(
+            screen = terminal.screen,
+            placeholder = terminalPlaceholder(terminal, connected),
+            showCursor = terminal.ready,
+            onResize = actions.onResize,
+            onTap = onTap,
+            modifier = Modifier.fillMaxSize(),
         )
     }
 }
