@@ -7,6 +7,7 @@ pluginManagement {
 }
 
 dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
         google()
         mavenCentral()
@@ -16,4 +17,7 @@ dependencyResolutionManagement {
 rootProject.name = "NekoFlash-Pro"
 include(":engine")
 include(":app")
-include(":core:transport", ":core:fastboot", ":core:adb", ":core:diagnostics")
+include(":core:model", ":core:diagnostics", ":core:operation", ":core:artifact")
+include(":usb:api", ":usb:android", ":usb:native")
+include(":protocol:adb", ":protocol:fastboot")
+include(":vendor:xiaomi")

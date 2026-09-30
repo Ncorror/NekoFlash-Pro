@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Тёмный вариант того же фона окна: `bg_base` из опорной палитры. -->
+    <color name="window_background">#080D13</color>
+</resources>

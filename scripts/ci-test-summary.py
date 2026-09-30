@@ -8,11 +8,21 @@ import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "build" / "verification" / "test-summary.md"
-TEST_MODULES = ("engine", "core/transport", "core/fastboot", "core/adb", "core/diagnostics")
+TEST_MODULES = (
+    "app", "engine",
+    "core/model", "core/diagnostics", "core/operation", "core/artifact",
+    "usb/api", "usb/android", "usb/native", "protocol/adb", "protocol/fastboot",
+    "vendor/xiaomi",
+)
 
 
 def report_module(module: str) -> tuple[str, bool]:
-    reports = sorted((ROOT / module / "build/test-results/test").glob("TEST-*.xml"))
+    # JVM modules write build/test-results/test, Android modules testDebugUnitTest.
+    reports = sorted(
+        path
+        for task in ("test", "testDebugUnitTest")
+        for path in (ROOT / module / "build/test-results" / task).glob("TEST-*.xml")
+    )
     if not reports:
         return f"| `{module}` | **MISSING** | — | — | — | — |", False
 
@@ -55,7 +65,7 @@ def main() -> int:
         f"Debug APK: {'present' if apk.is_file() else '**MISSING**'} "
         "(`app/build/outputs/apk/debug/app-debug.apk`).",
         "",
-        "See `docs/02_Manual_Test_Plan.md` for USB checks on a real phone. "
+        "See `docs/07_BUILD_AND_TESTING.md` for USB checks on a real phone. "
         "CI cannot perform those hardware checks.",
         "",
     ]

@@ -1,0 +1,230 @@
+package io.github.ncorror.nekoflash.adb
+
+import io.github.ncorror.nekoflash.core.artifact.ArtifactSource
+import io.github.ncorror.nekoflash.core.diagnostics.DiagnosticEvent
+import io.github.ncorror.nekoflash.core.diagnostics.DiagnosticSink
+import io.github.ncorror.nekoflash.protocol.adb.AdbByteChannel
+import io.github.ncorror.nekoflash.protocol.adb.AdbConnection
+import java.io.InputStream
+import java.time.Instant
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executor
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+
+/** Что происходит с установкой пакетов. */
+public sealed interface AdbInstallState {
+    public data object None : AdbInstallState
+
+    /** Идёт [stage]; байты — по всем файлам вместе. */
+    public data class Running(val stage: String, val sentBytes: Long, val totalBytes: Long) : AdbInstallState
+
+    /**
+     * Устройство ответило. Успех — слово `Success` в ответе `package`, как его
+     * читает настольный клиент; остальное показывается как есть.
+     */
+    public data class Finished(val success: Boolean, val answer: String, val files: Int, val bytes: Long) :
+        AdbInstallState
+
+    /** До ответа устройства дело не дошло; [detail] называет, где остановились. */
+    public data class Failed(val detail: String) : AdbInstallState
+}
+
+/**
+ * `adb install` и `adb install-multiple` так, как их делает настольный клиент.
+ *
+ * Одиночный пакет — поток `exec:cmd package install -S РАЗМЕР`: байты APK
+ * уходят в поток, `package` отвечает `Success` или причиной отказа. Несколько
+ * — сессия `install-create`, по `install-write` на файл и `install-commit`;
+ * при сбое посередине сессия отменяется `install-abandon`, чтобы на устройстве
+ * не осталось половины установки.
+ *
+ * Размер каждого файла обязан быть известен до первого байта: он уходит в
+ * саму команду. Файл, размер которого провайдер не сообщает, отвергается до
+ * отправки.
+ */
+public class AdbInstallController(
+    private val executor: Executor,
+    private val diagnostics: DiagnosticSink,
+) {
+    private val mutableState = MutableStateFlow<AdbInstallState>(AdbInstallState.None)
+
+    public val state: StateFlow<AdbInstallState> = mutableState.asStateFlow()
+
+    public val active: Boolean
+        get() = mutableState.value is AdbInstallState.Running
+
+    /** Устанавливает [origins]; [several] — сессией `install-multiple`, даже для одного файла. */
+    public fun install(
+        connection: AdbConnection,
+        origins: List<() -> ArtifactSource>,
+        options: List<String>,
+        several: Boolean,
+    ) {
+        if (active || origins.isEmpty()) return
+        mutableState.value = AdbInstallState.Running("open", 0, 0)
+        executor.execute {
+            val outcome = runCatching {
+                val sources = origins.map { it() }
+                val sizes = sources.map { it.identity.sizeBytes }
+                if (sizes.any { it == null }) {
+                    AdbInstallState.Failed(NO_SIZE)
+                } else {
+                    Install(connection, sources, sizes.map { it!! }, options).run(several)
+                }
+            }.getOrElse { failure -> AdbInstallState.Failed(failure.message ?: failure.javaClass.simpleName) }
+            mutableState.value = outcome
+            emit(outcome)
+        }
+    }
+
+    private fun emit(outcome: AdbInstallState) {
+        val fields = when (outcome) {
+            is AdbInstallState.Finished -> mapOf(
+                "success" to outcome.success.toString(),
+                "files" to outcome.files.toString(),
+                "bytes" to outcome.bytes.toString(),
+                "answer" to outcome.answer.lineSequence().firstOrNull().orEmpty(),
+            )
+            is AdbInstallState.Failed -> mapOf("detail" to outcome.detail)
+            else -> emptyMap()
+        }
+        diagnostics.emit(DiagnosticEvent(Instant.now(), CATEGORY, "install_finished", fields = fields))
+    }
+
+    /** Одна установка: источники, их размеры и счёт отправленного. */
+    private inner class Install(
+        private val connection: AdbConnection,
+        private val sources: List<ArtifactSource>,
+        private val sizes: List<Long>,
+        private val options: List<String>,
+    ) {
+        private val total = sizes.sum()
+        private var sent = 0L
+
+        fun run(several: Boolean): AdbInstallState =
+            if (several) session() else single()
+
+        private fun single(): AdbInstallState {
+            val answer = sources[0].open().use { exchange("install", InstallCommands.install(options, sizes[0]), it) }
+            return finished(answer)
+        }
+
+        private fun session(): AdbInstallState {
+            val created = exchange("install-create", InstallCommands.create(options, total), null)
+            val id = InstallCommands.session(created)
+                ?: return AdbInstallState.Finished(false, created.ifBlank { "install-create: no answer" }, 0, 0)
+            val failure = sources.indices.firstNotNullOfOrNull { index -> write(id, index) }
+            return if (failure != null) {
+                exchange("install-abandon", InstallCommands.abandon(id), null)
+                AdbInstallState.Finished(false, failure, sources.size, sent)
+            } else {
+                finished(exchange("install-commit", InstallCommands.commit(id), null))
+            }
+        }
+
+        /** Пишет один файл в сессию; `null` — принят, иначе ответ отказа. */
+        private fun write(id: String, index: Int): String? {
+            val command = InstallCommands.write(id, index, sources[index].identity.name, sizes[index])
+            val stage = "install-write ${index + 1}/${sources.size}"
+            val answer = sources[index].open().use { exchange(stage, command, it) }
+            return answer.takeUnless(InstallCommands::accepted)?.ifBlank { "install-write: no answer" }
+        }
+
+        private fun finished(answer: String): AdbInstallState =
+            AdbInstallState.Finished(InstallCommands.accepted(answer), answer.trim(), sources.size, sent)
+
+        /**
+         * Открывает сервис, отдаёт [input] и собирает ответ до закрытия потока
+         * устройством.
+         *
+         * Канал не сообщает конец ввода сразу: закрыть поток по нашей стороне
+         * значило бы не дождаться `Success`, который `package` пишет **после**
+         * того, как прочитал все байты. Поэтому чтение, исчерпав файл, ждёт,
+         * пока поток закроет устройство.
+         */
+        private fun exchange(stage: String, service: String, input: InputStream?): String {
+            mutableState.value = AdbInstallState.Running(stage, sent, total)
+            val channel = InstallChannel(input) { bytes ->
+                sent += bytes
+                mutableState.value = AdbInstallState.Running(stage, sent, total)
+            }
+            val stream = connection.forwardStream(channel, diagnostics)
+            val refused = stream.open(service)
+            if (refused != null) return "${refused.end.name}: ${refused.detail}"
+            executor.execute { stream.fromClient() }
+            val outcome = stream.fromDevice()
+            channel.close()
+            return channel.answer().ifBlank { "${outcome.end.name}: ${outcome.detail}" }
+        }
+    }
+
+    /** Канал установки: байты файла туда, ответ `package` обратно. */
+    private class InstallChannel(
+        private val input: InputStream?,
+        private val onSent: (Int) -> Unit,
+    ) : AdbByteChannel {
+        private val closed = CountDownLatch(1)
+        private val answer = StringBuilder()
+
+        override fun read(destination: ByteArray): Int {
+            val read = input?.read(destination) ?: -1
+            return if (read > 0) {
+                read.also(onSent)
+            } else {
+                closed.await()
+                -1
+            }
+        }
+
+        override fun write(source: ByteArray, length: Int) {
+            synchronized(answer) {
+                if (answer.length < MAX_ANSWER) answer.append(String(source, 0, length, Charsets.UTF_8))
+            }
+        }
+
+        override fun close() = closed.countDown()
+
+        fun answer(): String = synchronized(answer) { answer.toString() }
+    }
+
+    private companion object {
+        const val CATEGORY = "adb"
+        const val MAX_ANSWER = 16 * 1024
+        const val NO_SIZE = "provider does not report a file size; install declares it before the first byte"
+    }
+}
+
+/**
+ * Сервисы `package`, которыми ставит пакеты настольный `adb`.
+ *
+ * Размер идёт в самой команде (`-S`), флаги — как есть: это флаги `package`.
+ */
+internal object InstallCommands {
+    fun install(options: List<String>, size: Long): String = join("install", options + listOf("-S", size.toString()))
+
+    fun create(options: List<String>, total: Long): String =
+        join("install-create", options + listOf("-S", total.toString()))
+
+    /** Имя файла внутри сессии: порядковый номер и безопасное имя, как у настольного клиента. */
+    fun write(session: String, index: Int, name: String, size: Long): String =
+        join("install-write", listOf("-S", size.toString(), session, "${index}_" + name.replace(UNSAFE, "_"), "-"))
+
+    fun commit(session: String): String = join("install-commit", listOf(session))
+
+    fun abandon(session: String): String = join("install-abandon", listOf(session))
+
+    /** Номер сессии из ответа `Success: created install session [1234]`. */
+    fun session(answer: String): String? = SESSION.find(answer)?.groupValues?.get(1)
+
+    /** Принят ли шаг: `package` начинает ответ словом `Success`. */
+    fun accepted(answer: String): Boolean = answer.trim().startsWith(SUCCESS)
+
+    private fun join(verb: String, arguments: List<String>): String =
+        (listOf("exec:cmd package $verb") + arguments).joinToString(" ")
+
+    private const val SUCCESS = "Success"
+    private val SESSION = Regex("""\[(\d+)]""")
+    private val UNSAFE = Regex("""[^A-Za-z0-9._-]""")
+}

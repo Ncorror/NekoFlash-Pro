@@ -1,0 +1,19 @@
+build:
+  maxIssues: 0
+
+style:
+  ForbiddenImport:
+    active: true
+    imports:
+      - value: 'io.github.ncorror.nekoflash.protocol.**'
+        reason: 'usb native must not depend on protocol'
+      - value: 'io.github.ncorror.nekoflash.usb.android.**'
+        reason: 'usb native is used by usb android, not the other way round'
+      - value: 'io.github.ncorror.nekoflash.feature.**'
+        reason: 'usb native must not depend on feature'
+      - value: 'io.github.ncorror.nekoflash.vendor.**'
+        reason: 'usb native must not depend on vendor'
+      - value: 'io.github.ncorror.nekoflash.ui.**'
+        reason: 'usb native must not depend on UI'
+      - value: 'androidx.compose.**'
+        reason: 'usb native is a transport layer, not UI'

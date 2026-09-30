@@ -1,0 +1,19 @@
+build:
+  maxIssues: 0
+
+style:
+  ForbiddenImport:
+    active: true
+    imports:
+      - value: 'io.github.ncorror.nekoflash.protocol.**'
+        reason: 'usb api must not depend on protocol'
+      - value: 'io.github.ncorror.nekoflash.feature.**'
+        reason: 'usb api must not depend on feature'
+      - value: 'io.github.ncorror.nekoflash.vendor.**'
+        reason: 'usb api must not depend on vendor'
+      - value: 'io.github.ncorror.nekoflash.ui.**'
+        reason: 'usb api must not depend on UI'
+      - value: 'android.**'
+        reason: 'usb api is pure JVM, android belongs to usb android'
+      - value: 'androidx.**'
+        reason: 'usb api is pure JVM, android belongs to usb android'

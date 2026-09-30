@@ -1,15 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Brand palette from the legacy NekoFlash color resources; no legacy UI code is reused. -->
-    <color name="bg_base">#080D13</color>
-    <color name="bg_card">#121A24</color>
-    <color name="bg_elevated">#192431</color>
-    <color name="stroke">#324052</color>
-    <color name="text_primary">#F3F6FA</color>
-    <color name="text_secondary">#AEB8C5</color>
-    <color name="text_muted">#738092</color>
-    <color name="accent">#E9782B</color>
-    <color name="accent_pressed">#CC5D18</color>
-    <color name="accent_soft">#F1A56D</color>
-    <color name="on_accent">#0A0D12</color>
+    <color name="launcher_icon_background">#071019</color>
+
+    <!--
+        Фон окна до первого кадра Compose.
+
+        Нужен, чтобы между запуском и появлением дерева не мелькал белый
+        прямоугольник системной темы: продукт тёмный, и вспышка на пол-экрана
+        читается как сбой. Значения — те же surface из опорной палитры
+        (05_FINAL_UI_UX_AND_BRAND_RU.md §2), а не подобранные заново.
+    -->
+    <color name="window_background">#080D13</color>
+    <color name="brand_accent">#E9782B</color>
+    <color name="brand_on_accent">#0A0D12</color>
+    <color name="brand_text_primary">#F3F6FA</color>
 </resources>

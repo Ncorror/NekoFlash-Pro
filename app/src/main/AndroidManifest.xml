@@ -1,23 +1,88 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <uses-feature android:name="android.hardware.usb.host" android:required="false" />
+
+    <!--
+        Объявление host-режима USB. Платформа требует его от приложений,
+        работающих с USB Host API, и без него часть систем не доставляет
+        USB_DEVICE_ATTACHED и не показывает устройства в getDeviceList.
+
+        required="false" намеренно: при "true" установка блокируется на любом
+        аппарате, который о фиче не сообщает, даже если OTG у него работает.
+        Наличие фичи проверяется на месте и попадает в evidence, а не решает
+        за пользователя, можно ли поставить приложение.
+    -->
+    <uses-feature
+        android:name="android.hardware.usb.host"
+        android:required="false" />
+
+    <!--
+        Проброс портов слушает сокет на самом хосте, а любой AF_INET-сокет на
+        Android, включая loopback, без этого разрешения не создать. Это
+        Сокеты нужны как локальному forward на loopback
+        (docs/adr/0005_LOCAL_SOCKET_FORWARDING_RU.md §5), так и авторизации
+        Mi Unlock через официальные HTTPS-серверы Xiaomi.
+
+        Альтернатива без разрешения — только абстрактный Unix-сокет, к которому
+        браузером не подключиться; возможность выродилась бы в декларацию.
+    -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!--
+        Длительная операция не принадлежит экрану: пользователь вправе свернуть
+        приложение посреди прошивки, и передача от этого прерваться не должна
+        (docs/06_OPERATIONS_STORAGE_LIFECYCLE_RU.md §1). Тип connectedDevice —
+        тот, который платформа завела ровно для работы с подключённым
+        устройством.
+    -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+
+    <!--
+        Уведомление показывает идущую операцию. Разрешение спрашивается у
+        пользователя; отказ операцию не отменяет и возможностей не урезает —
+        без уведомления система просто вправе прибрать процесс раньше, и это
+        честно сказано на экране, а не превращено в запрет.
+    -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
         android:name=".NekoFlashApplication"
         android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
+        android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
-        android:theme="@style/Theme.NekoFlashPro">
-        <activity android:name=".MainActivity" android:exported="true" android:launchMode="singleTop">
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.NekoFlash">
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+
+            <!--
+                Система доставляет attach именно активности, поэтому фильтр
+                живёт здесь, а не в модуле usb:android.
+            -->
             <intent-filter>
                 <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
             </intent-filter>
             <meta-data
                 android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED"
-                android:resource="@xml/usb_device_filter" />
+                android:resource="@xml/device_filter" />
         </activity>
+
+        <activity
+            android:name=".miunlock.MiLoginActivity"
+            android:exported="false" />
+
+        <service
+            android:name=".operation.OperationService"
+            android:exported="false"
+            android:foregroundServiceType="connectedDevice" />
     </application>
 </manifest>

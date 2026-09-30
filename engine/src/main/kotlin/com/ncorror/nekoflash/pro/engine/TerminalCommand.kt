@@ -18,7 +18,8 @@ data class FastbootOptions(
     val setActiveRequested: Boolean = false,
     val setActiveSlot: String? = null,
     val wipe: Boolean = false,
-    val sparseLimit: String? = null,
+    /** `-S` в байтах; `0` — как без него: предел назовёт устройство. */
+    val sparseLimit: Long? = null,
     val force: Boolean = false,
     val skipReboot: Boolean = false,
     val skipSecondary: Boolean = false,
@@ -26,6 +27,8 @@ data class FastbootOptions(
     val disableVerification: Boolean = false,
     val serial: String? = null,
     val verbose: Boolean = false,
+    /** `--fs-options`: `casefold`, `projid`, `compress` — для файловой системы `format` и `-w`. */
+    val fsOptions: Set<String> = emptySet(),
 )
 
 sealed interface FastbootCommand {
@@ -37,11 +40,22 @@ sealed interface FastbootCommand {
     data object Wipe : FastbootCommand
     data class WipeSuper(val emptySuperImage: String?) : FastbootCommand
     data class Boot(val kernel: String, val ramdisk: String?, val second: String?) : FastbootCommand
-    data class FlashRaw(val partition: String, val kernel: String, val ramdisk: String?, val second: String?) : FastbootCommand
+    data class FlashRaw(
+        val partition: String,
+        val kernel: String,
+        val ramdisk: String?,
+        val second: String?,
+    ) : FastbootCommand
     data class Update(val archive: String) : FastbootCommand
     data object FlashAll : FastbootCommand
     data class UpdateSuper(val image: String, val wipe: Boolean) : FastbootCommand
     data class Fetch(val partition: String, val destination: String) : FastbootCommand
+
+    /** `stage ФАЙЛ`: файл в буфер устройства, без команды следом. */
+    data class Stage(val file: String) : FastbootCommand
+
+    /** `get_staged ФАЙЛ`: буфер устройства (`upload`) в файл. */
+    data class GetStaged(val destination: String) : FastbootCommand
     data class SetActive(val slot: String?) : FastbootCommand
     data class DeviceQuery(val query: String, val argument: String?) : FastbootCommand
     /** A desktop getvar request, distinct from an explicitly supplied raw wire request. */
@@ -56,8 +70,8 @@ data class FileTransferOptions(
     val preserveAttributes: Boolean = false,
     val dryRun: Boolean = false,
     val quiet: Boolean = false,
+    /** `-z ИМЯ` (`any`, `none`, `brotli`, `lz4`, `zstd`) или `-Z` (`none`); `null` — умолчание команды. */
     val compression: String? = null,
-    val noCompression: Boolean = false,
 )
 
 sealed interface AdbCommand {

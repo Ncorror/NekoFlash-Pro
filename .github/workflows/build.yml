@@ -1,63 +1,173 @@
-name: Pro prototype build
+name: Android CI
 
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
+  # Ручной запуск даёт вердикт заново без пустого коммита.
   workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: android-ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
+    name: Test, lint and assemble
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-java@v6
+      - name: Checkout sources
+        uses: actions/checkout@v7
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@v4
+
+      # Быстрые проверки стоят до Gradle: они занимают секунды и ловят то, из-за
+      # чего иначе пришлось бы ждать всю сборку.
+      - name: Documentation and reference archives
+        run: |
+          set -o pipefail
+          mkdir -p build/logs
+          python3 scripts/ci/check_docs.py 2>&1 | tee build/logs/check-docs.log
+
+      - name: Repository hygiene
+        run: |
+          set -o pipefail
+          mkdir -p build/logs
+          ./scripts/ci/check_repository_hygiene.sh 2>&1 | tee build/logs/hygiene.log
+
+      - name: Localization contract
+        run: |
+          set -o pipefail
+          mkdir -p build/logs
+          python3 ./scripts/ci/check_localization.py 2>&1 | tee build/logs/localization.log
+
+      - name: Kotlin style, complexity and module boundaries
+        run: |
+          set -o pipefail
+          mkdir -p build/logs
+          ./scripts/ci/check_kotlin_style.sh 2>&1 | tee build/logs/kotlin-style.log
+
+      - name: Compose wiring
+        run: |
+          set -o pipefail
+          mkdir -p build/logs
+          python3 ./scripts/ci/check_compose_wiring.py 2>&1 | tee build/logs/compose-wiring.log
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
         with:
-          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
-      - uses: gradle/actions/setup-gradle@v6
+          packages: 'platform-tools platforms;android-37.0 build-tools;37.0.0 ndk;28.2.13676358 cmake;3.22.1'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
         with:
           cache-provider: basic
-      - name: Test engine and core, lint app, build debug APK
-        run: bash ./gradlew :engine:test :core:transport:test :core:fastboot:test :core:adb:test :core:diagnostics:test :app:lintDebug :app:assembleDebug --no-daemon --stacktrace
+
+      # Без постоянного ключа каждая сборка подписана заново: поверх прежней она
+      # не ставится, а удаление приложения уносит ключ хоста ADB. Секрета может не
+      # быть — тогда сборка остаётся с временным ключом. Ключ пишется во временный
+      # каталог раннера и в дерево не попадает.
+      - name: Materialise the debug signing key
+        env:
+          DEBUG_KEYSTORE_BASE64: ${{ secrets.NEKOFLASH_DEBUG_KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DEBUG_KEYSTORE_BASE64:-}" ]; then
+            echo "debug signing: secret is not set, the build keeps a throwaway key"
+            exit 0
+          fi
+          keystore="$RUNNER_TEMP/nekoflash-debug.keystore"
+          printf '%s' "$DEBUG_KEYSTORE_BASE64" | base64 -d > "$keystore"
+          echo "NEKOFLASH_DEBUG_KEYSTORE=$keystore" >> "$GITHUB_ENV"
+          echo "debug signing: using the stable key from the repository secret"
+
+      # Две сборки, как в legacy: debug — отладочная, release — чистая, без
+      # отладки. Весь вывод Gradle — в build/logs/gradle.log, в артефакт логов.
+      - name: Test, lint and build debug and release APKs
+        run: |
+          set -o pipefail
+          mkdir -p build/logs
+          ./gradlew test lint assembleDebug assembleRelease --no-daemon --stacktrace 2>&1 | tee build/logs/gradle.log
+
       - name: Summarize test results
         if: always()
         run: python3 scripts/ci-test-summary.py
-      - name: Upload prototype APK
+
+      - name: Prepare debug APK
+        if: success()
+        run: |
+          set -euo pipefail
+          version="$(sed -n 's/^ *versionName = "\(.*\)"$/\1/p' app/build.gradle.kts)"
+          mkdir -p build/ci-debug
+          cp app/build/outputs/apk/debug/app-debug.apk "build/ci-debug/NekoFlash-Pro-$version-debug.apk"
+          (cd build/ci-debug && sha256sum ./*.apk > SHA256SUMS && cat SHA256SUMS)
+
+      # Ключ выпуска — если секрет есть; иначе release подписывается тем же
+      # отладочным ключом, что и debug (scripts/ci/sign_ci_release.sh).
+      - name: Materialise the release signing key
+        if: success()
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.NEKOFLASH_RELEASE_KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          if [ -z "${RELEASE_KEYSTORE_BASE64:-}" ]; then
+            echo "release signing: secret is not set, the CI release uses the debug key"
+            exit 0
+          fi
+          keystore="$RUNNER_TEMP/nekoflash-release.keystore"
+          printf '%s' "$RELEASE_KEYSTORE_BASE64" | base64 -d > "$keystore"
+          echo "NEKOFLASH_RELEASE_KEYSTORE=$keystore" >> "$GITHUB_ENV"
+
+      - name: Sign release APK
+        if: success()
+        env:
+          NEKOFLASH_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.NEKOFLASH_RELEASE_KEYSTORE_PASSWORD }}
+          NEKOFLASH_RELEASE_KEY_ALIAS: ${{ secrets.NEKOFLASH_RELEASE_KEY_ALIAS }}
+          NEKOFLASH_RELEASE_KEY_PASSWORD: ${{ secrets.NEKOFLASH_RELEASE_KEY_PASSWORD }}
+        run: |
+          set -o pipefail
+          ./scripts/ci/sign_ci_release.sh 2>&1 | tee build/logs/sign-release.log
+
+      - name: Upload debug APK
         if: success()
         uses: actions/upload-artifact@v6
         with:
-          name: NekoFlash-Pro-prototype-debug-${{ github.run_number }}
-          path: app/build/outputs/apk/debug/*.apk
+          name: NekoFlash-Pro-debug-${{ github.run_number }}
+          path: build/ci-debug/
           if-no-files-found: error
           retention-days: 14
-      - name: Upload test results and manual checklist
+
+      - name: Upload release APK
+        if: success()
+        uses: actions/upload-artifact@v6
+        with:
+          name: NekoFlash-Pro-release-${{ github.run_number }}
+          path: build/ci-release/
+          if-no-files-found: error
+          retention-days: 30
+
+      # Логи — всегда, и при падении тоже: по ним и разбирают падение.
+      - name: Upload logs, reports and build/testing guide
         if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: NekoFlash-Pro-test-results-${{ github.run_number }}
+          name: NekoFlash-Pro-logs-${{ github.run_number }}
           path: |
+            build/logs/
+            build/ci-release/apk-signature.txt
+            build/ci-release/build-info.txt
             build/verification/test-summary.md
-            engine/build/test-results/test/TEST-*.xml
-            core/transport/build/test-results/test/TEST-*.xml
-            core/fastboot/build/test-results/test/TEST-*.xml
-            core/adb/build/test-results/test/TEST-*.xml
-            core/diagnostics/build/test-results/test/TEST-*.xml
-            engine/build/reports/tests/test/
-            core/transport/build/reports/tests/test/
-            core/fastboot/build/reports/tests/test/
-            core/adb/build/reports/tests/test/
-            core/diagnostics/build/reports/tests/test/
-            app/build/reports/lint-results-debug.html
-            app/build/reports/lint-results-debug.xml
-            docs/02_Manual_Test_Plan.md
-          if-no-files-found: error
-          retention-days: 14
+            **/build/test-results/**
+            **/build/reports/**
+            docs/07_BUILD_AND_TESTING.md
+          if-no-files-found: ignore
+          retention-days: 30
