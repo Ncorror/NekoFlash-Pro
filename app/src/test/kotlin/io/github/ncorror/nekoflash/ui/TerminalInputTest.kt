@@ -39,4 +39,11 @@ class TerminalInputTest {
     fun digitsAreNotControlCharacters() {
         assertEquals('1', controlOf('1'))
     }
+
+    @Test
+    fun imeNewlineBecomesTerminalEnter() {
+        assertEquals("id\r", normalizeCommittedTerminalText("id\n", "\r"))
+        assertEquals("id\n", normalizeCommittedTerminalText("id\r", "\n"))
+        assertEquals("echo ok", normalizeCommittedTerminalText("echo ok", "\r"))
+    }
 }

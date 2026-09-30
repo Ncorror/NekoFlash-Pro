@@ -82,12 +82,14 @@ internal fun TerminalWorkspace(
 ) {
     val connected = adbLink is AdbLinkState.Connected
     val current = terminal.current
-    var editor by remember { mutableStateOf<EditText?>(null) }
+    var terminalInput by remember { mutableStateOf<TerminalInputBridgeView?>(null) }
     val openKeyboard = {
-        if (current.ready && !showCommands) editor?.let { field ->
-            field.requestFocus()
-            val input = field.context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
-            input?.showSoftInput(field, InputMethodManager.SHOW_IMPLICIT)
+        if (current.ready && !showCommands) terminalInput?.let { inputView ->
+            inputView.requestFocus()
+            inputView.post {
+                val input = inputView.context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+                input?.showSoftInput(inputView, InputMethodManager.SHOW_IMPLICIT)
+            }
         }
         Unit
     }
@@ -115,7 +117,7 @@ internal fun TerminalWorkspace(
                 tabIndex = terminal.selected,
                 actions = actions,
                 connected = connected,
-                onEditorChanged = { editor = it },
+                onInputBridgeChanged = { terminalInput = it },
                 onTap = openKeyboard,
                 modifier = Modifier.weight(1f),
             )
@@ -263,7 +265,7 @@ internal fun TerminalSection(
     tabIndex: Int,
     actions: TerminalActions,
     connected: Boolean,
-    onEditorChanged: (EditText) -> Unit,
+    onInputBridgeChanged: (TerminalInputBridgeView) -> Unit,
     onTap: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -276,7 +278,11 @@ internal fun TerminalSection(
             actions.onType(withModifiers(text, ctrl, alt))
         } else {
             val field = input
-            if (field == null) draft += text else field.text?.insert(field.selectionStart.coerceAtLeast(0), text)
+            if (field?.hasFocus() == true) {
+                field.text?.insert(field.selectionStart.coerceAtLeast(0), text)
+            } else {
+                actions.onType(text)
+            }
         }
         ctrl = false
         alt = false
@@ -296,6 +302,17 @@ internal fun TerminalSection(
                 onTap = onTap,
                 modifier = Modifier.fillMaxSize(),
             )
+            TerminalInputBridge(
+                enabled = terminal.ready,
+                enterText = if (terminal.mode == AdbShellMode.RAW) "\n" else "\r",
+                ctrl = ctrl,
+                alt = alt,
+                onText = actions.onType,
+                onKey = press,
+                onModifiersConsumed = { ctrl = false; alt = false },
+                onViewChanged = onInputBridgeChanged,
+                modifier = Modifier.align(Alignment.TopStart).size(1.dp),
+            )
         }
         key(tabIndex) {
             TerminalCommandInput(
@@ -308,7 +325,7 @@ internal fun TerminalSection(
                 },
                 onText = actions.onType,
                 onKey = press,
-                onEditorChanged = { field -> input = field; onEditorChanged(field) },
+                onEditorChanged = { field -> input = field },
             )
         }
         TerminalExtraKeys(
