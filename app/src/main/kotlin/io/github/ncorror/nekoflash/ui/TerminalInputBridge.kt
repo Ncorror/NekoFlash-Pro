@@ -112,7 +112,7 @@ internal class TerminalInputBridgeView(context: Context) : View(context) {
             }
 
             private fun flushEditableToTerminal() {
-                val content = editable
+                val content = editable ?: return
                 if (!terminalEnabled || content.isEmpty()) return
                 val normalized = normalizeCommittedTerminalText(content.toString(), enterText)
                 emitText(withModifiers(normalized, stickyCtrl, stickyAlt))
