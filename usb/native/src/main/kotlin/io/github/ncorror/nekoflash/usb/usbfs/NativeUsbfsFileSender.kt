@@ -68,20 +68,19 @@ public class NativeUsbfsFileSender(
             }
         }
         val descriptor = preparation.descriptor
-        val result = if (descriptor == null) {
+        if (descriptor == null) {
             if (preparation.reserved) sendingState.set(false)
-            UsbFileSendResult(
+            return UsbFileSendResult(
                 false,
                 0L,
                 false,
                 preparation.failure ?: "Payload descriptor $payloadFd cannot be duplicated",
             )
-        } else {
-            try {
-                descriptor.use { transfer(it, totalBytes, progress) }
-            } finally {
-                sendingState.set(false)
-            }
+        }
+        val result: NativeUsbfsBackend.TransferResult = try {
+            descriptor.use { transfer(it, totalBytes, progress) }
+        } finally {
+            sendingState.set(false)
         }
         return UsbFileSendResult(result.success, result.bytesTransferred, result.cancelled, result.message)
     }
