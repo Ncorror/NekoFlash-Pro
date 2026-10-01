@@ -5,15 +5,14 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.sizeIn
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -182,29 +181,38 @@ internal fun TerminalExtraKeys(
     onKey: (TerminalKey) -> Unit,
     onFocus: () -> Unit,
 ) {
-    val scroll = rememberScrollState()
-    Row(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .background(TerminalPalette.chrome)
-            .horizontalScroll(scroll)
             .padding(horizontal = EXTRA_ROW_PADDING, vertical = EXTRA_VERTICAL_PADDING),
-        horizontalArrangement = Arrangement.spacedBy(EXTRA_GAP),
-        verticalAlignment = Alignment.CenterVertically,
+        verticalArrangement = Arrangement.spacedBy(EXTRA_GAP),
     ) {
-        ExtraKey("⌨", onClick = onFocus)
-        ExtraKey("ESC") { onKey(TerminalKey.ESCAPE) }
-        ExtraKey("CTRL", active = controlActive, onClick = onControl)
-        ExtraKey("ALT", active = altActive, onClick = onAlt)
-        ExtraKey("TAB") { onKey(TerminalKey.TAB) }
-        ExtraKey("←") { onKey(TerminalKey.LEFT) }
-        ExtraKey("↓") { onKey(TerminalKey.DOWN) }
-        ExtraKey("↑") { onKey(TerminalKey.UP) }
-        ExtraKey("→") { onKey(TerminalKey.RIGHT) }
-        ExtraKey("HOME") { onKey(TerminalKey.HOME) }
-        ExtraKey("END") { onKey(TerminalKey.END) }
-        ExtraKey("PGUP") { onKey(TerminalKey.PAGE_UP) }
-        ExtraKey("PGDN") { onKey(TerminalKey.PAGE_DOWN) }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(EXTRA_GAP),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            ExtraKey("⌨", onClick = onFocus, modifier = Modifier.weight(1f))
+            ExtraKey("ESC", onClick = { onKey(TerminalKey.ESCAPE) }, modifier = Modifier.weight(1f))
+            ExtraKey("TAB", onClick = { onKey(TerminalKey.TAB) }, modifier = Modifier.weight(1f))
+            ExtraKey("HOME", onClick = { onKey(TerminalKey.HOME) }, modifier = Modifier.weight(1f))
+            ExtraKey("↑", onClick = { onKey(TerminalKey.UP) }, modifier = Modifier.weight(1f))
+            ExtraKey("END", onClick = { onKey(TerminalKey.END) }, modifier = Modifier.weight(1f))
+            ExtraKey("PGUP", onClick = { onKey(TerminalKey.PAGE_UP) }, modifier = Modifier.weight(1f))
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(EXTRA_GAP),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            ExtraKey("CTRL", active = controlActive, onClick = onControl, modifier = Modifier.weight(1f))
+            ExtraKey("ALT", active = altActive, onClick = onAlt, modifier = Modifier.weight(1f))
+            ExtraKey("←", onClick = { onKey(TerminalKey.LEFT) }, modifier = Modifier.weight(1f))
+            ExtraKey("↓", onClick = { onKey(TerminalKey.DOWN) }, modifier = Modifier.weight(1f))
+            ExtraKey("→", onClick = { onKey(TerminalKey.RIGHT) }, modifier = Modifier.weight(1f))
+            ExtraKey("PGDN", onClick = { onKey(TerminalKey.PAGE_DOWN) }, modifier = Modifier.weight(1f))
+        }
     }
 }
 
@@ -213,10 +221,11 @@ private fun ExtraKey(
     label: String,
     active: Boolean = false,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     Box(
-        modifier = Modifier
-            .sizeIn(minWidth = EXTRA_KEY_MIN_WIDTH, minHeight = EXTRA_KEY_MIN_HEIGHT)
+        modifier = modifier
+            .sizeIn(minHeight = EXTRA_KEY_MIN_HEIGHT)
             .background(
                 color = if (active) TerminalPalette.live.copy(alpha = ACTIVE_KEY_ALPHA) else TerminalPalette.chrome,
                 shape = RoundedCornerShape(EXTRA_KEY_RADIUS),
@@ -293,12 +302,11 @@ private val INPUT_TEXT_SIZE = 11.sp
 private val EXTRA_ROW_PADDING = 6.dp
 private val EXTRA_VERTICAL_PADDING = 4.dp
 private val EXTRA_GAP = 4.dp
-private val EXTRA_KEY_MIN_WIDTH = 44.dp
 private val EXTRA_KEY_MIN_HEIGHT = 40.dp
-private val EXTRA_KEY_HORIZONTAL = 8.dp
+private val EXTRA_KEY_HORIZONTAL = 4.dp
 private val EXTRA_KEY_VERTICAL = 6.dp
 private val EXTRA_KEY_RADIUS = 6.dp
-private val EXTRA_TEXT_SIZE = 13.sp
+private val EXTRA_TEXT_SIZE = 12.sp
 private const val ACTIVE_KEY_ALPHA = 0.18f
 private const val INPUT_CURSOR = "▌"
 private const val DELETE_CHARACTER = "\u007F"
