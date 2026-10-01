@@ -11,6 +11,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -21,8 +22,9 @@ import io.github.ncorror.nekoflash.R
 @Composable
 internal fun SettingsWorkspace(modifier: Modifier = Modifier) {
     val context = LocalContext.current
+    val configuration = LocalConfiguration.current
     val selected = AppLanguage.selected(context)
-        ?: context.resources.configuration.locales[0].language
+        ?: configuration.locales[0].language
 
     Column(
         modifier = modifier.fillMaxWidth().padding(SETTINGS_PADDING),
