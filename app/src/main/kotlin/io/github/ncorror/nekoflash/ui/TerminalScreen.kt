@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -14,13 +13,15 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -44,10 +45,10 @@ import kotlinx.coroutines.delay
 /**
  * VT renderer for the live ADB PTY.
  *
- * The cursor, not the last snapshot row, is the live tail. Current-grid rows
- * below the cursor may be blank, so following the last row would scroll toward
- * empty space after IME/lifecycle resize. Manual user scrolling disables cursor
- * following until the cursor becomes visible again.
+ * The buffer exposes the first row of its current screen explicitly. Following
+ * that row is the terminal equivalent of Termux' topRow=0: scrollback and the
+ * live grid are separate states, and Compose never infers either from a
+ * programmatic LazyColumn scroll.
  */
 @Composable
 internal fun TerminalScreen(
@@ -129,42 +130,34 @@ private fun TerminalRows(
     colors: TerminalColors,
 ) {
     val listState = rememberLazyListState()
-    val followCursor = remember { mutableStateOf(true) }
-    val userWasScrolling = remember { mutableStateOf(false) }
-    val programmaticScroll = remember { mutableStateOf(false) }
+    val viewport = remember { TerminalViewportState() }
     val resumeGeneration = rememberResumeGeneration()
-    val latestScreen = rememberUpdatedState(screen)
-
-    LaunchedEffect(listState, screen.cursorRow) {
-        snapshotFlow { listState.isScrollInProgress }.collect { scrolling ->
-            if (scrolling && !programmaticScroll.value) {
-                userWasScrolling.value = true
-            } else if (!scrolling && userWasScrolling.value) {
-                userWasScrolling.value = false
-                val visible = listState.layoutInfo.visibleItemsInfo
-                followCursor.value = visible.isEmpty() || visible.any { it.index == screen.cursorRow }
+    val userScrollConnection = remember(viewport) {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (source == NestedScrollSource.UserInput) viewport.noteUserScroll()
+                return Offset.Zero
             }
         }
+    }
+
+    LaunchedEffect(listState, screen.screenStartRow) {
+        snapshotFlow { listState.isScrollInProgress }.collect { scrolling ->
+            if (!scrolling) viewport.settleUserScroll(listState.firstVisibleItemIndex, screen.screenStartRow)
+        }
+    }
+    LaunchedEffect(screen.screenStartRow, screen.rows.size) {
+        if (viewport.followLive) listState.scrollToItem(viewport.targetRow(screen.screenStartRow, screen.rows.lastIndex))
     }
     LaunchedEffect(resumeGeneration) {
-        if (resumeGeneration > 0) {
-            followCursor.value = true
-            delay(RESUME_SCROLL_SETTLE_MS)
-            val current = latestScreen.value
-            if (current.rows.isNotEmpty()) {
-                listState.followItem(current.cursorRow.coerceIn(0, current.rows.lastIndex), programmaticScroll)
-            }
-        }
-    }
-    LaunchedEffect(screen.rows.size, screen.cursorRow, screen.rows.getOrNull(screen.cursorRow)?.text) {
-        if (followCursor.value && screen.rows.isNotEmpty()) {
-            listState.followItem(screen.cursorRow.coerceIn(0, screen.rows.lastIndex), programmaticScroll)
+        if (viewport.followLive && screen.rows.isNotEmpty()) {
+            listState.scrollToItem(viewport.targetRow(screen.screenStartRow, screen.rows.lastIndex))
         }
     }
 
     LazyColumn(
         state = listState,
-        modifier = Modifier.fillMaxSize().padding(PADDING),
+        modifier = Modifier.fillMaxSize().nestedScroll(userScrollConnection).padding(PADDING),
     ) {
         itemsIndexed(screen.rows) { index, row ->
             SelectionContainer {
@@ -191,15 +184,6 @@ private fun rememberResumeGeneration(): Int {
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
     return generation.value
-}
-
-private suspend fun LazyListState.followItem(index: Int, programmatic: MutableState<Boolean>) {
-    programmatic.value = true
-    try {
-        scrollToItem(index)
-    } finally {
-        programmatic.value = false
-    }
 }
 
 /** Dark terminal palette independent from the app light/dark surface theme. */
@@ -282,7 +266,6 @@ private val TEXT_SIZE = 11.sp
 private val LINE_HEIGHT = 13.sp
 private const val MIN_GRID = 4
 private const val RESIZE_SETTLE_MS = 160L
-private const val RESUME_SCROLL_SETTLE_MS = 220L
 private const val DIM_ALPHA = 0.6f
 private const val OPAQUE = -0x1000000
 private const val RGB_MASK = 0xFFFFFF
