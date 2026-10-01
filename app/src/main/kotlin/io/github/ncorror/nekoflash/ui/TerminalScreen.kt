@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -13,8 +14,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -128,43 +131,34 @@ private fun TerminalRows(
     val listState = rememberLazyListState()
     val followCursor = remember { mutableStateOf(true) }
     val userWasScrolling = remember { mutableStateOf(false) }
-    val resumeGeneration = remember { mutableStateOf(0) }
-    val lifecycleOwner = LocalLifecycleOwner.current
+    val programmaticScroll = remember { mutableStateOf(false) }
+    val resumeGeneration = rememberResumeGeneration()
+    val latestScreen = rememberUpdatedState(screen)
 
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
-                followCursor.value = true
-                resumeGeneration.value += 1
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
-    }
     LaunchedEffect(listState, screen.cursorRow) {
         snapshotFlow { listState.isScrollInProgress }.collect { scrolling ->
-            if (scrolling) {
+            if (scrolling && !programmaticScroll.value) {
                 userWasScrolling.value = true
-            } else if (userWasScrolling.value) {
+            } else if (!scrolling && userWasScrolling.value) {
                 userWasScrolling.value = false
                 val visible = listState.layoutInfo.visibleItemsInfo
                 followCursor.value = visible.isEmpty() || visible.any { it.index == screen.cursorRow }
             }
         }
     }
-    LaunchedEffect(resumeGeneration.value) {
-        if (screen.rows.isNotEmpty()) {
+    LaunchedEffect(resumeGeneration) {
+        if (resumeGeneration > 0) {
+            followCursor.value = true
             delay(RESUME_SCROLL_SETTLE_MS)
-            listState.scrollToItem(screen.cursorRow.coerceIn(0, screen.rows.lastIndex))
+            val current = latestScreen.value
+            if (current.rows.isNotEmpty()) {
+                listState.followItem(current.cursorRow.coerceIn(0, current.rows.lastIndex), programmaticScroll)
+            }
         }
     }
-    LaunchedEffect(
-        screen.rows.size,
-        screen.cursorRow,
-        screen.rows.getOrNull(screen.cursorRow)?.text,
-    ) {
+    LaunchedEffect(screen.rows.size, screen.cursorRow, screen.rows.getOrNull(screen.cursorRow)?.text) {
         if (followCursor.value && screen.rows.isNotEmpty()) {
-            listState.scrollToItem(screen.cursorRow.coerceIn(0, screen.rows.lastIndex))
+            listState.followItem(screen.cursorRow.coerceIn(0, screen.rows.lastIndex), programmaticScroll)
         }
     }
 
@@ -182,6 +176,29 @@ private fun TerminalRows(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun rememberResumeGeneration(): Int {
+    val generation = remember { mutableStateOf(0) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) generation.value += 1
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    return generation.value
+}
+
+private suspend fun LazyListState.followItem(index: Int, programmatic: MutableState<Boolean>) {
+    programmatic.value = true
+    try {
+        scrollToItem(index)
+    } finally {
+        programmatic.value = false
     }
 }
 
@@ -265,7 +282,7 @@ private val TEXT_SIZE = 11.sp
 private val LINE_HEIGHT = 13.sp
 private const val MIN_GRID = 4
 private const val RESIZE_SETTLE_MS = 160L
-private const val RESUME_SCROLL_SETTLE_MS = 48L
+private const val RESUME_SCROLL_SETTLE_MS = 220L
 private const val DIM_ALPHA = 0.6f
 private const val OPAQUE = -0x1000000
 private const val RGB_MASK = 0xFFFFFF
