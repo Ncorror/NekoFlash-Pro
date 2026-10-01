@@ -4,7 +4,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -12,7 +11,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -125,7 +123,6 @@ private fun TerminalRows(
     colors: TerminalColors,
 ) {
     val listState = rememberLazyListState()
-    val horizontal = rememberScrollState()
     var followTail by remember { mutableStateOf(true) }
 
     LaunchedEffect(listState) {
@@ -150,7 +147,7 @@ private fun TerminalRows(
                     text = annotatedRow(row, index, screen, showCursor, colors),
                     style = style,
                     softWrap = false,
-                    modifier = Modifier.fillMaxWidth().horizontalScroll(horizontal),
+                    modifier = Modifier.fillMaxWidth(),
                 )
             }
         }
@@ -242,8 +239,8 @@ private fun colorOf(value: Int): Color? = when {
 }
 
 private val PADDING = 8.dp
-private val TEXT_SIZE = 13.sp
-private val LINE_HEIGHT = 16.sp
+private val TEXT_SIZE = 12.sp
+private val LINE_HEIGHT = 15.sp
 private const val DIM_ALPHA = 0.6f
 private const val OPAQUE = -0x1000000
 private const val RGB_MASK = 0xFFFFFF
