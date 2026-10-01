@@ -1,14 +1,17 @@
 package io.github.ncorror.nekoflash.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -35,17 +38,29 @@ internal class TerminalInputRouter(
     private val hostTranscript: MutableList<String>,
     private val actions: TerminalActions,
     private val hostPrompt: String,
+    private val controlActive: MutableState<Boolean>,
+    private val altActive: MutableState<Boolean>,
     private val onHostCommand: (String) -> Unit,
 ) {
     fun onText(text: String) {
-        if (ptyInput) actions.onType(text) else stagedInput.value += text
+        if (!ptyInput) {
+            controlActive.value = false
+            altActive.value = false
+            stagedInput.value += text
+            return
+        }
+        dispatchPtyText(text)
     }
 
     fun onEnter() {
+        controlActive.value = false
+        altActive.value = false
         if (ptyInput) actions.onType("\r") else submitHost()
     }
 
     fun onBackspace() {
+        controlActive.value = false
+        altActive.value = false
         if (ptyInput) {
             actions.onType(DELETE_CHARACTER)
         } else {
@@ -54,7 +69,38 @@ internal class TerminalInputRouter(
     }
 
     fun onSpecialKey(key: TerminalKey) {
+        controlActive.value = false
+        altActive.value = false
         if (ptyInput) actions.onKey(key)
+    }
+
+    fun toggleControl() {
+        if (ptyInput) {
+            controlActive.value = !controlActive.value
+            if (controlActive.value) altActive.value = false
+        }
+    }
+
+    fun toggleAlt() {
+        if (ptyInput) {
+            altActive.value = !altActive.value
+            if (altActive.value) controlActive.value = false
+        }
+    }
+
+    private fun dispatchPtyText(text: String) {
+        if (text.isEmpty()) return
+        val firstEnd = text.offsetByCodePoints(0, 1)
+        val first = text.substring(0, firstEnd)
+        val rest = text.substring(firstEnd)
+        when {
+            controlActive.value -> controlOf(first)?.let(actions.onType) ?: actions.onType(first)
+            altActive.value -> actions.onType(ESCAPE_CHARACTER + first)
+            else -> actions.onType(text)
+        }
+        controlActive.value = false
+        altActive.value = false
+        if (rest.isNotEmpty() && (firstEnd < text.length)) actions.onType(rest)
     }
 
     private fun submitHost() {
@@ -63,6 +109,18 @@ internal class TerminalInputRouter(
         if (command.isBlank()) return
         hostTranscript += "$hostPrompt $command"
         onHostCommand(command)
+    }
+
+    private fun controlOf(text: String): String? {
+        if (text.length != 1) return null
+        val char = text[0]
+        val code = when (char) {
+            in 'a'..'z' -> char.uppercaseChar().code and CONTROL_MASK
+            in '@'..'_' -> char.code and CONTROL_MASK
+            '?' -> DELETE_CODE
+            else -> return null
+        }
+        return code.toChar().toString()
     }
 }
 
@@ -107,6 +165,64 @@ internal fun TerminalInputCapture(
             view?.pasteClipboard()
         }
     }
+}
+
+@Composable
+internal fun TerminalExtraKeys(
+    ptyEnabled: Boolean,
+    controlActive: Boolean,
+    altActive: Boolean,
+    onControl: () -> Unit,
+    onAlt: () -> Unit,
+    onKey: (TerminalKey) -> Unit,
+    onFocus: () -> Unit,
+) {
+    val scroll = rememberScrollState()
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(TerminalPalette.chrome)
+            .horizontalScroll(scroll)
+            .padding(horizontal = EXTRA_ROW_PADDING, vertical = EXTRA_VERTICAL_PADDING),
+        horizontalArrangement = Arrangement.spacedBy(EXTRA_GAP),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        ExtraKey("ESC", ptyEnabled) { onKey(TerminalKey.ESCAPE) }
+        ExtraKey("CTRL", ptyEnabled, controlActive, onControl)
+        ExtraKey("ALT", ptyEnabled, altActive, onAlt)
+        ExtraKey("TAB", ptyEnabled) { onKey(TerminalKey.TAB) }
+        ExtraKey("←", ptyEnabled) { onKey(TerminalKey.LEFT) }
+        ExtraKey("↓", ptyEnabled) { onKey(TerminalKey.DOWN) }
+        ExtraKey("↑", ptyEnabled) { onKey(TerminalKey.UP) }
+        ExtraKey("→", ptyEnabled) { onKey(TerminalKey.RIGHT) }
+        ExtraKey("HOME", ptyEnabled) { onKey(TerminalKey.HOME) }
+        ExtraKey("END", ptyEnabled) { onKey(TerminalKey.END) }
+        ExtraKey("PGUP", ptyEnabled) { onKey(TerminalKey.PAGE_UP) }
+        ExtraKey("PGDN", ptyEnabled) { onKey(TerminalKey.PAGE_DOWN) }
+        ExtraKey("⌨", true, onClick = onFocus)
+    }
+}
+
+@Composable
+private fun ExtraKey(
+    label: String,
+    enabled: Boolean,
+    active: Boolean = false,
+    onClick: () -> Unit,
+) {
+    Text(
+        text = label,
+        color = when {
+            active -> TerminalPalette.live
+            enabled -> TerminalPalette.foreground
+            else -> TerminalPalette.muted
+        },
+        fontFamily = FontFamily.Monospace,
+        fontSize = EXTRA_TEXT_SIZE,
+        modifier = Modifier
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = EXTRA_KEY_HORIZONTAL, vertical = EXTRA_KEY_VERTICAL),
+    )
 }
 
 @Composable
@@ -168,5 +284,14 @@ private val INPUT_HORIZONTAL_PADDING = 6.dp
 private val INPUT_VERTICAL_PADDING = 6.dp
 private val INPUT_GAP = 6.dp
 private val INPUT_TEXT_SIZE = 11.sp
+private val EXTRA_ROW_PADDING = 4.dp
+private val EXTRA_VERTICAL_PADDING = 2.dp
+private val EXTRA_GAP = 2.dp
+private val EXTRA_KEY_HORIZONTAL = 7.dp
+private val EXTRA_KEY_VERTICAL = 5.dp
+private val EXTRA_TEXT_SIZE = 10.sp
 private const val INPUT_CURSOR = "▌"
 private const val DELETE_CHARACTER = "\u007F"
+private const val ESCAPE_CHARACTER = "\u001B"
+private const val CONTROL_MASK = 0x1F
+private const val DELETE_CODE = 0x7F
