@@ -11,6 +11,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -29,6 +30,9 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import io.github.ncorror.nekoflash.terminal.VtRow
 import io.github.ncorror.nekoflash.terminal.VtSnapshot
 import io.github.ncorror.nekoflash.terminal.VtStyle
@@ -123,13 +127,36 @@ private fun TerminalRows(
 ) {
     val listState = rememberLazyListState()
     val followCursor = remember { mutableStateOf(true) }
+    val userWasScrolling = remember { mutableStateOf(false) }
+    val resumeGeneration = remember { mutableStateOf(0) }
+    val lifecycleOwner = LocalLifecycleOwner.current
 
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                followCursor.value = true
+                resumeGeneration.value += 1
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     LaunchedEffect(listState, screen.cursorRow) {
         snapshotFlow { listState.isScrollInProgress }.collect { scrolling ->
-            if (!scrolling) {
+            if (scrolling) {
+                userWasScrolling.value = true
+            } else if (userWasScrolling.value) {
+                userWasScrolling.value = false
                 val visible = listState.layoutInfo.visibleItemsInfo
                 followCursor.value = visible.isEmpty() || visible.any { it.index == screen.cursorRow }
             }
+        }
+    }
+    LaunchedEffect(resumeGeneration.value) {
+        if (screen.rows.isNotEmpty()) {
+            delay(RESUME_SCROLL_SETTLE_MS)
+            val cursor = screen.cursorRow.coerceIn(0, screen.rows.lastIndex)
+            listState.scrollToItem(cursor)
         }
     }
     LaunchedEffect(
@@ -240,6 +267,7 @@ private val TEXT_SIZE = 11.sp
 private val LINE_HEIGHT = 13.sp
 private const val MIN_GRID = 4
 private const val RESIZE_SETTLE_MS = 160L
+private const val RESUME_SCROLL_SETTLE_MS = 48L
 private const val DIM_ALPHA = 0.6f
 private const val OPAQUE = -0x1000000
 private const val RGB_MASK = 0xFFFFFF
