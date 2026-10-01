@@ -23,11 +23,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ncorror.nekoflash.pro.engine.TerminalPlanCompiler
 import com.ncorror.nekoflash.pro.engine.TerminalPlanResult
+import io.github.ncorror.nekoflash.R
 import io.github.ncorror.nekoflash.adb.AdbCommandState
 import io.github.ncorror.nekoflash.adb.AdbLinkState
 import io.github.ncorror.nekoflash.adb.AdbRawServiceState
@@ -38,11 +40,15 @@ import io.github.ncorror.nekoflash.fastboot.FastbootLinkState
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootReply
 
 private enum class TerminalPane { HOST, SHELL }
+private enum class HostTransport { NONE, ADB, FASTBOOT }
 
 /** Process-owned terminal UI state. Sidebar destinations may leave composition. */
 private object TerminalUiSession {
     val hostTranscript = mutableStateListOf<String>()
     val stagedInput = mutableStateOf("")
+    val stagedCursor = mutableStateOf(0)
+    val hostHistory = mutableStateListOf<String>()
+    val historyIndex = mutableStateOf(0)
     val pane = mutableStateOf(TerminalPane.HOST)
     val controlActive = mutableStateOf(false)
     val altActive = mutableStateOf(false)
@@ -66,8 +72,11 @@ internal fun TerminalWorkspace(
     modifier: Modifier = Modifier,
 ) {
     val current = terminal.current
-    val fastbootConnected = fastbootLink is FastbootLinkState.Connected
-    val adbConnected = adbLink is AdbLinkState.Connected
+    val transport = when {
+        fastbootLink is FastbootLinkState.Connected -> HostTransport.FASTBOOT
+        adbLink is AdbLinkState.Connected -> HostTransport.ADB
+        else -> HostTransport.NONE
+    }
     val hostTranscript = TerminalUiSession.hostTranscript
     val stagedInput = TerminalUiSession.stagedInput
     val selectedPane = TerminalUiSession.pane
@@ -75,20 +84,29 @@ internal fun TerminalWorkspace(
     val pasteRequest = remember { mutableStateOf(0) }
     val inputFocused = remember { mutableStateOf(false) }
     val ptyInput = selectedPane.value == TerminalPane.SHELL && current.ready
-    val hostLabel = when {
-        fastbootConnected -> "FASTBOOT"
-        adbConnected -> "ADB"
-        else -> "HOST"
+    val noTransport = stringResource(R.string.terminal_no_transport)
+    val hostLabel = when (transport) {
+        HostTransport.FASTBOOT -> "FASTBOOT"
+        HostTransport.ADB -> "ADB"
+        HostTransport.NONE -> "HOST"
     }
+    val hostEditor = HostLineEditor(
+        input = stagedInput,
+        cursor = TerminalUiSession.stagedCursor,
+        historyIndex = TerminalUiSession.historyIndex,
+        history = TerminalUiSession.hostHistory,
+        transcript = hostTranscript,
+        prompt = HOST_PROMPT,
+        onCommand = { command ->
+            compileAndRunHostCommand(command, desktopCommand, hostTranscript, transport, noTransport)
+        },
+    )
     val router = TerminalInputRouter(
         ptyInput = ptyInput,
-        stagedInput = stagedInput,
-        hostTranscript = hostTranscript,
+        hostEditor = hostEditor,
         actions = actions,
-        hostPrompt = HOST_PROMPT,
         controlActive = TerminalUiSession.controlActive,
         altActive = TerminalUiSession.altActive,
-        onHostCommand = { command -> compileAndRunHostCommand(command, desktopCommand, hostTranscript) },
     )
 
     TerminalAutomation(fastbootLink, current, desktopCommand, hostTranscript)
@@ -100,9 +118,10 @@ internal fun TerminalWorkspace(
         hostLabel = hostLabel,
         selectedPane = selectedPane,
         shellAvailable = current.active || current.screen.rows.isNotEmpty() || current.ended != null,
-        transportConnected = adbConnected || fastbootConnected,
+        transportConnected = transport != HostTransport.NONE,
         hostTranscript = hostTranscript,
         stagedInput = stagedInput,
+        stagedCursor = TerminalUiSession.stagedCursor,
         focusRequest = focusRequest,
         pasteRequest = pasteRequest,
         inputFocused = inputFocused,
@@ -130,7 +149,10 @@ private fun TerminalLifecycle(
         }
     }
     LaunchedEffect(current.ready) {
-        if (current.ready) stagedInput.value = ""
+        if (current.ready) {
+            stagedInput.value = ""
+            TerminalUiSession.stagedCursor.value = 0
+        }
     }
 }
 
@@ -162,6 +184,7 @@ private fun TerminalWorkspaceLayout(
     transportConnected: Boolean,
     hostTranscript: List<String>,
     stagedInput: MutableState<String>,
+    stagedCursor: MutableState<Int>,
     focusRequest: MutableState<Int>,
     pasteRequest: MutableState<Int>,
     inputFocused: MutableState<Boolean>,
@@ -194,6 +217,7 @@ private fun TerminalWorkspaceLayout(
                 )
                 TerminalInputDisplay(
                     value = stagedInput.value,
+                    cursor = stagedCursor.value,
                     prompt = HOST_PROMPT,
                     live = transportConnected,
                     focused = inputFocused.value,
@@ -202,7 +226,6 @@ private fun TerminalWorkspaceLayout(
                 )
             }
             TerminalExtraKeys(
-                ptyEnabled = ptyEnabled,
                 controlActive = TerminalUiSession.controlActive.value,
                 altActive = TerminalUiSession.altActive.value,
                 onControl = router::toggleControl,
@@ -416,11 +439,22 @@ private fun compileAndRunHostCommand(
     raw: String,
     panel: DesktopCommandPanel,
     transcript: MutableList<String>,
+    transport: HostTransport = HostTransport.NONE,
+    noTransport: String = "",
 ) {
     val line = raw.trim()
     if (line.isEmpty()) return
+    val command = when {
+        EXPLICIT_TOOL.containsMatchIn(line) -> line
+        transport == HostTransport.ADB -> "adb shell $line"
+        transport == HostTransport.FASTBOOT -> "fastboot $line"
+        else -> {
+            transcript += noTransport.ifBlank { "[NekoFlash] no active ADB/Fastboot transport" }
+            return
+        }
+    }
     panel.onEdit()
-    when (val result = TerminalPlanCompiler().compile(panel.defaultTool, line)) {
+    when (val result = TerminalPlanCompiler().compile(command)) {
         is TerminalPlanResult.Invalid -> transcript += "error: ${result.reason}"
         is TerminalPlanResult.NotImplemented -> transcript += "not implemented: ${result.what}"
         is TerminalPlanResult.Ready -> panel.onRun(result.plan, false)
@@ -485,4 +519,5 @@ private val PANE_GAP = 4.dp
 private val PANE_TEXT_SIZE = 10.sp
 private val PANE_HORIZONTAL_PADDING = 10.dp
 private val PANE_VERTICAL_PADDING = 5.dp
+private val EXPLICIT_TOOL = Regex("""(?i)^(adb|fastboot)(?:\s|$)""")
 private const val HOST_PROMPT = "❯"
