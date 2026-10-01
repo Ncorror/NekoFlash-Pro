@@ -155,8 +155,7 @@ private fun TerminalRows(
     LaunchedEffect(resumeGeneration.value) {
         if (screen.rows.isNotEmpty()) {
             delay(RESUME_SCROLL_SETTLE_MS)
-            val cursor = screen.cursorRow.coerceIn(0, screen.rows.lastIndex)
-            listState.scrollToItem(cursor)
+            listState.scrollToItem(screen.cursorRow.coerceIn(0, screen.rows.lastIndex))
         }
     }
     LaunchedEffect(
@@ -165,8 +164,7 @@ private fun TerminalRows(
         screen.rows.getOrNull(screen.cursorRow)?.text,
     ) {
         if (followCursor.value && screen.rows.isNotEmpty()) {
-            val cursor = screen.cursorRow.coerceIn(0, screen.rows.lastIndex)
-            listState.scrollToItem(cursor)
+            listState.scrollToItem(screen.cursorRow.coerceIn(0, screen.rows.lastIndex))
         }
     }
 
