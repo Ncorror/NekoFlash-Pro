@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="terminal_no_transport">Команда не выполнена: нет активного транспорта ADB/Fastboot.</string>
+</resources>
