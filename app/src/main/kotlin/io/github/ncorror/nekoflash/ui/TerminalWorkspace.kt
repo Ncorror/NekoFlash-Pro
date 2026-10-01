@@ -36,6 +36,7 @@ import androidx.compose.ui.input.key.isCtrlPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -73,6 +74,12 @@ internal fun TerminalWorkspace(
     val fastbootGeneration = (fastbootLink as? FastbootLinkState.Connected)?.generation?.value
     val fastbootConnected = fastbootLink is FastbootLinkState.Connected
     val fastbootTranscript = remember { mutableStateListOf<String>() }
+    val inputFocus = remember { FocusRequester() }
+    val keyboard = LocalSoftwareKeyboardController.current
+    val focusInput = {
+        inputFocus.requestFocus()
+        keyboard?.show()
+    }
 
     AutoStartAdbShell(adbGeneration, current.active, actions.onStart)
     AutoPrintAdbDeviceInfo(adbGeneration, current.ready, actions.onSend)
@@ -91,12 +98,14 @@ internal fun TerminalWorkspace(
                 placeholder = terminalPlaceholder(adbLink, current.ready),
                 showCursor = current.ready,
                 onResize = actions.onResize,
+                onTap = focusInput,
                 modifier = Modifier.weight(1f).fillMaxWidth(),
             )
         }
         TerminalCommandLine(
-            enabled = current.ready || fastbootConnected,
+            canSend = current.ready || fastbootConnected,
             prompt = if (fastbootConnected) FASTBOOT_PROMPT else ADB_PROMPT,
+            focus = inputFocus,
             onSubmit = { raw ->
                 if (fastbootConnected) {
                     fastbootTranscript += "$ $raw"
@@ -176,7 +185,7 @@ private fun terminalPlaceholder(adb: AdbLinkState, ready: Boolean): String = whe
 private fun submitAdbLine(raw: String, actions: TerminalActions) {
     val line = raw.removePrefix("adb shell ")
     when {
-        raw == "adb shell" -> Unit // already inside the live shell
+        raw == "adb shell" -> Unit
         raw.startsWith("adb shell ") -> actions.onSend(line)
         else -> actions.onSend(raw)
     }
@@ -184,16 +193,16 @@ private fun submitAdbLine(raw: String, actions: TerminalActions) {
 
 @Composable
 private fun TerminalCommandLine(
-    enabled: Boolean,
+    canSend: Boolean,
     prompt: String,
+    focus: FocusRequester,
     onSubmit: (String) -> Unit,
     onInterrupt: () -> Unit,
     onSpecialKey: (TerminalKey) -> Unit,
 ) {
     var value by rememberSaveable { mutableStateOf("") }
-    val focus = remember { FocusRequester() }
     val submit = {
-        if (enabled && value.isNotBlank()) {
+        if (canSend && value.isNotBlank()) {
             val command = value
             value = ""
             onSubmit(command)
@@ -208,10 +217,10 @@ private fun TerminalCommandLine(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(INPUT_GAP),
     ) {
-        TerminalPrompt(prompt, enabled)
+        TerminalPrompt(prompt, canSend)
         TerminalInputField(
             value = value,
-            enabled = enabled,
+            canSend = canSend,
             focus = focus,
             onValueChange = { value = it },
             onSubmit = submit,
@@ -220,17 +229,13 @@ private fun TerminalCommandLine(
             modifier = Modifier.weight(1f),
         )
     }
-
-    LaunchedEffect(enabled) {
-        if (enabled) focus.requestFocus()
-    }
 }
 
 @Composable
-private fun TerminalPrompt(prompt: String, enabled: Boolean) {
+private fun TerminalPrompt(prompt: String, connected: Boolean) {
     androidx.compose.material3.Text(
         text = prompt,
-        color = if (enabled) TerminalPalette.live else TerminalPalette.muted,
+        color = if (connected) TerminalPalette.live else TerminalPalette.muted,
         fontFamily = FontFamily.Monospace,
         fontSize = INPUT_TEXT_SIZE,
     )
@@ -239,7 +244,7 @@ private fun TerminalPrompt(prompt: String, enabled: Boolean) {
 @Composable
 private fun TerminalInputField(
     value: String,
-    enabled: Boolean,
+    canSend: Boolean,
     focus: FocusRequester,
     onValueChange: (String) -> Unit,
     onSubmit: () -> Unit,
@@ -250,10 +255,10 @@ private fun TerminalInputField(
     BasicTextField(
         value = value,
         onValueChange = onValueChange,
-        enabled = enabled,
+        enabled = true,
         singleLine = true,
         textStyle = TextStyle(
-            color = if (enabled) TerminalPalette.foreground else TerminalPalette.muted,
+            color = TerminalPalette.foreground,
             fontFamily = FontFamily.Monospace,
             fontSize = INPUT_TEXT_SIZE,
         ),
@@ -263,7 +268,11 @@ private fun TerminalInputField(
         modifier = modifier
             .focusRequester(focus)
             .onPreviewKeyEvent { event ->
-                handleTerminalKey(event, onSubmit, onInterrupt, onSpecialKey)
+                if (canSend) {
+                    handleTerminalKey(event, onSubmit, onInterrupt, onSpecialKey)
+                } else {
+                    false
+                }
             },
     )
 }
