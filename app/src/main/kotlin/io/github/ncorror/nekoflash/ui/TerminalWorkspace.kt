@@ -15,18 +15,15 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.ncorror.nekoflash.pro.engine.TerminalParser
 import com.ncorror.nekoflash.pro.engine.TerminalPlanCompiler
 import com.ncorror.nekoflash.pro.engine.TerminalPlanResult
 import io.github.ncorror.nekoflash.adb.AdbCommandState
@@ -42,7 +39,6 @@ import io.github.ncorror.nekoflash.protocol.fastboot.FastbootReply
 private object TerminalUiSession {
     val hostTranscript = mutableStateListOf<String>()
     val stagedInput = mutableStateOf("")
-    val hostCommandSerial = mutableStateOf(0L)
     var fastbootInfoGeneration: Long? = null
     var previousFastbootState: FastbootConsoleState? = null
     var previousHostAnswer: String? = null
@@ -118,12 +114,11 @@ private fun TerminalAutomation(
     hostTranscript: MutableList<String>,
 ) {
     val fastbootGeneration = (fastbootLink as? FastbootLinkState.Connected)?.generation?.value
-    val serial = TerminalUiSession.hostCommandSerial.value
     AutoPrintFastbootDeviceInfo(fastbootGeneration, desktopCommand, hostTranscript)
-    ObserveHostAnswer(desktopCommand.answer, serial, hostTranscript)
-    ObserveAdbCommand(desktopCommand.outcomes.shell, serial, hostTranscript)
-    ObserveAdbService(desktopCommand.outcomes.service, serial, hostTranscript)
-    ObserveAdbReboot(desktopCommand.outcomes.reboot, serial, hostTranscript)
+    ObserveHostAnswer(desktopCommand.answer, hostTranscript)
+    ObserveAdbCommand(desktopCommand.outcomes.shell, hostTranscript)
+    ObserveAdbService(desktopCommand.outcomes.service, hostTranscript)
+    ObserveAdbReboot(desktopCommand.outcomes.reboot, hostTranscript)
     ObserveFastbootOutcome(desktopCommand.outcomes.fastboot, hostTranscript)
     ObserveTerminalEnd(current.ended, hostTranscript)
 }
@@ -204,9 +199,11 @@ private fun AutoPrintFastbootDeviceInfo(
 }
 
 @Composable
-private fun ObserveHostAnswer(answer: String?, serial: Long, transcript: MutableList<String>) {
-    LaunchedEffect(answer, serial) {
-        if (answer != null && answer != TerminalUiSession.previousHostAnswer) {
+private fun ObserveHostAnswer(answer: String?, transcript: MutableList<String>) {
+    LaunchedEffect(answer) {
+        if (answer == null) {
+            TerminalUiSession.previousHostAnswer = null
+        } else if (answer != TerminalUiSession.previousHostAnswer) {
             TerminalUiSession.previousHostAnswer = answer
             appendTextLines(transcript, answer)
         }
@@ -214,8 +211,8 @@ private fun ObserveHostAnswer(answer: String?, serial: Long, transcript: Mutable
 }
 
 @Composable
-private fun ObserveAdbCommand(state: AdbCommandState, serial: Long, transcript: MutableList<String>) {
-    LaunchedEffect(state, serial) {
+private fun ObserveAdbCommand(state: AdbCommandState, transcript: MutableList<String>) {
+    LaunchedEffect(state) {
         if (state == TerminalUiSession.previousAdbCommand) return@LaunchedEffect
         TerminalUiSession.previousAdbCommand = state
         when (state) {
@@ -233,8 +230,8 @@ private fun ObserveAdbCommand(state: AdbCommandState, serial: Long, transcript: 
 }
 
 @Composable
-private fun ObserveAdbService(state: AdbRawServiceState, serial: Long, transcript: MutableList<String>) {
-    LaunchedEffect(state, serial) {
+private fun ObserveAdbService(state: AdbRawServiceState, transcript: MutableList<String>) {
+    LaunchedEffect(state) {
         if (state == TerminalUiSession.previousAdbService) return@LaunchedEffect
         TerminalUiSession.previousAdbService = state
         when (state) {
@@ -250,8 +247,8 @@ private fun ObserveAdbService(state: AdbRawServiceState, serial: Long, transcrip
 }
 
 @Composable
-private fun ObserveAdbReboot(state: AdbRebootState, serial: Long, transcript: MutableList<String>) {
-    LaunchedEffect(state, serial) {
+private fun ObserveAdbReboot(state: AdbRebootState, transcript: MutableList<String>) {
+    LaunchedEffect(state) {
         if (state == TerminalUiSession.previousAdbReboot) return@LaunchedEffect
         TerminalUiSession.previousAdbReboot = state
         when (state) {
@@ -290,18 +287,18 @@ private fun LineTerminalOutput(
     modifier: Modifier = Modifier,
 ) {
     val state = rememberLazyListState()
-    var followTail by remember { mutableStateOf(true) }
+    var followTail = remember { mutableStateOf(true) }
 
     LaunchedEffect(state) {
         snapshotFlow { state.isScrollInProgress }.collect { scrolling ->
             if (!scrolling) {
                 val lastVisible = state.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
-                followTail = lastVisible >= lines.lastIndex - 1
+                followTail.value = lastVisible >= lines.lastIndex - 1
             }
         }
     }
     LaunchedEffect(lines.size, lines.lastOrNull()) {
-        if (followTail && lines.isNotEmpty()) state.scrollToItem(lines.lastIndex)
+        if (followTail.value && lines.isNotEmpty()) state.scrollToItem(lines.lastIndex)
     }
 
     LazyColumn(
@@ -330,8 +327,6 @@ private fun compileAndRunHostCommand(
     val line = raw.trim()
     if (line.isEmpty()) return
     panel.onEdit()
-    TerminalUiSession.previousHostAnswer = null
-    TerminalUiSession.hostCommandSerial.value += 1
     when (val result = TerminalPlanCompiler().compile(panel.defaultTool, line)) {
         is TerminalPlanResult.Invalid -> transcript += "error: ${result.reason}"
         is TerminalPlanResult.NotImplemented -> transcript += "not implemented: ${result.what}"
@@ -340,7 +335,7 @@ private fun compileAndRunHostCommand(
 }
 
 private fun appendTextLines(transcript: MutableList<String>, text: String) {
-    text.lineSequence().dropLastWhile(String::isEmpty).forEach(transcript::add)
+    text.split('\n').dropLastWhile(String::isEmpty).forEach(transcript::add)
 }
 
 private fun fastbootStateLines(state: FastbootConsoleState): List<String> = when (state) {
