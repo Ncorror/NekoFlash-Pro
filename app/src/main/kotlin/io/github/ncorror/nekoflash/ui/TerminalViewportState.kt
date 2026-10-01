@@ -48,3 +48,26 @@ internal class TerminalViewportState {
         userScrollPending = false
     }
 }
+
+/** Explicit follow-tail state for the host transcript. */
+internal class TerminalTailViewportState {
+    var followTail: Boolean = true
+        private set
+
+    private var userScrollPending: Boolean = false
+
+    fun noteUserScroll() {
+        userScrollPending = true
+    }
+
+    fun settleUserScroll(lastVisibleRow: Int, lastRow: Int) {
+        if (!userScrollPending) return
+        userScrollPending = false
+        followTail = lastRow < 0 || lastVisibleRow >= lastRow - 1
+    }
+
+    fun returnToTail() {
+        followTail = true
+        userScrollPending = false
+    }
+}
