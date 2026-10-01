@@ -241,13 +241,16 @@ internal class VtBuffer(var columns: Int, var rows: Int) {
     }
 
     /** Снимок: scrollback + текущая экранная сетка и её явное начало. */
-    fun snapshot(): VtSnapshot = VtSnapshot(
-        rows = history.toList() + lines.map { it.freeze() },
-        cursorRow = history.size + row,
-        cursorColumn = column,
-        cursorVisible = cursorVisible,
-        screenStartRow = history.size,
-    )
+    fun snapshot(): VtSnapshot {
+        val scrollback = if (onAlternate) emptyList() else history.toList()
+        return VtSnapshot(
+            rows = scrollback + lines.map { it.freeze() },
+            cursorRow = scrollback.size + row,
+            cursorColumn = column,
+            cursorVisible = cursorVisible,
+            screenStartRow = scrollback.size,
+        )
+    }
 
     /** Стертые клетки получают текущий фон, как у xterm (`bce`). */
     internal fun blank(): VtStyle =
