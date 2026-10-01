@@ -11,10 +11,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateListOf
@@ -27,6 +29,9 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.ncorror.nekoflash.pro.engine.TerminalPlanCompiler
 import com.ncorror.nekoflash.pro.engine.TerminalPlanResult
 import io.github.ncorror.nekoflash.R
@@ -38,6 +43,7 @@ import io.github.ncorror.nekoflash.adb.AdbTerminalState
 import io.github.ncorror.nekoflash.fastboot.FastbootConsoleState
 import io.github.ncorror.nekoflash.fastboot.FastbootLinkState
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootReply
+import kotlinx.coroutines.delay
 
 private enum class TerminalPane { HOST, SHELL }
 private enum class HostTransport { NONE, ADB, FASTBOOT }
@@ -404,17 +410,30 @@ private fun LineTerminalOutput(
 ) {
     val state = rememberLazyListState()
     val followTail = remember { mutableStateOf(true) }
+    val userWasScrolling = remember { mutableStateOf(false) }
+    val programmaticScroll = remember { mutableStateOf(false) }
+    val resumeGeneration = rememberHostResumeGeneration()
 
     LaunchedEffect(state) {
         snapshotFlow { state.isScrollInProgress }.collect { scrolling ->
-            if (!scrolling) {
+            if (scrolling && !programmaticScroll.value) {
+                userWasScrolling.value = true
+            } else if (!scrolling && userWasScrolling.value) {
+                userWasScrolling.value = false
                 val lastVisible = state.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
                 followTail.value = lastVisible >= lines.lastIndex - 1
             }
         }
     }
+    LaunchedEffect(resumeGeneration) {
+        if (resumeGeneration > 0) {
+            followTail.value = true
+            delay(HOST_RESUME_SCROLL_SETTLE_MS)
+            if (lines.isNotEmpty()) state.followHostTail(lines.lastIndex, programmaticScroll)
+        }
+    }
     LaunchedEffect(lines.size, lines.lastOrNull()) {
-        if (followTail.value && lines.isNotEmpty()) state.scrollToItem(lines.lastIndex)
+        if (followTail.value && lines.isNotEmpty()) state.followHostTail(lines.lastIndex, programmaticScroll)
     }
 
     LazyColumn(
@@ -432,6 +451,29 @@ private fun LineTerminalOutput(
                 modifier = Modifier.fillMaxWidth(),
             )
         }
+    }
+}
+
+@Composable
+private fun rememberHostResumeGeneration(): Int {
+    val generation = remember { mutableStateOf(0) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) generation.value += 1
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    return generation.value
+}
+
+private suspend fun LazyListState.followHostTail(index: Int, programmatic: MutableState<Boolean>) {
+    programmatic.value = true
+    try {
+        scrollToItem(index)
+    } finally {
+        programmatic.value = false
     }
 }
 
@@ -520,4 +562,5 @@ private val PANE_TEXT_SIZE = 10.sp
 private val PANE_HORIZONTAL_PADDING = 10.dp
 private val PANE_VERTICAL_PADDING = 5.dp
 private val EXPLICIT_TOOL = Regex("""(?i)^(adb|fastboot)(?:\s|$)""")
+private const val HOST_RESUME_SCROLL_SETTLE_MS = 220L
 private const val HOST_PROMPT = "❯"
