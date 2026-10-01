@@ -3,8 +3,8 @@ package io.github.ncorror.nekoflash.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -12,37 +12,21 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.input.key.KeyEvent
-import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.isCtrlPressed
-import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.onPreviewKeyEvent
-import androidx.compose.ui.input.key.type
-import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ncorror.nekoflash.pro.engine.TerminalParser
@@ -50,18 +34,17 @@ import com.ncorror.nekoflash.pro.engine.TerminalPlanCompiler
 import com.ncorror.nekoflash.pro.engine.TerminalPlanResult
 import io.github.ncorror.nekoflash.R
 import io.github.ncorror.nekoflash.adb.AdbLinkState
-import io.github.ncorror.nekoflash.adb.TerminalKey
+import io.github.ncorror.nekoflash.adb.AdbTerminalState
 import io.github.ncorror.nekoflash.fastboot.FastbootConsoleState
 import io.github.ncorror.nekoflash.fastboot.FastbootLinkState
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootReply
-import kotlinx.coroutines.launch
 
 /**
  * Main production workspace.
  *
- * ADB mode is a real interactive PTY. Fastboot mode is a line-oriented terminal
- * over the same Fastboot engine used by the flashing screens. There is no mock
- * console, no hidden 60-line window and no filtering of device output.
+ * ADB mode is a real interactive PTY. Text reaches that PTY through an Android
+ * InputConnection, like Termux/NetHunter, instead of through a Compose text
+ * field. Fastboot stays line-oriented because the protocol itself is.
  */
 @Composable
 internal fun TerminalWorkspace(
@@ -73,57 +56,135 @@ internal fun TerminalWorkspace(
     modifier: Modifier = Modifier,
 ) {
     val current = terminal.current
-    val adbGeneration = (adbLink as? AdbLinkState.Connected)?.generation?.value
-    val fastbootGeneration = (fastbootLink as? FastbootLinkState.Connected)?.generation?.value
     val fastbootConnected = fastbootLink is FastbootLinkState.Connected
     val fastbootTranscript = remember { mutableStateListOf<String>() }
-    val inputFocus = remember { FocusRequester() }
-    val keyboard = LocalSoftwareKeyboardController.current
-    val inputScope = rememberCoroutineScope()
-    val focusInput: () -> Unit = {
-        inputFocus.requestFocus()
-        inputScope.launch {
-            withFrameNanos { }
-            keyboard?.show()
-        }
-        Unit
-    }
+    val offlineTranscript = remember { mutableStateListOf<String>() }
+    val stagedInput = rememberSaveable { mutableStateOf("") }
+    val focusRequest = remember { mutableStateOf(0) }
+    val inputFocused = remember { mutableStateOf(false) }
+    val router = TerminalInputRouter(
+        currentReady = current.ready,
+        fastbootConnected = fastbootConnected,
+        stagedInput = stagedInput,
+        offlineTranscript = offlineTranscript,
+        actions = actions,
+        connectMessage = stringResource(R.string.terminal_connect_device),
+        offlinePrompt = ADB_PROMPT,
+        onFastbootCommand = { command ->
+            fastbootTranscript += "$ $command"
+            compileAndRunFastboot(command, desktopCommand, fastbootTranscript)
+        },
+    )
 
+    TerminalAutomation(adbLink, fastbootLink, current, actions, desktopCommand, fastbootTranscript)
+    LaunchedEffect(current.ready, fastbootConnected) {
+        if (current.ready && !fastbootConnected) stagedInput.value = ""
+    }
+    TerminalWorkspaceLayout(
+        adbLink = adbLink,
+        terminal = terminal,
+        actions = actions,
+        router = router,
+        fastbootConnected = fastbootConnected,
+        fastbootTranscript = fastbootTranscript,
+        offlineTranscript = offlineTranscript,
+        stagedInput = stagedInput,
+        focusRequest = focusRequest,
+        inputFocused = inputFocused,
+        modifier = modifier,
+    )
+}
+
+@Composable
+private fun TerminalAutomation(
+    adbLink: AdbLinkState,
+    fastbootLink: FastbootLinkState,
+    current: AdbTerminalState,
+    actions: TerminalActions,
+    desktopCommand: DesktopCommandPanel,
+    fastbootTranscript: MutableList<String>,
+) {
+    val adbGeneration = (adbLink as? AdbLinkState.Connected)?.generation?.value
+    val fastbootGeneration = (fastbootLink as? FastbootLinkState.Connected)?.generation?.value
     AutoStartAdbShell(adbGeneration, current.active, actions.onStart)
     AutoPrintAdbDeviceInfo(adbGeneration, current.ready, actions.onSend)
     AutoPrintFastbootDeviceInfo(fastbootGeneration, desktopCommand, fastbootTranscript)
     ObserveFastbootOutcome(desktopCommand.outcomes.fastboot, fastbootTranscript)
+}
 
-    Column(modifier = modifier.fillMaxSize().background(TerminalPalette.background)) {
-        if (fastbootConnected) {
-            FastbootTerminalOutput(
-                lines = fastbootTranscript,
-                modifier = Modifier.weight(1f).fillMaxWidth(),
-            )
-        } else {
-            TerminalScreen(
-                screen = current.screen,
-                placeholder = terminalPlaceholder(adbLink, current.ready),
-                showCursor = current.ready,
-                onResize = actions.onResize,
+@Composable
+private fun TerminalWorkspaceLayout(
+    adbLink: AdbLinkState,
+    terminal: TerminalPanel,
+    actions: TerminalActions,
+    router: TerminalInputRouter,
+    fastbootConnected: Boolean,
+    fastbootTranscript: List<String>,
+    offlineTranscript: List<String>,
+    stagedInput: MutableState<String>,
+    focusRequest: MutableState<Int>,
+    inputFocused: MutableState<Boolean>,
+    modifier: Modifier,
+) {
+    val focusInput = { focusRequest.value += 1 }
+    Box(modifier = modifier.fillMaxSize().background(TerminalPalette.background)) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            TerminalOutput(
+                currentReady = terminal.current.ready,
+                fastbootConnected = fastbootConnected,
+                fastbootTranscript = fastbootTranscript,
+                offlineTranscript = offlineTranscript,
+                adbLink = adbLink,
+                terminal = terminal,
+                actions = actions,
                 onTap = focusInput,
                 modifier = Modifier.weight(1f).fillMaxWidth(),
             )
+            if (fastbootConnected || !terminal.current.ready) {
+                TerminalInputDisplay(
+                    value = stagedInput.value,
+                    prompt = if (fastbootConnected) FASTBOOT_PROMPT else ADB_PROMPT,
+                    live = fastbootConnected,
+                    focused = inputFocused.value,
+                    onTap = focusInput,
+                )
+            }
         }
-        TerminalCommandLine(
-            canSend = current.ready || fastbootConnected,
-            prompt = if (fastbootConnected) FASTBOOT_PROMPT else ADB_PROMPT,
-            focus = inputFocus,
-            onSubmit = { raw ->
-                if (fastbootConnected) {
-                    fastbootTranscript += "$ $raw"
-                    compileAndRunFastboot(raw, desktopCommand, fastbootTranscript)
-                } else if (current.ready) {
-                    submitAdbLine(raw, actions)
-                }
-            },
+        TerminalInputCapture(
+            focusRequest = focusRequest.value,
+            onFocusChanged = { inputFocused.value = it },
+            onText = router::onText,
+            onEnter = router::onEnter,
+            onBackspace = router::onBackspace,
             onInterrupt = actions.onInterrupt,
-            onSpecialKey = actions.onKey,
+            onSpecialKey = router::onSpecialKey,
+            modifier = Modifier.align(Alignment.BottomStart),
+        )
+    }
+}
+
+@Composable
+private fun TerminalOutput(
+    currentReady: Boolean,
+    fastbootConnected: Boolean,
+    fastbootTranscript: List<String>,
+    offlineTranscript: List<String>,
+    adbLink: AdbLinkState,
+    terminal: TerminalPanel,
+    actions: TerminalActions,
+    onTap: () -> Unit,
+    modifier: Modifier,
+) {
+    when {
+        fastbootConnected -> LineTerminalOutput(fastbootTranscript, onTap, modifier)
+        !currentReady && offlineTranscript.isNotEmpty() -> LineTerminalOutput(offlineTranscript, onTap, modifier)
+        else -> TerminalScreen(
+            screen = terminal.current.screen,
+            placeholder = terminalPlaceholder(adbLink, currentReady),
+            showCursor = currentReady,
+            onResize = actions.onResize,
+            onTap = onTap,
+            modifier = modifier,
         )
     }
 }
@@ -190,128 +251,12 @@ private fun terminalPlaceholder(adb: AdbLinkState, ready: Boolean): String = whe
     else -> stringResource(R.string.terminal_connect_device)
 }
 
-private fun submitAdbLine(raw: String, actions: TerminalActions) {
-    val line = raw.removePrefix("adb shell ")
-    when {
-        raw == "adb shell" -> Unit
-        raw.startsWith("adb shell ") -> actions.onSend(line)
-        else -> actions.onSend(raw)
-    }
-}
-
 @Composable
-private fun TerminalCommandLine(
-    canSend: Boolean,
-    prompt: String,
-    focus: FocusRequester,
-    onSubmit: (String) -> Unit,
-    onInterrupt: () -> Unit,
-    onSpecialKey: (TerminalKey) -> Unit,
+private fun LineTerminalOutput(
+    lines: List<String>,
+    onTap: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    var value by rememberSaveable { mutableStateOf("") }
-    val submit = {
-        if (value.isNotBlank()) {
-            val command = value
-            value = ""
-            onSubmit(command)
-        }
-    }
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(TerminalPalette.chrome)
-            .padding(horizontal = INPUT_HORIZONTAL_PADDING, vertical = INPUT_VERTICAL_PADDING),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(INPUT_GAP),
-    ) {
-        TerminalPrompt(prompt, canSend)
-        TerminalInputField(
-            value = value,
-            canSend = canSend,
-            focus = focus,
-            onValueChange = { value = it },
-            onSubmit = submit,
-            onInterrupt = onInterrupt,
-            onSpecialKey = onSpecialKey,
-            modifier = Modifier.weight(1f),
-        )
-    }
-}
-
-@Composable
-private fun TerminalPrompt(prompt: String, connected: Boolean) {
-    androidx.compose.material3.Text(
-        text = prompt,
-        color = if (connected) TerminalPalette.live else TerminalPalette.muted,
-        fontFamily = FontFamily.Monospace,
-        fontSize = INPUT_TEXT_SIZE,
-    )
-}
-
-@Composable
-private fun TerminalInputField(
-    value: String,
-    canSend: Boolean,
-    focus: FocusRequester,
-    onValueChange: (String) -> Unit,
-    onSubmit: () -> Unit,
-    onInterrupt: () -> Unit,
-    onSpecialKey: (TerminalKey) -> Unit,
-    modifier: Modifier,
-) {
-    BasicTextField(
-        value = value,
-        onValueChange = onValueChange,
-        enabled = true,
-        singleLine = true,
-        textStyle = TextStyle(
-            color = TerminalPalette.foreground,
-            fontFamily = FontFamily.Monospace,
-            fontSize = INPUT_TEXT_SIZE,
-        ),
-        cursorBrush = SolidColor(TerminalPalette.live),
-        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-        keyboardActions = KeyboardActions(onSend = { onSubmit() }),
-        modifier = modifier
-            .focusRequester(focus)
-            .onPreviewKeyEvent { event ->
-                if (canSend || event.key == Key.Enter) {
-                    handleTerminalKey(event, onSubmit, onInterrupt, onSpecialKey)
-                } else {
-                    false
-                }
-            },
-    )
-}
-
-private fun handleTerminalKey(
-    event: KeyEvent,
-    submit: () -> Unit,
-    interrupt: () -> Unit,
-    specialKey: (TerminalKey) -> Unit,
-): Boolean {
-    if (event.type != KeyEventType.KeyDown) return false
-    return when {
-        event.isCtrlPressed && event.key == Key.C -> handled(interrupt)
-        event.key == Key.DirectionUp -> handled { specialKey(TerminalKey.UP) }
-        event.key == Key.DirectionDown -> handled { specialKey(TerminalKey.DOWN) }
-        event.key == Key.DirectionLeft -> handled { specialKey(TerminalKey.LEFT) }
-        event.key == Key.DirectionRight -> handled { specialKey(TerminalKey.RIGHT) }
-        event.key == Key.Escape -> handled { specialKey(TerminalKey.ESCAPE) }
-        event.key == Key.Tab -> handled { specialKey(TerminalKey.TAB) }
-        event.key == Key.Enter -> handled(submit)
-        else -> false
-    }
-}
-
-private inline fun handled(action: () -> Unit): Boolean {
-    action()
-    return true
-}
-
-@Composable
-private fun FastbootTerminalOutput(lines: List<String>, modifier: Modifier = Modifier) {
     val state = rememberLazyListState()
     val horizontal = rememberScrollState()
     var followTail by remember { mutableStateOf(true) }
@@ -330,11 +275,11 @@ private fun FastbootTerminalOutput(lines: List<String>, modifier: Modifier = Mod
 
     LazyColumn(
         state = state,
-        modifier = modifier.padding(OUTPUT_PADDING),
+        modifier = modifier.terminalTap(onTap).padding(OUTPUT_PADDING),
         verticalArrangement = Arrangement.spacedBy(OUTPUT_GAP),
     ) {
         itemsIndexed(lines) { _, line ->
-            androidx.compose.material3.Text(
+            Text(
                 text = line,
                 color = TerminalPalette.foreground,
                 fontFamily = FontFamily.Monospace,
@@ -407,10 +352,6 @@ private fun fastbootStateLines(state: FastbootConsoleState): List<String> = when
     }
 }
 
-private val INPUT_HORIZONTAL_PADDING = 10.dp
-private val INPUT_VERTICAL_PADDING = 9.dp
-private val INPUT_GAP = 8.dp
-private val INPUT_TEXT_SIZE = 13.sp
 private val OUTPUT_PADDING = 8.dp
 private val OUTPUT_GAP = 2.dp
 private val OUTPUT_TEXT_SIZE = 12.sp
