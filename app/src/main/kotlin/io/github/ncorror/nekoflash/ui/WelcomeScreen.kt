@@ -25,7 +25,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import io.github.ncorror.nekoflash.R
 
-/** First-run screen: artwork, one warning, one explicit Continue action. */
+/** Startup screen: artwork, title and one explicit Continue action. */
 @Composable
 internal fun WelcomeScreen(onContinue: () -> Unit, modifier: Modifier = Modifier) {
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
@@ -49,16 +49,10 @@ internal fun WelcomeScreen(onContinue: () -> Unit, modifier: Modifier = Modifier
                 style = titleStyle.onArtwork(),
             )
             Spacer(Modifier.weight(1f))
-            Text(
-                text = stringResource(R.string.welcome_usb_body),
-                style = MaterialTheme.typography.bodyMedium.onArtwork(),
-                modifier = Modifier.fillMaxWidth(),
-            )
             Button(
                 onClick = onContinue,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 16.dp)
                     .heightIn(min = 56.dp),
             ) {
                 Text(stringResource(R.string.welcome_continue))
