@@ -38,14 +38,32 @@ internal fun SettingsWorkspace(modifier: Modifier = Modifier) {
         )
         Row(horizontalArrangement = Arrangement.spacedBy(LANGUAGE_GAP)) {
             if (selected == AppLanguage.ENGLISH) {
-                Button(onClick = { AppLanguage.set(context, AppLanguage.ENGLISH) }, enabled = false) { Text(stringResource(R.string.settings_language_english)) }
+                Button(
+                    onClick = { AppLanguage.set(context, AppLanguage.ENGLISH) },
+                    enabled = false,
+                ) {
+                    Text(stringResource(R.string.settings_language_english))
+                }
             } else {
-                OutlinedButton(onClick = { AppLanguage.set(context, AppLanguage.ENGLISH) }) { Text(stringResource(R.string.settings_language_english)) }
+                OutlinedButton(
+                    onClick = { AppLanguage.set(context, AppLanguage.ENGLISH) },
+                ) {
+                    Text(stringResource(R.string.settings_language_english))
+                }
             }
             if (selected == AppLanguage.RUSSIAN) {
-                Button(onClick = { AppLanguage.set(context, AppLanguage.RUSSIAN) }, enabled = false) { Text(stringResource(R.string.settings_language_russian)) }
+                Button(
+                    onClick = { AppLanguage.set(context, AppLanguage.RUSSIAN) },
+                    enabled = false,
+                ) {
+                    Text(stringResource(R.string.settings_language_russian))
+                }
             } else {
-                OutlinedButton(onClick = { AppLanguage.set(context, AppLanguage.RUSSIAN) }) { Text(stringResource(R.string.settings_language_russian)) }
+                OutlinedButton(
+                    onClick = { AppLanguage.set(context, AppLanguage.RUSSIAN) },
+                ) {
+                    Text(stringResource(R.string.settings_language_russian))
+                }
             }
         }
     }

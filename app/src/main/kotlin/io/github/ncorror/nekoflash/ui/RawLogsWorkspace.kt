@@ -41,7 +41,12 @@ internal fun RawLogsWorkspace(
 
     Column(modifier = modifier.fillMaxSize()) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = LOG_HEADER_HORIZONTAL, vertical = LOG_HEADER_VERTICAL),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(
+                    horizontal = LOG_HEADER_HORIZONTAL,
+                    vertical = LOG_HEADER_VERTICAL,
+                ),
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             Text(

@@ -356,7 +356,11 @@ private fun fastbootStateLines(state: FastbootConsoleState): List<String> = when
         "lane=${state.lane}",
     )
     is FastbootConsoleState.Downloaded -> listOf(
-        "download declared=${state.declaredBytes} sent=${state.sentBytes} reply=${state.reply ?: FastbootReply.UNKNOWN}",
+        buildString {
+            append("download declared=${state.declaredBytes}")
+            append(" sent=${state.sentBytes}")
+            append(" reply=${state.reply ?: FastbootReply.UNKNOWN}")
+        },
         state.detail,
         "route=${state.route ?: "none"} lane=${state.lane}",
     )
