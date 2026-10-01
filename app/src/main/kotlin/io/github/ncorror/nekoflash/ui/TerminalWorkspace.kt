@@ -76,9 +76,10 @@ internal fun TerminalWorkspace(
     val fastbootTranscript = remember { mutableStateListOf<String>() }
     val inputFocus = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
-    val focusInput = {
+    val focusInput: () -> Unit = {
         inputFocus.requestFocus()
         keyboard?.show()
+        Unit
     }
 
     AutoStartAdbShell(adbGeneration, current.active, actions.onStart)
