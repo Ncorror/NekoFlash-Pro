@@ -1,7 +1,6 @@
 package io.github.ncorror.nekoflash.ui
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,7 +11,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -21,7 +19,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -39,6 +36,17 @@ import io.github.ncorror.nekoflash.adb.AdbTerminalState
 import io.github.ncorror.nekoflash.fastboot.FastbootConsoleState
 import io.github.ncorror.nekoflash.fastboot.FastbootLinkState
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootReply
+
+/** Process-owned terminal UI state. Sidebar destinations may leave composition. */
+private object TerminalUiSession {
+    val fastbootTranscript = mutableStateListOf<String>()
+    val offlineTranscript = mutableStateListOf<String>()
+    val stagedInput = mutableStateOf("")
+    var startedAdbGeneration: Long? = null
+    var adbInfoGeneration: Long? = null
+    var fastbootInfoGeneration: Long? = null
+    var previousFastbootState: FastbootConsoleState? = null
+}
 
 /**
  * Main production workspace.
@@ -58,9 +66,9 @@ internal fun TerminalWorkspace(
 ) {
     val current = terminal.current
     val fastbootConnected = fastbootLink is FastbootLinkState.Connected
-    val fastbootTranscript = remember { mutableStateListOf<String>() }
-    val offlineTranscript = remember { mutableStateListOf<String>() }
-    val stagedInput = rememberSaveable { mutableStateOf("") }
+    val fastbootTranscript = TerminalUiSession.fastbootTranscript
+    val offlineTranscript = TerminalUiSession.offlineTranscript
+    val stagedInput = TerminalUiSession.stagedInput
     val focusRequest = remember { mutableStateOf(0) }
     val inputFocused = remember { mutableStateOf(false) }
     val offlineStatus = stringResource(R.string.terminal_no_transport) + "\n" +
@@ -199,11 +207,10 @@ private fun TerminalOutput(
 
 @Composable
 private fun AutoStartAdbShell(generation: Long?, active: Boolean, start: () -> Unit) {
-    var startedGeneration by rememberSaveable { mutableStateOf<Long?>(null) }
     LaunchedEffect(generation, active) {
         val currentGeneration = generation ?: return@LaunchedEffect
-        if (startedGeneration != currentGeneration && !active) {
-            startedGeneration = currentGeneration
+        if (TerminalUiSession.startedAdbGeneration != currentGeneration && !active) {
+            TerminalUiSession.startedAdbGeneration = currentGeneration
             start()
         }
     }
@@ -211,11 +218,10 @@ private fun AutoStartAdbShell(generation: Long?, active: Boolean, start: () -> U
 
 @Composable
 private fun AutoPrintAdbDeviceInfo(generation: Long?, ready: Boolean, send: (String) -> Unit) {
-    var infoGeneration by rememberSaveable { mutableStateOf<Long?>(null) }
     LaunchedEffect(generation, ready) {
         val currentGeneration = generation ?: return@LaunchedEffect
-        if (ready && infoGeneration != currentGeneration) {
-            infoGeneration = currentGeneration
+        if (ready && TerminalUiSession.adbInfoGeneration != currentGeneration) {
+            TerminalUiSession.adbInfoGeneration = currentGeneration
             send(ADB_DEVICE_INFO_COMMAND)
         }
     }
@@ -227,11 +233,10 @@ private fun AutoPrintFastbootDeviceInfo(
     panel: DesktopCommandPanel,
     transcript: MutableList<String>,
 ) {
-    var infoGeneration by rememberSaveable { mutableStateOf<Long?>(null) }
     LaunchedEffect(generation) {
         val currentGeneration = generation ?: return@LaunchedEffect
-        if (infoGeneration != currentGeneration) {
-            infoGeneration = currentGeneration
+        if (TerminalUiSession.fastbootInfoGeneration != currentGeneration) {
+            TerminalUiSession.fastbootInfoGeneration = currentGeneration
             transcript += "[NekoFlash] Fastboot connected"
             transcript += "$ fastboot getvar all"
             compileAndRunFastboot("fastboot getvar all", panel, transcript)
@@ -241,10 +246,9 @@ private fun AutoPrintFastbootDeviceInfo(
 
 @Composable
 private fun ObserveFastbootOutcome(state: FastbootConsoleState, transcript: MutableList<String>) {
-    var previous by remember { mutableStateOf<FastbootConsoleState?>(null) }
     LaunchedEffect(state) {
-        if (state != previous) {
-            previous = state
+        if (state != TerminalUiSession.previousFastbootState) {
+            TerminalUiSession.previousFastbootState = state
             fastbootStateLines(state).forEach(transcript::add)
         }
     }
@@ -266,7 +270,6 @@ private fun LineTerminalOutput(
     modifier: Modifier = Modifier,
 ) {
     val state = rememberLazyListState()
-    val horizontal = rememberScrollState()
     var followTail by remember { mutableStateOf(true) }
 
     LaunchedEffect(state) {
@@ -292,8 +295,8 @@ private fun LineTerminalOutput(
                 color = TerminalPalette.foreground,
                 fontFamily = FontFamily.Monospace,
                 fontSize = OUTPUT_TEXT_SIZE,
-                softWrap = false,
-                modifier = Modifier.horizontalScroll(horizontal),
+                softWrap = true,
+                modifier = Modifier.fillMaxWidth(),
             )
         }
     }
