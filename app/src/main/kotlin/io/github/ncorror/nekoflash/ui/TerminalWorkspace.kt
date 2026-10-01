@@ -363,9 +363,9 @@ private fun fastbootStateLines(state: FastbootConsoleState): List<String> = when
     }
 }
 
-private val OUTPUT_PADDING = 8.dp
-private val OUTPUT_GAP = 2.dp
-private val OUTPUT_TEXT_SIZE = 12.sp
+private val OUTPUT_PADDING = 4.dp
+private val OUTPUT_GAP = 0.dp
+private val OUTPUT_TEXT_SIZE = 11.sp
 private const val ADB_PROMPT = "❯"
 private const val FASTBOOT_PROMPT = "fastboot ❯"
 
