@@ -44,6 +44,8 @@ private object TerminalUiSession {
     val hostTranscript = mutableStateListOf<String>()
     val stagedInput = mutableStateOf("")
     val pane = mutableStateOf(TerminalPane.HOST)
+    val controlActive = mutableStateOf(false)
+    val altActive = mutableStateOf(false)
     var fastbootInfoGeneration: Long? = null
     var previousFastbootState: FastbootConsoleState? = null
     var previousHostAnswer: String? = null
@@ -84,6 +86,8 @@ internal fun TerminalWorkspace(
         hostTranscript = hostTranscript,
         actions = actions,
         hostPrompt = HOST_PROMPT,
+        controlActive = TerminalUiSession.controlActive,
+        altActive = TerminalUiSession.altActive,
         onHostCommand = { command ->
             compileAndRunHostCommand(command, desktopCommand, hostTranscript)
         },
@@ -94,6 +98,12 @@ internal fun TerminalWorkspace(
         when {
             current.ready -> selectedPane.value = TerminalPane.SHELL
             current.ended != null -> selectedPane.value = TerminalPane.HOST
+        }
+    }
+    LaunchedEffect(ptyInput) {
+        if (!ptyInput) {
+            TerminalUiSession.controlActive.value = false
+            TerminalUiSession.altActive.value = false
         }
     }
     LaunchedEffect(current.ready) {
@@ -152,7 +162,8 @@ private fun TerminalWorkspaceLayout(
     val focusInput = { focusRequest.value += 1 }
     val pasteInput = { pasteRequest.value += 1 }
     val shellSelected = selectedPane.value == TerminalPane.SHELL
-    val inputEnabled = !shellSelected || terminal.current.ready
+    val ptyEnabled = shellSelected && terminal.current.ready
+    val inputEnabled = !shellSelected || ptyEnabled
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -172,8 +183,8 @@ private fun TerminalWorkspaceLayout(
                     placeholder = if (terminal.current.active) "Opening adb shell…" else "adb shell is not active",
                     showCursor = terminal.current.ready,
                     onResize = actions.onResize,
-                    onTap = if (terminal.current.ready) focusInput else ({}),
-                    onPaste = if (terminal.current.ready) pasteInput else ({}),
+                    onTap = if (ptyEnabled) focusInput else ({}),
+                    onPaste = if (ptyEnabled) pasteInput else ({}),
                     modifier = Modifier.weight(1f).fillMaxWidth(),
                 )
             } else {
@@ -192,6 +203,15 @@ private fun TerminalWorkspaceLayout(
                     onPaste = pasteInput,
                 )
             }
+            TerminalExtraKeys(
+                ptyEnabled = ptyEnabled,
+                controlActive = TerminalUiSession.controlActive.value,
+                altActive = TerminalUiSession.altActive.value,
+                onControl = router::toggleControl,
+                onAlt = router::toggleAlt,
+                onKey = router::onSpecialKey,
+                onFocus = focusInput,
+            )
         }
         TerminalInputCapture(
             focusRequest = focusRequest.value,
@@ -200,7 +220,7 @@ private fun TerminalWorkspaceLayout(
             onText = { if (inputEnabled) router.onText(it) },
             onEnter = { if (inputEnabled) router.onEnter() },
             onBackspace = { if (inputEnabled) router.onBackspace() },
-            onInterrupt = { if (inputEnabled) actions.onInterrupt() },
+            onInterrupt = { if (ptyEnabled) actions.onInterrupt() },
             onSpecialKey = { if (inputEnabled) router.onSpecialKey(it) },
             modifier = Modifier.align(Alignment.BottomStart),
         )
