@@ -7,10 +7,12 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -190,42 +192,42 @@ internal fun TerminalExtraKeys(
         horizontalArrangement = Arrangement.spacedBy(EXTRA_GAP),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        ExtraKey("ESC", ptyEnabled) { onKey(TerminalKey.ESCAPE) }
-        ExtraKey("CTRL", ptyEnabled, controlActive, onControl)
-        ExtraKey("ALT", ptyEnabled, altActive, onAlt)
-        ExtraKey("TAB", ptyEnabled) { onKey(TerminalKey.TAB) }
-        ExtraKey("←", ptyEnabled) { onKey(TerminalKey.LEFT) }
-        ExtraKey("↓", ptyEnabled) { onKey(TerminalKey.DOWN) }
-        ExtraKey("↑", ptyEnabled) { onKey(TerminalKey.UP) }
-        ExtraKey("→", ptyEnabled) { onKey(TerminalKey.RIGHT) }
-        ExtraKey("HOME", ptyEnabled) { onKey(TerminalKey.HOME) }
-        ExtraKey("END", ptyEnabled) { onKey(TerminalKey.END) }
-        ExtraKey("PGUP", ptyEnabled) { onKey(TerminalKey.PAGE_UP) }
-        ExtraKey("PGDN", ptyEnabled) { onKey(TerminalKey.PAGE_DOWN) }
-        ExtraKey("⌨", true, onClick = onFocus)
+        ExtraKey("⌨", onClick = onFocus)
+        ExtraKey("ESC") { if (ptyEnabled) onKey(TerminalKey.ESCAPE) else onFocus() }
+        ExtraKey("CTRL", active = controlActive) { if (ptyEnabled) onControl() else onFocus() }
+        ExtraKey("ALT", active = altActive) { if (ptyEnabled) onAlt() else onFocus() }
+        ExtraKey("TAB") { if (ptyEnabled) onKey(TerminalKey.TAB) else onFocus() }
+        ExtraKey("←") { if (ptyEnabled) onKey(TerminalKey.LEFT) else onFocus() }
+        ExtraKey("↓") { if (ptyEnabled) onKey(TerminalKey.DOWN) else onFocus() }
+        ExtraKey("↑") { if (ptyEnabled) onKey(TerminalKey.UP) else onFocus() }
+        ExtraKey("→") { if (ptyEnabled) onKey(TerminalKey.RIGHT) else onFocus() }
+        ExtraKey("HOME") { if (ptyEnabled) onKey(TerminalKey.HOME) else onFocus() }
+        ExtraKey("END") { if (ptyEnabled) onKey(TerminalKey.END) else onFocus() }
+        ExtraKey("PGUP") { if (ptyEnabled) onKey(TerminalKey.PAGE_UP) else onFocus() }
+        ExtraKey("PGDN") { if (ptyEnabled) onKey(TerminalKey.PAGE_DOWN) else onFocus() }
     }
 }
 
 @Composable
 private fun ExtraKey(
     label: String,
-    enabled: Boolean,
     active: Boolean = false,
     onClick: () -> Unit,
 ) {
-    Text(
-        text = label,
-        color = when {
-            active -> TerminalPalette.live
-            enabled -> TerminalPalette.foreground
-            else -> TerminalPalette.muted
-        },
-        fontFamily = FontFamily.Monospace,
-        fontSize = EXTRA_TEXT_SIZE,
+    Box(
         modifier = Modifier
-            .clickable(enabled = enabled, onClick = onClick)
+            .sizeIn(minWidth = EXTRA_KEY_MIN_WIDTH, minHeight = EXTRA_KEY_MIN_HEIGHT)
+            .clickable(onClick = onClick)
             .padding(horizontal = EXTRA_KEY_HORIZONTAL, vertical = EXTRA_KEY_VERTICAL),
-    )
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = label,
+            color = if (active) TerminalPalette.live else TerminalPalette.foreground,
+            fontFamily = FontFamily.Monospace,
+            fontSize = EXTRA_TEXT_SIZE,
+        )
+    }
 }
 
 @Composable
@@ -287,12 +289,14 @@ private val INPUT_HORIZONTAL_PADDING = 6.dp
 private val INPUT_VERTICAL_PADDING = 6.dp
 private val INPUT_GAP = 6.dp
 private val INPUT_TEXT_SIZE = 11.sp
-private val EXTRA_ROW_PADDING = 4.dp
-private val EXTRA_VERTICAL_PADDING = 2.dp
-private val EXTRA_GAP = 2.dp
-private val EXTRA_KEY_HORIZONTAL = 7.dp
-private val EXTRA_KEY_VERTICAL = 5.dp
-private val EXTRA_TEXT_SIZE = 10.sp
+private val EXTRA_ROW_PADDING = 6.dp
+private val EXTRA_VERTICAL_PADDING = 4.dp
+private val EXTRA_GAP = 4.dp
+private val EXTRA_KEY_MIN_WIDTH = 44.dp
+private val EXTRA_KEY_MIN_HEIGHT = 40.dp
+private val EXTRA_KEY_HORIZONTAL = 8.dp
+private val EXTRA_KEY_VERTICAL = 6.dp
+private val EXTRA_TEXT_SIZE = 13.sp
 private const val INPUT_CURSOR = "▌"
 private const val DELETE_CHARACTER = "\u007F"
 private const val ESCAPE_CHARACTER = "\u001B"
