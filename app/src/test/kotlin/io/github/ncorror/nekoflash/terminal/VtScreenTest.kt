@@ -104,6 +104,34 @@ class VtScreenTest {
         assertEquals(listOf("1", "2", "3", "4"), screen.snapshot().rows.map { it.text })
         assertEquals(3, screen.snapshot().cursorRow)
     }
+
+    @Test
+    fun rowOnlyShrinkAndExpandRestoresVisibleGrid() {
+        val screen = screen(columns = 10, rows = 4)
+        screen.feed("1\r\n2\r\n3\r\n4")
+
+        screen.resize(10, 2)
+        screen.resize(10, 4)
+
+        val snapshot = screen.snapshot()
+        assertEquals(listOf("1", "2", "3", "4"), snapshot.rows.map { it.text })
+        assertEquals(3, snapshot.cursorRow)
+    }
+
+    @Test
+    fun keyboardShrinkDropsBlankBottomRowsBeforeScrollback() {
+        val screen = screen(columns = 12, rows = 8)
+        screen.feed("prompt$ ")
+
+        screen.resize(12, 4)
+        screen.resize(12, 8)
+
+        val snapshot = screen.snapshot()
+        assertEquals("prompt$", snapshot.rows.first().text)
+        assertEquals(0, snapshot.cursorRow)
+        assertEquals(8, snapshot.rows.size)
+    }
+
     @Test
     fun scrollbackDoesNotDiscardOldOutput() {
         val screen = screen(columns = 24, rows = 2)
@@ -115,5 +143,4 @@ class VtScreenTest {
         assertEquals("line-0", snapshot.rows.first().text)
         assertEquals("line-1499", snapshot.rows.dropLast(1).last().text)
     }
-
 }
