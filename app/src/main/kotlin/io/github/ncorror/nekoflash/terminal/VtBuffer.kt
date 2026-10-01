@@ -39,6 +39,16 @@ data class VtRun(val start: Int, val end: Int, val style: VtStyle)
 /** Строка, готовая к показу. */
 data class VtRow(val text: String, val runs: List<VtRun>)
 
+private fun VtRow.toLine(columns: Int): VtLine = VtLine(columns).also { line ->
+    val count = minOf(text.length, columns)
+    for (index in 0 until count) line.chars[index] = text[index]
+    for (run in runs) {
+        val start = run.start.coerceIn(0, columns)
+        val end = run.end.coerceIn(start, columns)
+        for (index in start until end) line.styles[index] = run.style
+    }
+}
+
 /**
  * Экран терминала: сетка [columns] × [rows], курсор, область прокрутки и
  * второй экран (`?1049h`), у которого нет истории, как у xterm.
@@ -148,8 +158,24 @@ internal class VtBuffer(var columns: Int, var rows: Int) {
         if (on) moveTo(0, 0)
     }
 
-    /** Новый размер: содержимое сохраняется, лишние верхние строки уходят в историю. */
+    /**
+     * Resize keeps the terminal grid reversible when only its height changes.
+     *
+     * Soft-keyboard and lifecycle transitions change rows much more often than
+     * columns. Blank rows below the cursor are discarded first. If real rows
+     * must leave the visible grid they enter scrollback, and an expansion pulls
+     * those same rows back before adding new blanks. This mirrors the behaviour
+     * users expect from Termux/NetHunter and avoids history/blank gaps after an
+     * IME or background/foreground resize cycle.
+     */
     fun resize(newColumns: Int, newRows: Int) {
+        if (newColumns <= 0 || newRows <= 0) return
+        if (newColumns == columns && alternate == null) {
+            resizeMainRows(newRows)
+            return
+        }
+
+        val oldRows = rows
         for (screen in listOfNotNull(main, alternate)) {
             screen.forEach { it.resize(newColumns) }
             while (screen.size > newRows) {
@@ -158,13 +184,55 @@ internal class VtBuffer(var columns: Int, var rows: Int) {
             }
             while (screen.size < newRows) screen.add(VtLine(newColumns))
         }
-        val shift = rows - newRows
+        val shift = oldRows - newRows
         columns = newColumns
         rows = newRows
         top = 0
         bottom = rows - 1
+        saved = saved.clamp(rows, columns, shift.coerceAtLeast(0))
         moveTo(if (shift > 0) row - shift else row, column)
     }
+
+    private fun resizeMainRows(newRows: Int) {
+        if (newRows == rows || newRows <= 0) return
+        if (newRows < rows) shrinkMainRows(newRows) else expandMainRows(newRows)
+        rows = newRows
+        top = 0
+        bottom = rows - 1
+        row = row.coerceIn(0, rows - 1)
+        column = column.coerceIn(0, columns - 1)
+        saved = saved.clamp(rows, columns)
+        wrapPending = false
+    }
+
+    private fun shrinkMainRows(newRows: Int) {
+        var remaining = rows - newRows
+        while (remaining > 0 && main.size > newRows && row < main.lastIndex && main.last().isVisuallyBlank()) {
+            main.removeAt(main.lastIndex)
+            remaining--
+        }
+        while (remaining > 0 && main.size > newRows) {
+            archive(main.removeAt(0))
+            row = (row - 1).coerceAtLeast(0)
+            saved = saved.copy(row = (saved.row - 1).coerceAtLeast(0))
+            remaining--
+        }
+    }
+
+    private fun expandMainRows(newRows: Int) {
+        var remaining = newRows - rows
+        while (remaining > 0 && history.isNotEmpty()) {
+            main.add(0, history.removeLast().toLine(columns))
+            row++
+            saved = saved.copy(row = saved.row + 1)
+            remaining--
+        }
+        repeat(remaining) {
+            main.add(VtLine(columns).also { it.clear(0, columns, blank()) })
+        }
+    }
+
+    private fun VtLine.isVisuallyBlank(): Boolean = freeze().text.isEmpty()
 
     fun reset() {
         main = MutableList(rows) { VtLine(columns) }
@@ -194,7 +262,12 @@ internal class VtBuffer(var columns: Int, var rows: Int) {
         history.add(line.freeze())
     }
 
-    private data class Saved(val row: Int, val column: Int, val style: VtStyle)
+    private data class Saved(val row: Int, val column: Int, val style: VtStyle) {
+        fun clamp(rows: Int, columns: Int, shift: Int = 0): Saved = copy(
+            row = (row - shift).coerceIn(0, rows - 1),
+            column = column.coerceIn(0, columns - 1),
+        )
+    }
 
     private companion object {
         const val TAB = 8
