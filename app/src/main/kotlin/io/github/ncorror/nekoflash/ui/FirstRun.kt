@@ -1,32 +1,24 @@
 package io.github.ncorror.nekoflash.ui
 
 import android.content.Context
-import android.content.SharedPreferences
 
 /**
- * Видел ли пользователь первый экран.
+ * Whether the current app process already passed the startup Welcome screen.
  *
- * Хранится в приватных настройках приложения, а значит **не переживает
- * переустановку** — и это правильно, а не упущение: `11` §11 исключает
- * app-managed state из облачной резервной копии и переноса между устройствами
- * fail-closed. Показать вводный экран ещё раз после переустановки дешевле, чем
- * завести ещё одну вещь, которая тихо переезжает между телефонами.
- *
- * Это не гейт: [seen] отвечает только на вопрос «показывать ли вводный экран»,
- * и ни на что больше не влияет.
+ * This is deliberately process-local rather than persistent. A cold process
+ * start always begins at Welcome; Activity recreation or returning from the
+ * background in the same process does not show it again.
  */
 internal class FirstRun(context: Context) {
-    private val preferences: SharedPreferences =
-        context.getSharedPreferences(STORE, Context.MODE_PRIVATE)
+    private val processKey = context.applicationContext.packageName
 
     var seen: Boolean
-        get() = preferences.getBoolean(KEY, false)
+        get() = processKey in seenProcesses
         set(value) {
-            preferences.edit().putBoolean(KEY, value).apply()
+            if (value) seenProcesses += processKey else seenProcesses -= processKey
         }
 
     private companion object {
-        const val STORE = "nekoflash.first-run"
-        const val KEY = "welcome.seen"
+        val seenProcesses = mutableSetOf<String>()
     }
 }
