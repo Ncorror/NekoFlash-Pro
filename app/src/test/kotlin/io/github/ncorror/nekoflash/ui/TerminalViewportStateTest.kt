@@ -60,4 +60,28 @@ class TerminalViewportStateTest {
         assertEquals(0, state.targetRow(screenStartRow = 5, lastRow = 9))
         assertEquals(0, state.targetRow(screenStartRow = 0, lastRow = -1))
     }
+
+    @Test
+    fun hostTailOnlyChangesAfterARealUserScroll() {
+        val state = TerminalTailViewportState()
+
+        state.settleUserScroll(lastVisibleRow = 3, lastRow = 20)
+        assertTrue(state.followTail)
+
+        state.noteUserScroll()
+        state.settleUserScroll(lastVisibleRow = 3, lastRow = 20)
+        assertFalse(state.followTail)
+    }
+
+    @Test
+    fun hostTailReenablesWhenUserReturnsToBottom() {
+        val state = TerminalTailViewportState()
+        state.noteUserScroll()
+        state.settleUserScroll(lastVisibleRow = 3, lastRow = 20)
+
+        state.noteUserScroll()
+        state.settleUserScroll(lastVisibleRow = 19, lastRow = 20)
+
+        assertTrue(state.followTail)
+    }
 }
