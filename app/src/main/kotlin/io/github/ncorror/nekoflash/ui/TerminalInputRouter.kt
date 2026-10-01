@@ -28,30 +28,32 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import io.github.ncorror.nekoflash.adb.TerminalKey
 
+/**
+ * Routes one physical keyboard/IME surface to two deliberately different modes.
+ *
+ * Host mode buffers a complete `adb`/`fastboot` command and gives it to the
+ * NekoFlash command engine on Enter. A live ADB PTY is different: once
+ * `adb shell` has opened, committed text and terminal keys go directly to that
+ * remote PTY, like Termux/NetHunter.
+ */
 internal class TerminalInputRouter(
     private val currentReady: Boolean,
-    private val fastbootConnected: Boolean,
     private val stagedInput: MutableState<String>,
-    private val offlineTranscript: MutableList<String>,
+    private val hostTranscript: MutableList<String>,
     private val actions: TerminalActions,
-    private val connectMessage: String,
-    private val offlinePrompt: String,
-    private val onFastbootCommand: (String) -> Unit,
+    private val hostPrompt: String,
+    private val onHostCommand: (String) -> Unit,
 ) {
     fun onText(text: String) {
-        if (currentReady && !fastbootConnected) actions.onType(text) else stagedInput.value += text
+        if (currentReady) actions.onType(text) else stagedInput.value += text
     }
 
     fun onEnter() {
-        when {
-            currentReady && !fastbootConnected -> actions.onType("\r")
-            fastbootConnected -> submitFastboot()
-            else -> submitOffline()
-        }
+        if (currentReady) actions.onType("\r") else submitHost()
     }
 
     fun onBackspace() {
-        if (currentReady && !fastbootConnected) {
+        if (currentReady) {
             actions.onType(DELETE_CHARACTER)
         } else {
             stagedInput.value = stagedInput.value.dropLastCodePoint()
@@ -59,21 +61,15 @@ internal class TerminalInputRouter(
     }
 
     fun onSpecialKey(key: TerminalKey) {
-        if (currentReady && !fastbootConnected) actions.onKey(key)
+        if (currentReady) actions.onKey(key)
     }
 
-    private fun submitFastboot() {
-        val command = stagedInput.value
-        stagedInput.value = ""
-        if (command.isNotBlank()) onFastbootCommand(command)
-    }
-
-    private fun submitOffline() {
+    private fun submitHost() {
         val command = stagedInput.value
         stagedInput.value = ""
         if (command.isBlank()) return
-        offlineTranscript += "$offlinePrompt $command"
-        offlineTranscript += "[NekoFlash] $connectMessage"
+        hostTranscript += "$hostPrompt $command"
+        onHostCommand(command)
     }
 }
 
