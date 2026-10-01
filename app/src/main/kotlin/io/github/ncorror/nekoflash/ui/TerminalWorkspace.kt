@@ -21,9 +21,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -52,6 +54,7 @@ import io.github.ncorror.nekoflash.adb.TerminalKey
 import io.github.ncorror.nekoflash.fastboot.FastbootConsoleState
 import io.github.ncorror.nekoflash.fastboot.FastbootLinkState
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootReply
+import kotlinx.coroutines.launch
 
 /**
  * Main production workspace.
@@ -76,9 +79,13 @@ internal fun TerminalWorkspace(
     val fastbootTranscript = remember { mutableStateListOf<String>() }
     val inputFocus = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
+    val inputScope = rememberCoroutineScope()
     val focusInput: () -> Unit = {
         inputFocus.requestFocus()
-        keyboard?.show()
+        inputScope.launch {
+            withFrameNanos { }
+            keyboard?.show()
+        }
         Unit
     }
 
@@ -203,7 +210,7 @@ private fun TerminalCommandLine(
 ) {
     var value by rememberSaveable { mutableStateOf("") }
     val submit = {
-        if (canSend && value.isNotBlank()) {
+        if (value.isNotBlank()) {
             val command = value
             value = ""
             onSubmit(command)
@@ -269,7 +276,7 @@ private fun TerminalInputField(
         modifier = modifier
             .focusRequester(focus)
             .onPreviewKeyEvent { event ->
-                if (canSend) {
+                if (canSend || event.key == Key.Enter) {
                     handleTerminalKey(event, onSubmit, onInterrupt, onSpecialKey)
                 } else {
                     false
