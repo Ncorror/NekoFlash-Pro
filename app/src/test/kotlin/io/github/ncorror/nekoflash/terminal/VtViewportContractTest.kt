@@ -27,4 +27,20 @@ class VtViewportContractTest {
         screen.resize(columns = 10, rows = 4)
         assertEquals(0, screen.snapshot().screenStartRow)
     }
+
+    @Test
+    fun alternateScreenDoesNotExposeMainScrollback() {
+        val esc = "\u001B"
+        val screen = VtScreen(columns = 10, rows = 2)
+        screen.feed("old-1\r\nold-2\r\nold-3")
+
+        screen.feed("${esc}[?1049h${esc}[Htop")
+        val alternate = screen.snapshot()
+
+        assertEquals(0, alternate.screenStartRow)
+        assertEquals(listOf("top", ""), alternate.rows.map { it.text })
+
+        screen.feed("${esc}[?1049l")
+        assertEquals("old-1", screen.snapshot().rows.first().text)
+    }
 }
