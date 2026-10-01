@@ -163,8 +163,8 @@ private fun String.dropLastCodePoint(): String {
 
 private val INPUT_CAPTURE_SIZE = 1.dp
 private val INPUT_HORIZONTAL_PADDING = 10.dp
-private val INPUT_VERTICAL_PADDING = 9.dp
+private val INPUT_VERTICAL_PADDING = 8.dp
 private val INPUT_GAP = 8.dp
-private val INPUT_TEXT_SIZE = 13.sp
+private val INPUT_TEXT_SIZE = 12.sp
 private const val INPUT_CURSOR = "▌"
 private const val DELETE_CHARACTER = "\u007F"
