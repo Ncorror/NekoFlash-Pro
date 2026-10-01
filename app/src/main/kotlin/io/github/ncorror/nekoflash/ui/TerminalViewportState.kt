@@ -16,6 +16,7 @@ internal class TerminalViewportState {
         private set
 
     private var userScrollPending: Boolean = false
+    private var previousScreenStartRow: Int? = null
 
     /** Marks a real user scroll gesture. Programmatic scrolls never call this. */
     fun noteUserScroll() {
@@ -31,12 +32,20 @@ internal class TerminalViewportState {
     fun settleUserScroll(firstVisibleRow: Int, screenStartRow: Int) {
         if (!userScrollPending) return
         userScrollPending = false
+        previousScreenStartRow = screenStartRow
         historyOffset = (screenStartRow - firstVisibleRow).coerceAtLeast(0)
         followLive = historyOffset == 0
     }
 
-    /** Target row for initial composition, resume and VT-grid resize. */
+    /**
+     * Target row for composition, resume and VT-grid resize.
+     *
+     * When output grows while the user reads history, the live-grid origin moves
+     * forward. The offset grows by the same delta so the same historical row
+     * remains anchored instead of jumping with new output.
+     */
     fun targetRow(screenStartRow: Int, lastRow: Int): Int {
+        reconcileScreenStart(screenStartRow)
         if (lastRow < 0) return 0
         val target = if (followLive) screenStartRow else screenStartRow - historyOffset
         return target.coerceIn(0, lastRow)
@@ -46,6 +55,15 @@ internal class TerminalViewportState {
         historyOffset = 0
         followLive = true
         userScrollPending = false
+    }
+
+    private fun reconcileScreenStart(screenStartRow: Int) {
+        val previous = previousScreenStartRow
+        if (previous != null && !followLive) {
+            historyOffset = (historyOffset + screenStartRow - previous).coerceAtLeast(0)
+            if (historyOffset == 0) followLive = true
+        }
+        previousScreenStartRow = screenStartRow
     }
 }
 
