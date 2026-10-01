@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -62,13 +63,15 @@ internal fun TerminalWorkspace(
     val stagedInput = rememberSaveable { mutableStateOf("") }
     val focusRequest = remember { mutableStateOf(0) }
     val inputFocused = remember { mutableStateOf(false) }
+    val offlineStatus = "ADB/Fastboot: ${stringResource(R.string.adb_state_idle)}.\n" +
+        "[NekoFlash] ${stringResource(R.string.terminal_connect_device)}"
     val router = TerminalInputRouter(
         currentReady = current.ready,
         fastbootConnected = fastbootConnected,
         stagedInput = stagedInput,
         offlineTranscript = offlineTranscript,
         actions = actions,
-        connectMessage = stringResource(R.string.terminal_connect_device),
+        connectMessage = offlineStatus,
         offlinePrompt = ADB_PROMPT,
         onFastbootCommand = { command ->
             fastbootTranscript += "$ $command"
@@ -127,7 +130,12 @@ private fun TerminalWorkspaceLayout(
     modifier: Modifier,
 ) {
     val focusInput = { focusRequest.value += 1 }
-    Box(modifier = modifier.fillMaxSize().background(TerminalPalette.background)) {
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(TerminalPalette.background)
+            .imePadding(),
+    ) {
         Column(modifier = Modifier.fillMaxSize()) {
             TerminalOutput(
                 currentReady = terminal.current.ready,
