@@ -39,13 +39,15 @@ import androidx.compose.ui.unit.sp
 import io.github.ncorror.nekoflash.terminal.VtRow
 import io.github.ncorror.nekoflash.terminal.VtSnapshot
 import io.github.ncorror.nekoflash.terminal.VtStyle
+import kotlinx.coroutines.delay
 
 /**
  * VT renderer for the live ADB PTY.
  *
  * History is rendered row-by-row through LazyColumn instead of rebuilding one
- * giant Text node. This lets the transcript grow without a line-count limit
- * while only composing the visible rows.
+ * giant Text node. The PTY size is emitted only after the Compose viewport has
+ * settled, so IME/lifecycle intermediate layouts cannot flood shell-v2 with
+ * window-size-change frames.
  */
 @Composable
 internal fun TerminalScreen(
@@ -100,9 +102,12 @@ private fun TerminalViewport(
         (width - PADDING * 2).toPx().coerceAtLeast(1f) to
             (height - PADDING * 2).toPx().coerceAtLeast(1f)
     }
-    val columns = (inner.first / cell.width.coerceAtLeast(1)).toInt().coerceAtLeast(1)
-    val rows = (inner.second / cell.height.coerceAtLeast(1)).toInt().coerceAtLeast(1)
-    LaunchedEffect(columns, rows) { onResize(columns, rows) }
+    val columns = (inner.first / cell.width.coerceAtLeast(1)).toInt().coerceAtLeast(MIN_GRID)
+    val rows = (inner.second / cell.height.coerceAtLeast(1)).toInt().coerceAtLeast(MIN_GRID)
+    LaunchedEffect(columns, rows) {
+        delay(RESIZE_SETTLE_MS)
+        onResize(columns, rows)
+    }
 
     if (screen.rows.isEmpty()) {
         Text(
@@ -241,6 +246,8 @@ private fun colorOf(value: Int): Color? = when {
 private val PADDING = 4.dp
 private val TEXT_SIZE = 11.sp
 private val LINE_HEIGHT = 13.sp
+private const val MIN_GRID = 4
+private const val RESIZE_SETTLE_MS = 160L
 private const val DIM_ALPHA = 0.6f
 private const val OPAQUE = -0x1000000
 private const val RGB_MASK = 0xFFFFFF
