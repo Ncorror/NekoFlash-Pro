@@ -28,16 +28,9 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import io.github.ncorror.nekoflash.adb.TerminalKey
 
-/**
- * Routes one physical keyboard/IME surface to two deliberately different modes.
- *
- * Host mode buffers a complete `adb`/`fastboot` command and gives it to the
- * NekoFlash command engine on Enter. A live ADB PTY is different: once
- * `adb shell` has opened, committed text and terminal keys go directly to that
- * remote PTY, like Termux/NetHunter.
- */
+/** Routes one IME surface either to NekoFlash host CLI or to a live remote PTY. */
 internal class TerminalInputRouter(
-    private val currentReady: Boolean,
+    private val ptyInput: Boolean,
     private val stagedInput: MutableState<String>,
     private val hostTranscript: MutableList<String>,
     private val actions: TerminalActions,
@@ -45,15 +38,15 @@ internal class TerminalInputRouter(
     private val onHostCommand: (String) -> Unit,
 ) {
     fun onText(text: String) {
-        if (currentReady) actions.onType(text) else stagedInput.value += text
+        if (ptyInput) actions.onType(text) else stagedInput.value += text
     }
 
     fun onEnter() {
-        if (currentReady) actions.onType("\r") else submitHost()
+        if (ptyInput) actions.onType("\r") else submitHost()
     }
 
     fun onBackspace() {
-        if (currentReady) {
+        if (ptyInput) {
             actions.onType(DELETE_CHARACTER)
         } else {
             stagedInput.value = stagedInput.value.dropLastCodePoint()
@@ -61,7 +54,7 @@ internal class TerminalInputRouter(
     }
 
     fun onSpecialKey(key: TerminalKey) {
-        if (currentReady) actions.onKey(key)
+        if (ptyInput) actions.onKey(key)
     }
 
     private fun submitHost() {
@@ -76,6 +69,7 @@ internal class TerminalInputRouter(
 @Composable
 internal fun TerminalInputCapture(
     focusRequest: Int,
+    pasteRequest: Int,
     onFocusChanged: (Boolean) -> Unit,
     onText: (String) -> Unit,
     onEnter: () -> Unit,
@@ -107,6 +101,12 @@ internal fun TerminalInputCapture(
             view?.showKeyboard()
         }
     }
+    LaunchedEffect(pasteRequest, view) {
+        if (pasteRequest > 0) {
+            withFrameNanos { }
+            view?.pasteClipboard()
+        }
+    }
 }
 
 @Composable
@@ -116,12 +116,13 @@ internal fun TerminalInputDisplay(
     live: Boolean,
     focused: Boolean,
     onTap: () -> Unit,
+    onPaste: () -> Unit,
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .background(TerminalPalette.chrome)
-            .terminalTap(onTap)
+            .terminalTap(onTap, onPaste)
             .padding(horizontal = INPUT_HORIZONTAL_PADDING, vertical = INPUT_VERTICAL_PADDING),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(INPUT_GAP),
@@ -141,13 +142,18 @@ internal fun TerminalInputDisplay(
     }
 }
 
-internal fun Modifier.terminalTap(onTap: () -> Unit): Modifier = pointerInput(onTap) {
+internal fun Modifier.terminalTap(
+    onTap: () -> Unit,
+    onLongPress: () -> Unit = {},
+): Modifier = pointerInput(onTap, onLongPress) {
     awaitEachGesture {
         val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
         val up = waitForUpOrCancellation(pass = PointerEventPass.Initial)
-        val quick = up != null && up.uptimeMillis - down.uptimeMillis < viewConfiguration.longPressTimeoutMillis
         val still = up != null && (up.position - down.position).getDistance() < viewConfiguration.touchSlop
-        if (quick && still) onTap()
+        if (still) {
+            val held = up!!.uptimeMillis - down.uptimeMillis
+            if (held >= viewConfiguration.longPressTimeoutMillis) onLongPress() else onTap()
+        }
     }
 }
 
