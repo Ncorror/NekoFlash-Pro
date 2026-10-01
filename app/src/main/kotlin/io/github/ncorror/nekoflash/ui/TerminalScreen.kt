@@ -1,9 +1,6 @@
 package io.github.ncorror.nekoflash.ui
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -15,15 +12,11 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.PointerEventPass
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -44,10 +37,10 @@ import kotlinx.coroutines.delay
 /**
  * VT renderer for the live ADB PTY.
  *
- * History is rendered row-by-row through LazyColumn instead of rebuilding one
- * giant Text node. The PTY size is emitted only after the Compose viewport has
- * settled, so IME/lifecycle intermediate layouts cannot flood shell-v2 with
- * window-size-change frames.
+ * The cursor, not the last snapshot row, is the live tail. Current-grid rows
+ * below the cursor may be blank, so following the last row would scroll toward
+ * empty space after IME/lifecycle resize. Manual user scrolling disables cursor
+ * following until the cursor becomes visible again.
  */
 @Composable
 internal fun TerminalScreen(
@@ -57,6 +50,7 @@ internal fun TerminalScreen(
     onResize: (Int, Int) -> Unit,
     modifier: Modifier = Modifier,
     onTap: () -> Unit = {},
+    onPaste: () -> Unit = {},
 ) {
     val colors = TerminalColors(TerminalPalette.foreground, TerminalPalette.background)
     val style = TextStyle(
@@ -69,7 +63,7 @@ internal fun TerminalScreen(
         modifier = modifier
             .fillMaxSize()
             .background(colors.background)
-            .observeTaps(onTap),
+            .terminalTap(onTap, onPaste),
     ) {
         TerminalViewport(
             screen = screen,
@@ -128,18 +122,25 @@ private fun TerminalRows(
     colors: TerminalColors,
 ) {
     val listState = rememberLazyListState()
-    var followTail by remember { mutableStateOf(true) }
+    val followCursor = remember { mutableStateOf(true) }
 
-    LaunchedEffect(listState) {
+    LaunchedEffect(listState, screen.cursorRow) {
         snapshotFlow { listState.isScrollInProgress }.collect { scrolling ->
             if (!scrolling) {
-                val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
-                followTail = lastVisible >= screen.rows.lastIndex - 1
+                val visible = listState.layoutInfo.visibleItemsInfo
+                followCursor.value = visible.isEmpty() || visible.any { it.index == screen.cursorRow }
             }
         }
     }
-    LaunchedEffect(screen.rows.size, screen.cursorRow, screen.rows.lastOrNull()?.text) {
-        if (followTail && screen.rows.isNotEmpty()) listState.scrollToItem(screen.rows.lastIndex)
+    LaunchedEffect(
+        screen.rows.size,
+        screen.cursorRow,
+        screen.rows.getOrNull(screen.cursorRow)?.text,
+    ) {
+        if (followCursor.value && screen.rows.isNotEmpty()) {
+            val cursor = screen.cursorRow.coerceIn(0, screen.rows.lastIndex)
+            listState.scrollToItem(cursor)
+        }
     }
 
     LazyColumn(
@@ -156,15 +157,6 @@ private fun TerminalRows(
                 )
             }
         }
-    }
-}
-
-private fun Modifier.observeTaps(onTap: () -> Unit): Modifier = pointerInput(onTap) {
-    awaitEachGesture {
-        val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
-        val up = waitForUpOrCancellation(pass = PointerEventPass.Initial)
-        val quick = up != null && up.uptimeMillis - down.uptimeMillis < viewConfiguration.longPressTimeoutMillis
-        if (quick && (up!!.position - down.position).getDistance() < viewConfiguration.touchSlop) onTap()
     }
 }
 
