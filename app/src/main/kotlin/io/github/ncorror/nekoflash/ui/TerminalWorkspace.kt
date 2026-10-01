@@ -63,7 +63,7 @@ internal fun TerminalWorkspace(
     val stagedInput = rememberSaveable { mutableStateOf("") }
     val focusRequest = remember { mutableStateOf(0) }
     val inputFocused = remember { mutableStateOf(false) }
-    val offlineStatus = "ADB/Fastboot: ${stringResource(R.string.adb_state_idle)}.\n" +
+    val offlineStatus = stringResource(R.string.terminal_no_transport) + "\n" +
         "[NekoFlash] ${stringResource(R.string.terminal_connect_device)}"
     val router = TerminalInputRouter(
         currentReady = current.ready,
