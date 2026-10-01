@@ -240,12 +240,13 @@ internal class VtBuffer(var columns: Int, var rows: Int) {
         moveTo(0, 0)
     }
 
-    /** Снимок экрана: история и текущие строки. */
+    /** Снимок: scrollback + текущая экранная сетка и её явное начало. */
     fun snapshot(): VtSnapshot = VtSnapshot(
         rows = history.toList() + lines.map { it.freeze() },
         cursorRow = history.size + row,
         cursorColumn = column,
         cursorVisible = cursorVisible,
+        screenStartRow = history.size,
     )
 
     /** Стертые клетки получают текущий фон, как у xterm (`bce`). */
@@ -274,6 +275,8 @@ data class VtSnapshot(
     val cursorRow: Int,
     val cursorColumn: Int,
     val cursorVisible: Boolean,
+    /** Индекс первой строки текущей VT-сетки внутри [rows]. */
+    val screenStartRow: Int = 0,
 ) {
     /** Текст без оформления: строки через `\n`, пустой хвост отброшен. */
     val text: String
