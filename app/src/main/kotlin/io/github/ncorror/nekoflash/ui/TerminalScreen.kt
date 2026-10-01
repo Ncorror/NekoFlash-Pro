@@ -143,19 +143,25 @@ private fun TerminalRows(
 
     LaunchedEffect(listState, screen.screenStartRow) {
         snapshotFlow { listState.isScrollInProgress }.collect { scrolling ->
-            if (!scrolling) viewport.settleUserScroll(listState.firstVisibleItemIndex, screen.screenStartRow)
+            if (!scrolling) {
+                viewport.settleUserScroll(
+                    firstVisibleRow = listState.firstVisibleItemIndex,
+                    firstVisibleScrollOffsetPx = listState.firstVisibleItemScrollOffset,
+                    screenStartRow = screen.screenStartRow,
+                )
+            }
         }
     }
     LaunchedEffect(screen.screenStartRow, screen.rows.size) {
         if (screen.rows.isNotEmpty()) {
             val target = viewport.targetRow(screen.screenStartRow, screen.rows.lastIndex)
-            listState.scrollToItem(target)
+            listState.scrollToItem(target, viewport.targetScrollOffsetPx())
         }
     }
     LaunchedEffect(resumeGeneration) {
         if (screen.rows.isNotEmpty()) {
             val target = viewport.targetRow(screen.screenStartRow, screen.rows.lastIndex)
-            listState.scrollToItem(target)
+            listState.scrollToItem(target, viewport.targetScrollOffsetPx())
         }
     }
 
