@@ -460,4 +460,27 @@
     <string name="sideload_card_title">Install a package</string>
     <string name="recovery_log_note">Take the baseline before installing and read the verdict after it: only a new entry in the log says what this install did.</string>
     <string name="recovery_log_needs_adb">Available once the device in Recovery is connected over ADB.</string>
+
+    <string name="nav_fast_flashing">Fast Flashing</string>
+    <string name="nav_sideload">Sideload</string>
+    <string name="nav_logs">Logs</string>
+    <string name="nav_settings">Settings</string>
+    <string name="otg_disconnected">OTG · Disconnected</string>
+    <string name="otg_connecting">OTG · Connecting</string>
+    <string name="otg_adb">OTG · ADB</string>
+    <string name="otg_fastboot">OTG · Fastboot</string>
+    <string name="otg_error">OTG · Error</string>
+    <string name="terminal_waiting_connection">Waiting for the ADB handshake…</string>
+    <string name="terminal_waiting_authorization">Waiting for device authorization…</string>
+    <string name="terminal_opening_shell">Opening the device shell…</string>
+    <string name="terminal_connect_device">Connect an Android device over USB OTG.</string>
+    <string name="logs_raw_title">Raw log</string>
+    <string name="logs_raw_note">Raw events are shown exactly as recorded. No identifiers or fields are hidden here.</string>
+    <string name="logs_export_cleaned">Export cleaned log</string>
+    <string name="settings_language_title">Interface language</string>
+    <string name="settings_language_note">NekoFlash supports English and Russian. Changing the language recreates the current screen.</string>
+
+    <string name="settings_language_english">English</string>
+    <string name="settings_language_russian">Russian</string>
+
 </resources>

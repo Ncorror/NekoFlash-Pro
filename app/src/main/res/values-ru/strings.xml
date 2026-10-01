@@ -457,4 +457,27 @@
     <string name="sideload_card_title">Установка пакета</string>
     <string name="recovery_log_note">Снимите базу до установки и прочитайте вердикт после: только новая запись в журнале говорит, чем кончилась именно эта установка.</string>
     <string name="recovery_log_needs_adb">Доступно, когда устройство в Recovery подключено по ADB.</string>
+
+    <string name="nav_fast_flashing">Быстрая прошивка</string>
+    <string name="nav_sideload">Sideload</string>
+    <string name="nav_logs">Логи</string>
+    <string name="nav_settings">Настройки</string>
+    <string name="otg_disconnected">OTG · Отключено</string>
+    <string name="otg_connecting">OTG · Подключение</string>
+    <string name="otg_adb">OTG · ADB</string>
+    <string name="otg_fastboot">OTG · Fastboot</string>
+    <string name="otg_error">OTG · Ошибка</string>
+    <string name="terminal_waiting_connection">Ожидание ADB-рукопожатия…</string>
+    <string name="terminal_waiting_authorization">Ожидание авторизации на устройстве…</string>
+    <string name="terminal_opening_shell">Открытие оболочки устройства…</string>
+    <string name="terminal_connect_device">Подключите Android-устройство по USB OTG.</string>
+    <string name="logs_raw_title">Исходный лог</string>
+    <string name="logs_raw_note">События показаны ровно в том виде, как записаны. Здесь ничего не скрывается и не маскируется.</string>
+    <string name="logs_export_cleaned">Экспорт очищенного лога</string>
+    <string name="settings_language_title">Язык интерфейса</string>
+    <string name="settings_language_note">NekoFlash поддерживает английский и русский. После смены языка текущий экран будет пересоздан.</string>
+
+    <string name="settings_language_english">Английский</string>
+    <string name="settings_language_russian">Русский</string>
+
 </resources>

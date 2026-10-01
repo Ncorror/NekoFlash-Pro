@@ -6,7 +6,6 @@ import android.content.Intent
 import android.net.Uri
 import android.webkit.CookieManager
 import android.os.Bundle
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -29,8 +28,6 @@ import androidx.lifecycle.lifecycleScope
 import io.github.ncorror.nekoflash.ui.NekoFlashApp
 import io.github.ncorror.nekoflash.ui.MiUnlockPanel
 import io.github.ncorror.nekoflash.miunlock.MiLoginActivity
-import io.github.ncorror.nekoflash.ui.OperationsPanel
-import io.github.ncorror.nekoflash.ui.PaletteAction
 import io.github.ncorror.nekoflash.ui.RecentEvents
 import io.github.ncorror.nekoflash.adb.AdbLinkController
 import io.github.ncorror.nekoflash.fastboot.FastbootConsoleState
@@ -43,24 +40,18 @@ import io.github.ncorror.nekoflash.usb.api.UsbInterfaceKind
 import io.github.ncorror.nekoflash.usb.api.UsbSession
 import io.github.ncorror.nekoflash.artifact.SafArtifactSink
 import io.github.ncorror.nekoflash.artifact.SafArtifactSource
-import io.github.ncorror.nekoflash.ui.FileActions
 import io.github.ncorror.nekoflash.ui.FirstRun
-import io.github.ncorror.nekoflash.ui.ForwardPanel
-import io.github.ncorror.nekoflash.ui.RawServicePanel
-import io.github.ncorror.nekoflash.ui.RebootPanel
-import io.github.ncorror.nekoflash.ui.ReversePanel
 import io.github.ncorror.nekoflash.ui.SideloadPanel
 import io.github.ncorror.nekoflash.ui.TerminalActions
 import io.github.ncorror.nekoflash.ui.TerminalPanel
 import io.github.ncorror.nekoflash.ui.WelcomeScreen
 import io.github.ncorror.nekoflash.ui.theme.NekoFlashTheme
-import io.github.ncorror.nekoflash.usb.api.UsbClaimResult
 import io.github.ncorror.nekoflash.usb.api.UsbSessionCoordinator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-class MainActivity : ComponentActivity() {
+class MainActivity : LocaleAwareActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -112,10 +103,8 @@ class MainActivity : ComponentActivity() {
         val terminalTabs by adbLink.terminals.collectAsState()
         // Каждая вкладка меняется своим потоком: заголовки и выбранная читаются все.
         val terminalStates = terminalTabs.tabs.map { flow -> key(flow) { flow.collectAsState().value } }
-        val fileState by adbLink.files.collectAsState()
         val fastbootState by fastbootLink.state.collectAsState()
         val fastbootConsole by fastbootLink.console.collectAsState()
-        var exportStatus by remember { mutableStateOf<String?>(null) }
 
         val savedTemplate = stringResource(R.string.diagnostics_export_done)
         val failedTemplate = stringResource(R.string.diagnostics_export_failed)
@@ -125,9 +114,7 @@ class MainActivity : ComponentActivity() {
         val saveLauncher = rememberLauncherForActivityResult(
             ActivityResultContracts.CreateDocument("application/zip"),
         ) { destination ->
-            exportDiagnostics(application, destination, savedTemplate, failedTemplate) { message ->
-                exportStatus = message
-            }
+            exportDiagnostics(application, destination, savedTemplate, failedTemplate) { }
         }
 
         // Скан при каждом возвращении на экран.
@@ -146,30 +133,10 @@ class MainActivity : ComponentActivity() {
             sessions = sessions,
             scan = coordinator.lastScan.collectAsState().value,
             usbHostSupported = packageManager.hasSystemFeature(PackageManager.FEATURE_USB_HOST),
-            exportStatus = exportStatus,
             adbLink = linkState,
             terminal = TerminalPanel(terminalStates, terminalTabs.selected),
             terminalActions = terminalActions(adbLink),
-            files = fileState,
-            fileActions = fileActions(adbLink),
-            onRescanUsb = { coordinator.scanAttachedDevices() },
-            onClaim = claimAction(coordinator, stringResource(R.string.usb_claim_failed)) { exportStatus = it },
-            onRelease = { session -> coordinator.release(session.generation) },
-            onAdbConnect = { session -> adbLink.connect(session.generation) },
-            onAdbDisconnect = { session -> adbLink.disconnect(session.generation) },
-            reboot = rebootPanel(adbLink),
-            rawService = rawServicePanel(adbLink),
-            forward = forwardPanel(adbLink),
-            reverse = reversePanel(adbLink),
             sideload = sideloadPanel(adbLink),
-            operations = operationsPanel(application),
-            paletteActions = paletteActions(
-                adbLink = adbLink,
-                fastbootLink = fastbootLink,
-                coordinator = coordinator,
-                onExport = saveLauncher::launch,
-                application = application,
-            ),
             recentEvents = RecentEvents { application.recentDiagnostics() },
             fastboot = fastbootPanel(fastbootLink, fastbootState, sessions),
             miUnlock = miUnlockPanel(application, fastbootLink, fastbootState),
@@ -214,18 +181,6 @@ class MainActivity : ComponentActivity() {
 }
 
 /**
- * История операций.
- *
- * Живые и законченные читаются из владельца операций, который живёт на уровне
- * приложения: операция не принадлежит экрану и переживает его (`06` §1).
- */
-@Composable
-private fun operationsPanel(application: NekoFlashApplication): OperationsPanel = OperationsPanel(
-    live = application.operations.live.collectAsState().value,
-    history = application.operations.history.collectAsState().value,
-)
-
-/**
  * Пересканирует USB при каждом возвращении на экран.
  *
  * Скан дешёвый: он спрашивает у системы список и ничего не захватывает. Делать
@@ -244,74 +199,6 @@ private fun RescanOnResume(coordinator: UsbSessionCoordinator) {
         onDispose { owner.lifecycle.removeObserver(observer) }
     }
 }
-
-/**
- * Набор действий для палитры.
- *
- * Сюда попадают только действия **без набираемого аргумента**: путь к файлу,
- * имя раздела и текст команды набираются в своих полях, и дублировать их в
- * поиске значило бы завести второе место, где то же самое вводится иначе.
- *
- * Ничего нового палитра не добавляет и ничего не прячет: каждое действие здесь
- * есть и на своей карточке. Это второй путь к тому же — для того, кто помнит
- * название и не хочет листать.
- */
-@Composable
-private fun paletteActions(
-    adbLink: AdbLinkController,
-    fastbootLink: FastbootLinkController,
-    coordinator: UsbSessionCoordinator,
-    onExport: (String) -> Unit,
-    application: NekoFlashApplication,
-): List<PaletteAction> = listOf(
-    PaletteAction(stringResource(R.string.action_rescan), "usb scan скан устройства") {
-        coordinator.scanAttachedDevices()
-    },
-    PaletteAction(stringResource(R.string.action_export), "diagnostics отчёт логи bundle") {
-        onExport(application.suggestedDiagnosticsFileName())
-    },
-    PaletteAction(stringResource(R.string.action_recovery_baseline), "baseline база журнал log") {
-        adbLink.recovery.captureBaseline()
-    },
-    PaletteAction(stringResource(R.string.action_recovery_verdict), "verdict вердикт install исход") {
-        adbLink.recovery.readVerdict()
-    },
-    PaletteAction(stringResource(R.string.action_reboot_system), "reboot перезагрузка система") {
-        adbLink.requestReboot("")
-    },
-    PaletteAction(stringResource(R.string.action_reboot_bootloader), "reboot bootloader загрузчик") {
-        adbLink.requestReboot("bootloader")
-    },
-    PaletteAction(stringResource(R.string.action_reboot_recovery), "reboot recovery рекавери") {
-        adbLink.requestReboot("recovery")
-    },
-    PaletteAction(stringResource(R.string.action_reboot_sideload), "reboot sideload сайдлоад") {
-        adbLink.requestReboot("sideload")
-    },
-    PaletteAction(stringResource(R.string.action_fastboot_getvar_all), "getvar all переменные") {
-        fastbootLink.readAllVariables()
-    },
-    PaletteAction(stringResource(R.string.action_fastboot_reboot_bootloader), "fastboot reboot загрузчик") {
-        fastbootLink.runCommand("reboot-bootloader")
-    },
-    PaletteAction(stringResource(R.string.action_fastboot_reboot_fastbootd), "fastbootd userspace") {
-        fastbootLink.runCommand("reboot fastboot")
-    },
-)
-
-/** Проводка панели перезагрузки: состояние экрана и действие контроллера. */
-@Composable
-private fun rebootPanel(adbLink: AdbLinkController): RebootPanel = RebootPanel(
-    state = adbLink.reboot.collectAsState().value,
-    onReboot = adbLink::requestReboot,
-)
-
-/** То же для произвольного сервиса. */
-@Composable
-private fun rawServicePanel(adbLink: AdbLinkController): RawServicePanel = RawServicePanel(
-    state = adbLink.rawService.collectAsState().value,
-    onCall = adbLink::callRawService,
-)
 
 /**
  * То же для передачи пакета в Recovery — и выбор пакета через системный диалог.
@@ -334,23 +221,6 @@ private fun sideloadPanel(adbLink: AdbLinkController): SideloadPanel {
         onCancel = adbLink.recovery::cancelSideload,
     )
 }
-
-/** То же для пробросов портов. */
-@Composable
-private fun forwardPanel(adbLink: AdbLinkController): ForwardPanel = ForwardPanel(
-    state = adbLink.forward.collectAsState().value,
-    onAdd = adbLink.forwards::add,
-    onRemove = adbLink.forwards::remove,
-)
-
-/** То же для обратных пробросов. */
-@Composable
-private fun reversePanel(adbLink: AdbLinkController): ReversePanel = ReversePanel(
-    state = adbLink.reverse.collectAsState().value,
-    onAdd = adbLink.reverses::add,
-    onRefresh = adbLink.reverses::refresh,
-    onRemoveAll = adbLink.reverses::removeAll,
-)
 
 private fun MainActivity.exportDiagnostics(
     application: NekoFlashApplication,
@@ -450,58 +320,6 @@ private fun fastbootConsolePanel(
     )
 }
 
-/**
- * Проводка файловых действий, включая два, которым нужен системный диалог.
- *
- * Диалог отдаёт `Uri` позже и в другом обратном вызове, чем нажатие кнопки,
- * поэтому путь на устройстве приходится придержать между ними. Держится он
- * ровно до возврата из диалога и сбрасывается в любом случае, включая отказ:
- * иначе следующий выбор файла достался бы прошлой команде.
- *
- * Ни источник, ни приёмник здесь не открываются: разговор с чужим провайдером
- * это ввод-вывод, и на главном потоке он подвесил бы экран. Наружу уходит
- * функция, которую контроллер вызовет на своём потоке.
- */
-@Composable
-private fun fileActions(link: AdbLinkController): FileActions {
-    val resolver = LocalContext.current.contentResolver
-    val pendingRead = remember { mutableStateOf<String?>(null) }
-    val pendingWrite = remember { mutableStateOf<String?>(null) }
-
-    val saveLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.CreateDocument("application/octet-stream"),
-    ) { destination ->
-        val path = pendingRead.value
-        pendingRead.value = null
-        if (destination != null && path != null) {
-            val shown = path.substringAfterLast('/')
-            link.storage.readTo(path) { SafArtifactSink(resolver, destination, shown) }
-        }
-    }
-
-    val openLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { chosen ->
-        val path = pendingWrite.value
-        pendingWrite.value = null
-        if (chosen != null && path != null) {
-            link.storage.writeFrom(path) { SafArtifactSource(resolver, chosen) }
-        }
-    }
-
-    return FileActions(
-        onDescribe = link.storage::describe,
-        onReadToFile = { path ->
-            pendingRead.value = path
-            saveLauncher.launch(path.substringAfterLast('/').ifBlank { "artifact.bin" })
-        },
-        onWriteFromFile = { path ->
-            pendingWrite.value = path
-            openLauncher.launch(arrayOf("*/*"))
-        },
-        onRecoveryBaseline = link.recovery::captureBaseline,
-        onRecoveryVerdict = link.recovery::readVerdict,
-    )
-}
-
 private fun terminalActions(link: AdbLinkController) = TerminalActions(
     onStart = { link.shells.start() },
     onSend = { text -> link.shells.send(text) },
@@ -515,14 +333,3 @@ private fun terminalActions(link: AdbLinkController) = TerminalActions(
     onCloseTab = link.shells::closeTab,
 )
 
-/** Преобразует технический результат claim в короткое UI-сообщение. */
-private fun claimAction(
-    coordinator: UsbSessionCoordinator,
-    failedTemplate: String,
-    onFailure: (String) -> Unit,
-): (UsbSession) -> Unit = { session ->
-    val result = coordinator.claim(session.generation)
-    if (result is UsbClaimResult.Failed) {
-        onFailure(failedTemplate.format(result.reason.name))
-    }
-}

@@ -13,10 +13,9 @@ package io.github.ncorror.nekoflash.terminal
 class VtScreen(
     columns: Int = DEFAULT_COLUMNS,
     rows: Int = DEFAULT_ROWS,
-    historyLimit: Int = DEFAULT_HISTORY,
     private val reply: (String) -> Unit = {},
 ) {
-    private val buffer = VtBuffer(columns, rows, historyLimit)
+    private val buffer = VtBuffer(columns, rows)
     private var state = State.GROUND
     private val params = StringBuilder()
     private var privateMarker: Char? = null
@@ -178,7 +177,6 @@ class VtScreen(
     companion object {
         const val DEFAULT_COLUMNS: Int = 80
         const val DEFAULT_ROWS: Int = 24
-        const val DEFAULT_HISTORY: Int = 1000
 
         /** Тип терминала, который уходит устройству в `TERM`. */
         const val TERM: String = "xterm-256color"

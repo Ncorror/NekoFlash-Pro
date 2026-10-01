@@ -1,5 +1,6 @@
 package io.github.ncorror.nekoflash.miunlock
 
+import io.github.ncorror.nekoflash.LocaleAwareActivity
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Intent
@@ -26,7 +27,6 @@ import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.activity.addCallback
-import androidx.activity.ComponentActivity
 import io.github.ncorror.nekoflash.R
 import io.github.ncorror.nekoflash.vendor.xiaomi.MiAccountSecurityPolicy
 import java.io.ByteArrayInputStream
@@ -39,7 +39,7 @@ import java.io.ByteArrayInputStream
  * cookies are preserved until explicit logout so an already authenticated user
  * can continue the official Mi Unlock flow without signing in again.
  */
-class MiLoginActivity : ComponentActivity() {
+class MiLoginActivity : LocaleAwareActivity() {
 
     private val initialUrl =
         "https://account.xiaomi.com/pass/serviceLogin?sid=unlockApi&checkSafeAddress=true"

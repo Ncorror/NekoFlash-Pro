@@ -8,7 +8,7 @@ import org.junit.Test
 class VtScreenTest {
     private val esc = "\u001B"
 
-    private fun screen(columns: Int = 10, rows: Int = 4) = VtScreen(columns, rows, historyLimit = 100)
+    private fun screen(columns: Int = 10, rows: Int = 4) = VtScreen(columns, rows)
 
     @Test
     fun plainTextWrapsAndScrollsIntoHistory() {
@@ -104,4 +104,16 @@ class VtScreenTest {
         assertEquals(listOf("1", "2", "3", "4"), screen.snapshot().rows.map { it.text })
         assertEquals(3, screen.snapshot().cursorRow)
     }
+    @Test
+    fun scrollbackDoesNotDiscardOldOutput() {
+        val screen = screen(columns = 24, rows = 2)
+        repeat(1_500) { index ->
+            screen.feed("line-$index\r\n")
+        }
+
+        val snapshot = screen.snapshot()
+        assertEquals("line-0", snapshot.rows.first().text)
+        assertEquals("line-1499", snapshot.rows.dropLast(1).last().text)
+    }
+
 }

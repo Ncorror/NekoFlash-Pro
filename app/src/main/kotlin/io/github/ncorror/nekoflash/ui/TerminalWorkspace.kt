@@ -1,617 +1,410 @@
 package io.github.ncorror.nekoflash.ui
 
-import android.content.ClipboardManager
-import android.content.Context
-import android.text.Editable
-import android.text.InputType
-import android.text.TextWatcher
-import android.view.KeyEvent as AndroidKeyEvent
-import android.view.inputmethod.EditorInfo
-import android.widget.EditText
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.weight
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.key
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEvent
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.viewinterop.AndroidView
+import com.ncorror.nekoflash.pro.engine.TerminalParser
+import com.ncorror.nekoflash.pro.engine.TerminalPlanCompiler
+import com.ncorror.nekoflash.pro.engine.TerminalPlanResult
 import io.github.ncorror.nekoflash.R
 import io.github.ncorror.nekoflash.adb.AdbLinkState
-import io.github.ncorror.nekoflash.adb.AdbTerminalState
 import io.github.ncorror.nekoflash.adb.TerminalKey
-import io.github.ncorror.nekoflash.protocol.adb.AdbShellMode
+import io.github.ncorror.nekoflash.fastboot.FastbootConsoleState
+import io.github.ncorror.nekoflash.fastboot.FastbootLinkState
+import io.github.ncorror.nekoflash.protocol.fastboot.FastbootReply
 
 /**
- * Терминал как в NetHunter: экран во всю высоту, значки вместо подписей,
- * ввод прямо в экран и ряд клавиш, которых нет на экранной клавиатуре.
+ * Main production workspace.
  *
- * Оболочка открывается сама, когда ADB подключён и вкладка ещё не открывалась:
- * терминал для того и открывают. Закрытую или оборвавшуюся вкладку заново не
- * открывает — это делает ▶.
+ * ADB mode is a real interactive PTY. Fastboot mode is a line-oriented terminal
+ * over the same Fastboot engine used by the flashing screens. There is no mock
+ * console, no hidden 60-line window and no filtering of device output.
  */
 @Composable
 internal fun TerminalWorkspace(
     adbLink: AdbLinkState,
+    fastbootLink: FastbootLinkState,
     terminal: TerminalPanel,
     actions: TerminalActions,
     desktopCommand: DesktopCommandPanel,
-    focused: Boolean,
-    onToggleFocus: () -> Unit,
-    showCommands: Boolean,
-    onToggleCommands: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val connected = adbLink is AdbLinkState.Connected
     val current = terminal.current
-    var terminalInput by remember { mutableStateOf<TerminalInputBridgeView?>(null) }
-    val openKeyboard = {
-        if (connected && !showCommands) {
-            if (!current.active && !current.closing) actions.onStart()
-            terminalInput?.showKeyboard()
-        }
-        Unit
-    }
-    LaunchedEffect(connected, terminal.selected, current.active, current.ended) {
-        if (connected && !current.active && current.ended == null) actions.onStart()
-    }
-    Column(modifier = modifier.background(TerminalPalette.background)) {
-        TerminalToolbar(
-            terminal = terminal,
-            actions = actions,
-            connected = connected,
-            onKeyboard = openKeyboard,
-            view = TerminalView(focused, onToggleFocus, showCommands, onToggleCommands),
-        )
-        if (showCommands) {
-            // Команды adb и fastboot — на обычном фоне приложения: это форма, а не экран оболочки.
-            Surface(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                Column(modifier = Modifier.verticalScroll(rememberScrollState()).padding(16.dp)) {
-                    DesktopCommandSection(panel = desktopCommand)
-                }
-            }
+    val adbGeneration = (adbLink as? AdbLinkState.Connected)?.generation?.value
+    val fastbootGeneration = (fastbootLink as? FastbootLinkState.Connected)?.generation?.value
+    val fastbootConnected = fastbootLink is FastbootLinkState.Connected
+    val fastbootTranscript = remember { mutableStateListOf<String>() }
+
+    AutoStartAdbShell(adbGeneration, current.active, actions.onStart)
+    AutoPrintAdbDeviceInfo(adbGeneration, current.ready, actions.onSend)
+    AutoPrintFastbootDeviceInfo(fastbootGeneration, desktopCommand, fastbootTranscript)
+    ObserveFastbootOutcome(desktopCommand.outcomes.fastboot, fastbootTranscript)
+
+    Column(modifier = modifier.fillMaxSize().background(TerminalPalette.background)) {
+        if (fastbootConnected) {
+            FastbootTerminalOutput(
+                lines = fastbootTranscript,
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+            )
         } else {
-            TerminalSection(
-                terminal = current,
-                tabIndex = terminal.selected,
-                actions = actions,
-                connected = connected,
-                onInputBridgeChanged = { terminalInput = it },
-                onTap = openKeyboard,
-                modifier = Modifier.weight(1f),
+            TerminalScreen(
+                screen = current.screen,
+                placeholder = terminalPlaceholder(adbLink, current.ready),
+                showCursor = current.ready,
+                onResize = actions.onResize,
+                modifier = Modifier.weight(1f).fillMaxWidth(),
             )
         }
-    }
-}
-
-/** Режимы вида терминала: во весь экран и панель команд. */
-private class TerminalView(
-    val focused: Boolean,
-    val onToggleFocus: () -> Unit,
-    val showCommands: Boolean,
-    val onToggleCommands: () -> Unit,
-)
-
-/** Вкладки слева, действия значками справа. */
-@Composable
-private fun TerminalToolbar(
-    terminal: TerminalPanel,
-    actions: TerminalActions,
-    connected: Boolean,
-    onKeyboard: () -> Unit,
-    view: TerminalView,
-) {
-    val current = terminal.current
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.fillMaxWidth().background(TerminalPalette.chrome).padding(start = 4.dp),
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-            modifier = Modifier.weight(1f).horizontalScroll(rememberScrollState()),
-        ) {
-            terminal.tabs.forEachIndexed { index, tab ->
-                TerminalTab(index, tab, index == terminal.selected, terminal.tabs.size > 1, actions)
-            }
-            ToolbarIcon(R.drawable.ic_add, stringResource(R.string.terminal_new_tab), onClick = actions.onAddTab)
-        }
-        ToolbarIcon(
-            R.drawable.ic_keyboard,
-            stringResource(R.string.terminal_keyboard),
-            enabled = connected && !current.closing && !view.showCommands,
-        ) {
-            onKeyboard()
-        }
-        if (current.active) {
-            ToolbarIcon(R.drawable.ic_stop, stringResource(R.string.terminal_stop), enabled = !current.closing) {
-                actions.onStop()
-            }
-        } else {
-            ToolbarIcon(R.drawable.ic_play, stringResource(R.string.terminal_start), enabled = connected) {
-                actions.onStart()
-            }
-        }
-        ToolbarIcon(
-            icon = if (view.showCommands) R.drawable.ic_terminal else R.drawable.ic_code,
-            description = stringResource(
-                if (view.showCommands) R.string.terminal_shell else R.string.terminal_commands,
-            ),
-            onClick = view.onToggleCommands,
-        )
-        ToolbarIcon(
-            icon = if (view.focused) R.drawable.ic_fullscreen_exit else R.drawable.ic_fullscreen,
-            description = stringResource(
-                if (view.focused) R.string.terminal_exit_fullscreen else R.string.terminal_fullscreen,
-            ),
-            onClick = view.onToggleFocus,
-        )
-    }
-}
-
-@Composable
-private fun ToolbarIcon(icon: Int, description: String, enabled: Boolean = true, onClick: () -> Unit) {
-    IconButton(onClick = onClick, enabled = enabled) {
-        Icon(
-            painter = painterResource(icon),
-            contentDescription = description,
-            tint = if (enabled) TerminalPalette.foreground else TerminalPalette.muted,
-        )
-    }
-}
-
-/** Вкладка: номер и имя, у `-T` и `-x` — с ключом; у открытой — зелёная метка, у закрытой — серая. */
-@Composable
-private fun TerminalTab(
-    index: Int,
-    tab: AdbTerminalState,
-    selected: Boolean,
-    closable: Boolean,
-    actions: TerminalActions,
-) {
-    Surface(
-        color = if (selected) TerminalPalette.background else Color.Transparent,
-        shape = RoundedCornerShape(8.dp),
-        modifier = Modifier.clickable(role = Role.Tab) { actions.onSelectTab(index) },
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 10.dp)) {
-            Box(
-                modifier = Modifier
-                    .padding(end = 6.dp)
-                    .size(7.dp)
-                    .background(
-                        color = if (tab.active) TerminalPalette.live else TerminalPalette.muted,
-                        shape = CircleShape,
-                    ),
-            )
-            Text(
-                text = stringResource(
-                    R.string.terminal_tab_title,
-                    index + 1,
-                    tab.title ?: stringResource(
-                        when (tab.mode) {
-                            AdbShellMode.PTY -> R.string.terminal_tab_shell
-                            AdbShellMode.RAW -> R.string.terminal_tab_raw
-                            AdbShellMode.LEGACY -> R.string.terminal_tab_legacy
-                        },
-                    ),
-                ),
-                color = if (selected) TerminalPalette.foreground else TerminalPalette.muted,
-                fontFamily = FontFamily.Monospace,
-                fontSize = TAB_TEXT,
-                modifier = Modifier.padding(end = if (closable) 0.dp else 10.dp, top = 10.dp, bottom = 10.dp),
-            )
-            if (closable) {
-                IconButton(onClick = { actions.onCloseTab(index) }, modifier = Modifier.size(36.dp)) {
-                    Icon(
-                        painter = painterResource(R.drawable.ic_close),
-                        contentDescription = stringResource(R.string.terminal_close_tab_label, index + 1),
-                        tint = TerminalPalette.muted,
-                        modifier = Modifier.size(16.dp),
-                    )
+        TerminalCommandLine(
+            enabled = current.ready || fastbootConnected,
+            prompt = if (fastbootConnected) FASTBOOT_PROMPT else ADB_PROMPT,
+            onSubmit = { raw ->
+                if (fastbootConnected) {
+                    fastbootTranscript += "$ $raw"
+                    compileAndRunFastboot(raw, desktopCommand, fastbootTranscript)
+                } else if (current.ready) {
+                    submitAdbLine(raw, actions)
                 }
-            }
-        }
-    }
-}
-
-/**
- * Экран и клавиши одной вкладки.
- *
- * Ctrl и Alt залипают на одну клавишу: нажал Ctrl, потом `c` — ушёл `^C`.
- * Команду в нижнем поле редактирует Android; она уходит в оболочку только после
- * Enter. Дополнительные управляющие клавиши идут прямо в живой терминал.
- */
-@Composable
-internal fun TerminalSection(
-    terminal: AdbTerminalState,
-    tabIndex: Int,
-    actions: TerminalActions,
-    connected: Boolean,
-    onInputBridgeChanged: (TerminalInputBridgeView) -> Unit,
-    onTap: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    var ctrl by remember { mutableStateOf(false) }
-    var alt by remember { mutableStateOf(false) }
-    var draft by rememberSaveable(tabIndex) { mutableStateOf("") }
-    var input by remember(tabIndex) { mutableStateOf<EditText?>(null) }
-    val type: (String) -> Unit = { text ->
-        routeTerminalText(text, ctrl, alt, input, actions.onType)
-        ctrl = false
-        alt = false
-    }
-    val press: (TerminalKey) -> Unit = { key ->
-        actions.onKey(key)
-        ctrl = false
-        alt = false
-    }
-    Column(modifier = modifier) {
-        TerminalLiveScreen(
-            terminal = terminal,
-            connected = connected,
-            actions = actions,
-            ctrl = ctrl,
-            alt = alt,
-            onKey = press,
-            onModifiersConsumed = { ctrl = false; alt = false },
-            onInputBridgeChanged = onInputBridgeChanged,
-            onTap = onTap,
-            modifier = Modifier.weight(1f),
-        )
-        key(tabIndex) {
-            TerminalCommandInput(
-                enabled = terminal.ready,
-                draft = draft,
-                onDraftChange = { draft = it },
-                onSend = { line ->
-                    actions.onSend(line)
-                    draft = ""
-                },
-                onText = actions.onType,
-                onKey = press,
-                onEditorChanged = { field -> input = field },
-            )
-        }
-        TerminalExtraKeys(
-            enabled = terminal.ready,
-            modifiers = StickyModifiers(ctrl, alt, onCtrl = { ctrl = !ctrl }, onAlt = { alt = !alt }),
-            onKey = press,
-            onText = type,
+            },
             onInterrupt = actions.onInterrupt,
+            onSpecialKey = actions.onKey,
         )
     }
 }
 
-private fun routeTerminalText(
-    text: String,
-    ctrl: Boolean,
-    alt: Boolean,
-    input: EditText?,
-    onType: (String) -> Unit,
+@Composable
+private fun AutoStartAdbShell(generation: Long?, active: Boolean, start: () -> Unit) {
+    var startedGeneration by rememberSaveable { mutableStateOf<Long?>(null) }
+    LaunchedEffect(generation, active) {
+        val currentGeneration = generation ?: return@LaunchedEffect
+        if (startedGeneration != currentGeneration && !active) {
+            startedGeneration = currentGeneration
+            start()
+        }
+    }
+}
+
+@Composable
+private fun AutoPrintAdbDeviceInfo(generation: Long?, ready: Boolean, send: (String) -> Unit) {
+    var infoGeneration by rememberSaveable { mutableStateOf<Long?>(null) }
+    LaunchedEffect(generation, ready) {
+        val currentGeneration = generation ?: return@LaunchedEffect
+        if (ready && infoGeneration != currentGeneration) {
+            infoGeneration = currentGeneration
+            send(ADB_DEVICE_INFO_COMMAND)
+        }
+    }
+}
+
+@Composable
+private fun AutoPrintFastbootDeviceInfo(
+    generation: Long?,
+    panel: DesktopCommandPanel,
+    transcript: MutableList<String>,
 ) {
+    var infoGeneration by rememberSaveable { mutableStateOf<Long?>(null) }
+    LaunchedEffect(generation) {
+        val currentGeneration = generation ?: return@LaunchedEffect
+        if (infoGeneration != currentGeneration) {
+            infoGeneration = currentGeneration
+            transcript += "[NekoFlash] Fastboot connected"
+            transcript += "$ fastboot getvar all"
+            compileAndRunFastboot("fastboot getvar all", panel, transcript)
+        }
+    }
+}
+
+@Composable
+private fun ObserveFastbootOutcome(state: FastbootConsoleState, transcript: MutableList<String>) {
+    var previous by remember { mutableStateOf<FastbootConsoleState?>(null) }
+    LaunchedEffect(state) {
+        if (state != previous) {
+            previous = state
+            fastbootStateLines(state).forEach(transcript::add)
+        }
+    }
+}
+
+@Composable
+private fun terminalPlaceholder(adb: AdbLinkState, ready: Boolean): String = when {
+    ready -> ""
+    adb is AdbLinkState.Connecting -> stringResource(R.string.terminal_waiting_connection)
+    adb is AdbLinkState.WaitingForAuthorization -> stringResource(R.string.terminal_waiting_authorization)
+    adb is AdbLinkState.Connected -> stringResource(R.string.terminal_opening_shell)
+    else -> stringResource(R.string.terminal_connect_device)
+}
+
+private fun submitAdbLine(raw: String, actions: TerminalActions) {
+    val line = raw.removePrefix("adb shell ")
     when {
-        ctrl || alt -> onType(withModifiers(text, ctrl, alt))
-        input?.hasFocus() == true -> input.text?.insert(input.selectionStart.coerceAtLeast(0), text)
-        else -> onType(text)
+        raw == "adb shell" -> Unit // already inside the live shell
+        raw.startsWith("adb shell ") -> actions.onSend(line)
+        else -> actions.onSend(raw)
     }
 }
 
 @Composable
-private fun TerminalLiveScreen(
-    terminal: AdbTerminalState,
-    connected: Boolean,
-    actions: TerminalActions,
-    ctrl: Boolean,
-    alt: Boolean,
-    onKey: (TerminalKey) -> Unit,
-    onModifiersConsumed: () -> Unit,
-    onInputBridgeChanged: (TerminalInputBridgeView) -> Unit,
-    onTap: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Box(modifier = modifier.fillMaxWidth()) {
-        // Full-size native text editor stays attached and focusable for the IME.
-        // Compose renders the terminal above it and observes taps without making
-        // Android serve a 1 dp editor, which some OEM IMEs simply ignore.
-        TerminalInputBridge(
-            enabled = terminal.ready,
-            enterText = if (terminal.mode == AdbShellMode.RAW) "\n" else "\r",
-            ctrl = ctrl,
-            alt = alt,
-            onText = actions.onType,
-            onKey = onKey,
-            onModifiersConsumed = onModifiersConsumed,
-            onViewChanged = onInputBridgeChanged,
-            modifier = Modifier.fillMaxSize(),
-        )
-        TerminalScreen(
-            screen = terminal.screen,
-            placeholder = terminalPlaceholder(terminal, connected),
-            showCursor = terminal.ready,
-            onResize = actions.onResize,
-            onTap = onTap,
-            modifier = Modifier.fillMaxSize(),
-        )
-    }
-}
-
-@Composable
-private fun terminalPlaceholder(terminal: AdbTerminalState, connected: Boolean): String = when {
-    terminal.ended != null -> stringResource(R.string.terminal_ended, terminal.ended)
-    terminal.closing -> stringResource(R.string.terminal_closing)
-    terminal.active && !terminal.ready -> stringResource(R.string.terminal_opening)
-    !connected -> stringResource(R.string.terminal_needs_connection)
-    else -> stringResource(R.string.terminal_waiting)
-}
-
-/** Компактная строка ввода на фоне самого экрана терминала. */
-@Composable
-private fun TerminalCommandInput(
+private fun TerminalCommandLine(
     enabled: Boolean,
-    draft: String,
-    onDraftChange: (String) -> Unit,
-    onSend: (String) -> Unit,
-    onText: (String) -> Unit,
-    onKey: (TerminalKey) -> Unit,
-    onEditorChanged: (EditText) -> Unit,
-) {
-    val context = LocalContext.current
-    val clipboard = remember(context) {
-        context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
-    }
-    val hint = stringResource(R.string.terminal_input_hint)
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.fillMaxWidth().background(TerminalPalette.background).padding(start = 12.dp, end = 4.dp),
-    ) {
-        Text(
-            text = stringResource(R.string.terminal_prompt_prefix),
-            color = TerminalPalette.live,
-            fontFamily = FontFamily.Monospace,
-            fontSize = 16.sp,
-        )
-        TerminalLineEditor(
-            draft, hint, enabled, onDraftChange, onSend, onText, onKey, onEditorChanged,
-        )
-        ToolbarIcon(R.drawable.ic_paste, stringResource(R.string.terminal_paste), enabled = enabled) {
-            val item = clipboard?.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)
-            val pasted = item?.coerceToText(context)?.toString()?.let(::clipboardLine).orEmpty()
-            if (pasted.isNotEmpty()) onDraftChange(draft + pasted)
-        }
-        ToolbarIcon(R.drawable.ic_send, stringResource(R.string.terminal_send), enabled = enabled) {
-            onSend(draft)
-        }
-    }
-}
-
-/** Настоящий Android EditText принимает IME, аппаратный ввод и системную вставку. */
-@Composable
-private fun RowScope.TerminalLineEditor(
-    draft: String,
-    hint: String,
-    enabled: Boolean,
-    onDraftChange: (String) -> Unit,
+    prompt: String,
     onSubmit: (String) -> Unit,
-    onText: (String) -> Unit,
-    onKey: (TerminalKey) -> Unit,
-    onEditorChanged: (EditText) -> Unit,
+    onInterrupt: () -> Unit,
+    onSpecialKey: (TerminalKey) -> Unit,
 ) {
-    AndroidView(
-        factory = { context -> nativeLineEditor(context, draft, onDraftChange, onEditorChanged) },
-        update = { field ->
-            field.isEnabled = enabled
-            field.hint = hint
-            if (field.text.toString() != draft) {
-                field.setText(draft)
-                field.setSelection(draft.length)
-            }
-            field.setOnEditorActionListener { _, action, event ->
-                val enter = event?.keyCode == AndroidKeyEvent.KEYCODE_ENTER &&
-                    event.action == AndroidKeyEvent.ACTION_DOWN
-                if (enabled && (action == EditorInfo.IME_ACTION_SEND || enter)) {
-                    onSubmit(field.text.toString())
-                    true
-                } else false
-            }
-            field.setOnKeyListener { _, code, event ->
-                if (!enabled || event.action != AndroidKeyEvent.ACTION_DOWN || field.text.isNotEmpty()) {
-                    false
-                } else {
-                    val key = HARDWARE_KEYS[code]
-                    if (key != null) {
-                        onKey(key)
-                        true
-                    } else {
-                        val letter = event.getUnicodeChar(0).toChar()
-                        if (event.isCtrlPressed && letter in 'a'..'z') {
-                            onText(controlOf(letter).toString())
-                            true
-                        } else false
-                    }
-                }
-            }
-        },
-        modifier = Modifier.weight(1f).heightIn(min = 44.dp),
+    var value by rememberSaveable { mutableStateOf("") }
+    val focus = remember { FocusRequester() }
+    val submit = {
+        if (enabled && value.isNotBlank()) {
+            val command = value
+            value = ""
+            onSubmit(command)
+        }
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(TerminalPalette.chrome)
+            .padding(horizontal = INPUT_HORIZONTAL_PADDING, vertical = INPUT_VERTICAL_PADDING),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(INPUT_GAP),
+    ) {
+        TerminalPrompt(prompt, enabled)
+        TerminalInputField(
+            value = value,
+            enabled = enabled,
+            focus = focus,
+            onValueChange = { value = it },
+            onSubmit = submit,
+            onInterrupt = onInterrupt,
+            onSpecialKey = onSpecialKey,
+        )
+    }
+
+    LaunchedEffect(enabled) {
+        if (enabled) focus.requestFocus()
+    }
+}
+
+@Composable
+private fun TerminalPrompt(prompt: String, enabled: Boolean) {
+    androidx.compose.material3.Text(
+        text = prompt,
+        color = if (enabled) TerminalPalette.live else TerminalPalette.muted,
+        fontFamily = FontFamily.Monospace,
+        fontSize = INPUT_TEXT_SIZE,
     )
 }
 
-/** Плоское поле без системной рамки, в палитре терминала. */
-private fun nativeLineEditor(
-    context: Context,
-    draft: String,
-    onDraftChange: (String) -> Unit,
-    onEditorChanged: (EditText) -> Unit,
-): EditText = EditText(context).apply {
-    background = null
-    setSingleLine(true)
-    inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
-    imeOptions = EditorInfo.IME_ACTION_SEND or EditorInfo.IME_FLAG_NO_EXTRACT_UI
-    typeface = nerdTypefaceOrMonospace(context.assets)
-    textSize = EDITOR_TEXT_SP
-    setTextColor(TerminalPalette.foreground.toArgb())
-    setHintTextColor(TerminalPalette.muted.toArgb())
-    setPadding((EDITOR_PADDING_DP * resources.displayMetrics.density).toInt(), 0, 0, 0)
-    setText(draft)
-    addTextChangedListener(object : TextWatcher {
-        override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
-        override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
-        override fun afterTextChanged(s: Editable?) { onDraftChange(s?.toString().orEmpty()) }
-    })
-    onEditorChanged(this)
-}
-
-/** Одно нажатие «Отправить» исполняет одну строку даже при многострочном буфере. */
-internal fun clipboardLine(text: String): String = text.substringBefore('\n').substringBefore('\r')
-
-/** Залипшие Ctrl и Alt применяются к первому символу набранного. */
-internal fun withModifiers(text: String, ctrl: Boolean, alt: Boolean): String {
-    if (text.isEmpty()) return text
-    val first = if (ctrl) controlOf(text.first()) else text.first()
-    return (if (alt) ESC else "") + first + text.substring(1)
-}
-
-/** Ctrl+символ как у терминалов: `a`–`z` и `@[\]^_` — в 0–31, `?` — в DEL. */
-internal fun controlOf(char: Char): Char = when (val upper = char.uppercaseChar()) {
-    in '@'..'_' -> (upper.code - '@'.code).toChar()
-    ' ' -> 0.toChar()
-    '?' -> DEL
-    else -> char
-}
-
-/** Ctrl и Alt: состояние и переключатели. */
-private class StickyModifiers(
-    val ctrl: Boolean,
-    val alt: Boolean,
-    val onCtrl: () -> Unit,
-    val onAlt: () -> Unit,
-)
-
-/**
- * Ряд клавиш как в Termux и NetHunter: два ряда по восемь.
- *
- * Слева то, чего нет на клавиатуре телефона (Esc, Tab, Ctrl, Alt), посередине
- * стрелки крестом, справа страницы и частые символы оболочки.
- */
 @Composable
-private fun TerminalExtraKeys(
+private fun TerminalInputField(
+    value: String,
     enabled: Boolean,
-    modifiers: StickyModifiers,
-    onKey: (TerminalKey) -> Unit,
-    onText: (String) -> Unit,
+    focus: FocusRequester,
+    onValueChange: (String) -> Unit,
+    onSubmit: () -> Unit,
     onInterrupt: () -> Unit,
+    onSpecialKey: (TerminalKey) -> Unit,
 ) {
-    Column(modifier = Modifier.fillMaxWidth().background(TerminalPalette.chrome)) {
-        Row(modifier = Modifier.fillMaxWidth()) {
-            ExtraKey("ESC", R.string.terminal_key_escape, enabled) { onKey(TerminalKey.ESCAPE) }
-            ExtraKey("/", null, enabled) { onText("/") }
-            ExtraKey("-", null, enabled) { onText("-") }
-            ExtraKey("HOME", R.string.terminal_key_home, enabled) { onKey(TerminalKey.HOME) }
-            ExtraKey("↑", R.string.terminal_key_up, enabled) { onKey(TerminalKey.UP) }
-            ExtraKey("END", R.string.terminal_key_end, enabled) { onKey(TerminalKey.END) }
-            ExtraKey("PGUP", R.string.terminal_key_page_up, enabled) { onKey(TerminalKey.PAGE_UP) }
-            ExtraKey("^C", R.string.terminal_interrupt, enabled, onClick = onInterrupt)
-        }
-        Row(modifier = Modifier.fillMaxWidth()) {
-            ExtraKey("TAB", R.string.terminal_key_tab, enabled) { onKey(TerminalKey.TAB) }
-            ExtraKey("CTRL", R.string.terminal_key_ctrl, enabled, modifiers.ctrl, modifiers.onCtrl)
-            ExtraKey("ALT", R.string.terminal_key_alt, enabled, modifiers.alt, modifiers.onAlt)
-            ExtraKey("←", R.string.terminal_key_left, enabled) { onKey(TerminalKey.LEFT) }
-            ExtraKey("↓", R.string.terminal_key_down, enabled) { onKey(TerminalKey.DOWN) }
-            ExtraKey("→", R.string.terminal_key_right, enabled) { onKey(TerminalKey.RIGHT) }
-            ExtraKey("PGDN", R.string.terminal_key_page_down, enabled) { onKey(TerminalKey.PAGE_DOWN) }
-            ExtraKey("|", null, enabled) { onText("|") }
-        }
-    }
-}
-
-/** Одна клавиша ряда; залипшая подсвечивается акцентом. */
-@Composable
-private fun RowScope.ExtraKey(
-    label: String,
-    spoken: Int?,
-    enabled: Boolean,
-    armed: Boolean = false,
-    onClick: () -> Unit,
-) {
-    val description = spoken?.let { stringResource(it) } ?: label
-    Box(
-        contentAlignment = Alignment.Center,
+    BasicTextField(
+        value = value,
+        onValueChange = onValueChange,
+        enabled = enabled,
+        singleLine = true,
+        textStyle = TextStyle(
+            color = if (enabled) TerminalPalette.foreground else TerminalPalette.muted,
+            fontFamily = FontFamily.Monospace,
+            fontSize = INPUT_TEXT_SIZE,
+        ),
+        cursorBrush = SolidColor(TerminalPalette.live),
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+        keyboardActions = KeyboardActions(onSend = { onSubmit() }),
         modifier = Modifier
             .weight(1f)
-            .height(KEY_HEIGHT)
-            .background(if (armed) MaterialTheme.colorScheme.primary else Color.Transparent)
-            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
-            .semantics { contentDescription = description },
-    ) {
-        Text(
-            text = label,
-            color = when {
-                armed -> MaterialTheme.colorScheme.onPrimary
-                enabled -> TerminalPalette.foreground
-                else -> TerminalPalette.muted
+            .focusRequester(focus)
+            .onPreviewKeyEvent { event ->
+                handleTerminalKey(event, onSubmit, onInterrupt, onSpecialKey)
             },
-            fontFamily = FontFamily.Monospace,
-            fontSize = KEY_TEXT,
-            maxLines = 1,
-        )
+    )
+}
+
+private fun handleTerminalKey(
+    event: KeyEvent,
+    submit: () -> Unit,
+    interrupt: () -> Unit,
+    specialKey: (TerminalKey) -> Unit,
+): Boolean {
+    if (event.type != KeyEventType.KeyDown) return false
+    return when {
+        event.isCtrlPressed && event.key == Key.C -> handled(interrupt)
+        event.key == Key.DirectionUp -> handled { specialKey(TerminalKey.UP) }
+        event.key == Key.DirectionDown -> handled { specialKey(TerminalKey.DOWN) }
+        event.key == Key.DirectionLeft -> handled { specialKey(TerminalKey.LEFT) }
+        event.key == Key.DirectionRight -> handled { specialKey(TerminalKey.RIGHT) }
+        event.key == Key.Escape -> handled { specialKey(TerminalKey.ESCAPE) }
+        event.key == Key.Tab -> handled { specialKey(TerminalKey.TAB) }
+        event.key == Key.Enter -> handled(submit)
+        else -> false
     }
 }
 
-private val HARDWARE_KEYS = mapOf(
-    AndroidKeyEvent.KEYCODE_ESCAPE to TerminalKey.ESCAPE,
-    AndroidKeyEvent.KEYCODE_TAB to TerminalKey.TAB,
-    AndroidKeyEvent.KEYCODE_DPAD_UP to TerminalKey.UP,
-    AndroidKeyEvent.KEYCODE_DPAD_DOWN to TerminalKey.DOWN,
-    AndroidKeyEvent.KEYCODE_DPAD_LEFT to TerminalKey.LEFT,
-    AndroidKeyEvent.KEYCODE_DPAD_RIGHT to TerminalKey.RIGHT,
-    AndroidKeyEvent.KEYCODE_MOVE_HOME to TerminalKey.HOME,
-    AndroidKeyEvent.KEYCODE_MOVE_END to TerminalKey.END,
-    AndroidKeyEvent.KEYCODE_PAGE_UP to TerminalKey.PAGE_UP,
-    AndroidKeyEvent.KEYCODE_PAGE_DOWN to TerminalKey.PAGE_DOWN,
-)
+private inline fun handled(action: () -> Unit): Boolean {
+    action()
+    return true
+}
 
-private const val EDITOR_TEXT_SP = 16f
-private const val EDITOR_PADDING_DP = 8
-private const val DEL = '\u007F'
-private const val ESC = "\u001B"
-private val KEY_HEIGHT = 44.dp
-private val KEY_TEXT = 13.sp
-private val TAB_TEXT = 13.sp
+@Composable
+private fun FastbootTerminalOutput(lines: List<String>, modifier: Modifier = Modifier) {
+    val state = rememberLazyListState()
+    val horizontal = rememberScrollState()
+    var followTail by remember { mutableStateOf(true) }
+
+    LaunchedEffect(state) {
+        snapshotFlow { state.isScrollInProgress }.collect { scrolling ->
+            if (!scrolling) {
+                val lastVisible = state.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
+                followTail = lastVisible >= lines.lastIndex - 1
+            }
+        }
+    }
+    LaunchedEffect(lines.size, lines.lastOrNull()) {
+        if (followTail && lines.isNotEmpty()) state.scrollToItem(lines.lastIndex)
+    }
+
+    LazyColumn(
+        state = state,
+        modifier = modifier.padding(OUTPUT_PADDING),
+        verticalArrangement = Arrangement.spacedBy(OUTPUT_GAP),
+    ) {
+        itemsIndexed(lines) { _, line ->
+            androidx.compose.material3.Text(
+                text = line,
+                color = TerminalPalette.foreground,
+                fontFamily = FontFamily.Monospace,
+                fontSize = OUTPUT_TEXT_SIZE,
+                softWrap = false,
+                modifier = Modifier.horizontalScroll(horizontal),
+            )
+        }
+    }
+}
+
+private fun compileAndRunFastboot(
+    raw: String,
+    panel: DesktopCommandPanel,
+    transcript: MutableList<String>,
+) {
+    val compiler = TerminalPlanCompiler()
+    val line = raw.trim()
+    when (val result = compiler.compile(TerminalParser.Tool.FASTBOOT, line)) {
+        is TerminalPlanResult.Invalid -> transcript += "error: ${result.reason}"
+        is TerminalPlanResult.NotImplemented -> transcript += "not implemented: ${result.what}"
+        is TerminalPlanResult.Ready -> panel.onRun(result.plan, false)
+    }
+}
+
+private fun fastbootStateLines(state: FastbootConsoleState): List<String> = when (state) {
+    FastbootConsoleState.Idle -> emptyList()
+    is FastbootConsoleState.Running -> listOf("[running] ${state.command}")
+    is FastbootConsoleState.Answered -> buildList {
+        state.info.forEach { add("INFO $it") }
+        add("${state.reply.name} ${state.payload}".trimEnd())
+        add("lane=${state.lane}")
+    }
+    is FastbootConsoleState.NotAnswered -> listOf(
+        "no answer: ${state.command}: ${state.detail}",
+        "lane=${state.lane}",
+    )
+    is FastbootConsoleState.Downloaded -> listOf(
+        "download declared=${state.declaredBytes} sent=${state.sentBytes} reply=${state.reply ?: FastbootReply.UNKNOWN}",
+        state.detail,
+        "route=${state.route ?: "none"} lane=${state.lane}",
+    )
+    is FastbootConsoleState.Mutated -> listOf(
+        state.outcome.toString(),
+        "lane=${state.lane}",
+    )
+    is FastbootConsoleState.Fetched -> listOf(
+        "fetch ${state.partition}: bytes=${state.bytes} complete=${state.complete} sha256=${state.sha256}",
+        state.detail,
+        "lane=${state.lane}",
+    )
+    is FastbootConsoleState.Planned -> buildList {
+        add("plan applied=${state.applied}/${state.commands.size} stoppedAt=${state.stoppedAt ?: "none"}")
+        state.commands.forEachIndexed { index, command -> add("[$index] $command") }
+        add(state.detail)
+        add("lane=${state.lane}")
+    }
+    is FastbootConsoleState.Variables -> buildList {
+        state.snapshot.variables.forEach { (name, value) -> add("$name: $value") }
+        state.snapshot.duplicates.forEach { duplicate ->
+            add("duplicate ${duplicate.name}: ${duplicate.values.joinToString(" | ")}")
+        }
+        state.snapshot.ignored.forEach { raw -> add("unparsed: $raw") }
+        add("${state.snapshot.finalReply.name} ${state.snapshot.finalPayload}".trimEnd())
+        add("complete=${state.snapshot.complete} lane=${state.lane}")
+    }
+}
+
+private val INPUT_HORIZONTAL_PADDING = 10.dp
+private val INPUT_VERTICAL_PADDING = 9.dp
+private val INPUT_GAP = 8.dp
+private val INPUT_TEXT_SIZE = 13.sp
+private val OUTPUT_PADDING = 8.dp
+private val OUTPUT_GAP = 2.dp
+private val OUTPUT_TEXT_SIZE = 12.sp
+private const val ADB_PROMPT = "❯"
+private const val FASTBOOT_PROMPT = "fastboot ❯"
+
+private const val ADB_DEVICE_INFO_COMMAND =
+    "printf '\\n[NekoFlash] device info\\n'; " +
+        "printf 'manufacturer='; getprop ro.product.manufacturer; " +
+        "printf 'model='; getprop ro.product.model; " +
+        "printf 'device='; getprop ro.product.device; " +
+        "printf 'android='; getprop ro.build.version.release; " +
+        "printf 'sdk='; getprop ro.build.version.sdk; " +
+        "printf 'build='; getprop ro.build.display.id; " +
+        "printf 'slot='; getprop ro.boot.slot_suffix; " +
+        "printf 'verifiedboot='; getprop ro.boot.verifiedbootstate; " +
+        "printf 'flash_locked='; getprop ro.boot.flash.locked; " +
+        "uname -a"

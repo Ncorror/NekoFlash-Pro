@@ -43,10 +43,10 @@ data class VtRow(val text: String, val runs: List<VtRun>)
  * Экран терминала: сетка [columns] × [rows], курсор, область прокрутки и
  * второй экран (`?1049h`), у которого нет истории, как у xterm.
  *
- * Уехавшие вверх строки основного экрана уходят в историю — не больше
- * [historyLimit] строк.
+ * Уехавшие вверх строки основного экрана уходят в историю без искусственного
+ * ограничения по числу строк. Ничего из вывода терминала не выбрасывается.
  */
-internal class VtBuffer(var columns: Int, var rows: Int, private val historyLimit: Int) {
+internal class VtBuffer(var columns: Int, var rows: Int) {
     private var main = MutableList(rows) { VtLine(columns) }
     private var alternate: MutableList<VtLine>? = null
     val history = ArrayDeque<VtRow>()
@@ -191,8 +191,7 @@ internal class VtBuffer(var columns: Int, var rows: Int, private val historyLimi
         if (style.background == VtStyle.DEFAULT) VtStyle.PLAIN else VtStyle(background = style.background)
 
     private fun archive(line: VtLine) {
-        history.addLast(line.freeze())
-        while (history.size > historyLimit) history.removeFirst()
+        history.add(line.freeze())
     }
 
     private data class Saved(val row: Int, val column: Int, val style: VtStyle)
