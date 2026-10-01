@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -37,6 +38,9 @@ import io.github.ncorror.nekoflash.adb.TerminalKey
 internal class TerminalInputRouter(
     private val ptyInput: Boolean,
     private val stagedInput: MutableState<String>,
+    private val stagedCursor: MutableState<Int>,
+    private val historyIndex: MutableState<Int>,
+    private val hostHistory: MutableList<String>,
     private val hostTranscript: MutableList<String>,
     private val actions: TerminalActions,
     private val hostPrompt: String,
@@ -45,12 +49,7 @@ internal class TerminalInputRouter(
     private val onHostCommand: (String) -> Unit,
 ) {
     fun onText(text: String) {
-        if (!ptyInput) {
-            clearModifiers()
-            stagedInput.value += text
-            return
-        }
-        dispatchPtyText(text)
+        if (ptyInput) dispatchPtyText(text) else dispatchHostText(text)
     }
 
     fun onEnter() {
@@ -59,31 +58,44 @@ internal class TerminalInputRouter(
     }
 
     fun onBackspace() {
-        clearModifiers()
         if (ptyInput) {
+            clearModifiers()
             actions.onType(DELETE_CHARACTER)
-        } else {
-            stagedInput.value = stagedInput.value.dropLastCodePoint()
+            return
         }
+        if (controlActive.value || altActive.value) deletePreviousWord() else deletePreviousCodePoint()
+        clearModifiers()
     }
 
     fun onSpecialKey(key: TerminalKey) {
+        if (ptyInput) {
+            clearModifiers()
+            actions.onKey(key)
+            return
+        }
+        when (key) {
+            TerminalKey.ESCAPE -> clearModifiers()
+            TerminalKey.TAB -> insertHostText("\t")
+            TerminalKey.LEFT -> moveHostCursorLeft(controlActive.value || altActive.value)
+            TerminalKey.RIGHT -> moveHostCursorRight(controlActive.value || altActive.value)
+            TerminalKey.HOME -> stagedCursor.value = 0
+            TerminalKey.END -> stagedCursor.value = stagedInput.value.length
+            TerminalKey.UP -> moveHistory(-1)
+            TerminalKey.DOWN -> moveHistory(1)
+            TerminalKey.PAGE_UP -> moveHistory(-HISTORY_PAGE)
+            TerminalKey.PAGE_DOWN -> moveHistory(HISTORY_PAGE)
+        }
         clearModifiers()
-        if (ptyInput) actions.onKey(key)
     }
 
     fun toggleControl() {
-        if (ptyInput) {
-            controlActive.value = !controlActive.value
-            if (controlActive.value) altActive.value = false
-        }
+        controlActive.value = !controlActive.value
+        if (controlActive.value) altActive.value = false
     }
 
     fun toggleAlt() {
-        if (ptyInput) {
-            altActive.value = !altActive.value
-            if (altActive.value) controlActive.value = false
-        }
+        altActive.value = !altActive.value
+        if (altActive.value) controlActive.value = false
     }
 
     private fun dispatchPtyText(text: String) {
@@ -103,17 +115,147 @@ internal class TerminalInputRouter(
         if (rest.isNotEmpty()) actions.onType(rest)
     }
 
-    private fun clearModifiers() {
-        controlActive.value = false
-        altActive.value = false
+    private fun dispatchHostText(text: String) {
+        if (text.isEmpty()) return
+        if (!controlActive.value && !altActive.value) {
+            insertHostText(text)
+            return
+        }
+        val firstEnd = text.offsetByCodePoints(0, 1)
+        val first = text.substring(0, firstEnd)
+        val rest = text.substring(firstEnd)
+        if (controlActive.value) handleHostControl(first) else handleHostAlt(first)
+        clearModifiers()
+        if (rest.isNotEmpty()) insertHostText(rest)
+    }
+
+    private fun handleHostControl(text: String) {
+        when (text.lowercase()) {
+            "a" -> stagedCursor.value = 0
+            "c" -> cancelHostLine()
+            "e" -> stagedCursor.value = stagedInput.value.length
+            "k" -> stagedInput.value = stagedInput.value.substring(0, cursor())
+            "l" -> hostTranscript.clear()
+            "u" -> {
+                stagedInput.value = stagedInput.value.substring(cursor())
+                stagedCursor.value = 0
+            }
+            "w" -> deletePreviousWord()
+            else -> insertHostText(text)
+        }
+    }
+
+    private fun handleHostAlt(text: String) {
+        when (text.lowercase()) {
+            "b" -> stagedCursor.value = previousWordStart()
+            "f" -> stagedCursor.value = nextWordEnd()
+            "d" -> deleteNextWord()
+            else -> insertHostText(text)
+        }
     }
 
     private fun submitHost() {
-        val command = stagedInput.value
+        val command = stagedInput.value.trim()
         stagedInput.value = ""
+        stagedCursor.value = 0
+        historyIndex.value = hostHistory.size
         if (command.isBlank()) return
+        addHistory(command)
+        if (command.equals("clear", ignoreCase = true) || command.equals("cls", ignoreCase = true)) {
+            hostTranscript.clear()
+            return
+        }
         hostTranscript += "$hostPrompt $command"
         onHostCommand(command)
+    }
+
+    private fun addHistory(command: String) {
+        if (hostHistory.lastOrNull() != command) hostHistory += command
+        historyIndex.value = hostHistory.size
+    }
+
+    private fun moveHistory(delta: Int) {
+        if (hostHistory.isEmpty()) return
+        val next = (historyIndex.value + delta).coerceIn(0, hostHistory.size)
+        historyIndex.value = next
+        stagedInput.value = if (next == hostHistory.size) "" else hostHistory[next]
+        stagedCursor.value = stagedInput.value.length
+    }
+
+    private fun cancelHostLine() {
+        stagedInput.value = ""
+        stagedCursor.value = 0
+        historyIndex.value = hostHistory.size
+        hostTranscript += "^C"
+    }
+
+    private fun insertHostText(text: String) {
+        val at = cursor()
+        stagedInput.value = stagedInput.value.substring(0, at) + text + stagedInput.value.substring(at)
+        stagedCursor.value = at + text.length
+        historyIndex.value = hostHistory.size
+    }
+
+    private fun deletePreviousCodePoint() {
+        val at = cursor()
+        if (at == 0) return
+        val start = stagedInput.value.offsetByCodePoints(at, -1)
+        stagedInput.value = stagedInput.value.removeRange(start, at)
+        stagedCursor.value = start
+    }
+
+    private fun deletePreviousWord() {
+        val at = cursor()
+        val start = previousWordStart()
+        if (start < at) {
+            stagedInput.value = stagedInput.value.removeRange(start, at)
+            stagedCursor.value = start
+        }
+    }
+
+    private fun deleteNextWord() {
+        val at = cursor()
+        val end = nextWordEnd()
+        if (end > at) stagedInput.value = stagedInput.value.removeRange(at, end)
+    }
+
+    private fun moveHostCursorLeft(byWord: Boolean) {
+        val at = cursor()
+        stagedCursor.value = when {
+            at == 0 -> 0
+            byWord -> previousWordStart()
+            else -> stagedInput.value.offsetByCodePoints(at, -1)
+        }
+    }
+
+    private fun moveHostCursorRight(byWord: Boolean) {
+        val at = cursor()
+        stagedCursor.value = when {
+            at >= stagedInput.value.length -> stagedInput.value.length
+            byWord -> nextWordEnd()
+            else -> stagedInput.value.offsetByCodePoints(at, 1)
+        }
+    }
+
+    private fun previousWordStart(): Int {
+        var index = cursor()
+        while (index > 0 && stagedInput.value[index - 1].isWhitespace()) index--
+        while (index > 0 && !stagedInput.value[index - 1].isWhitespace()) index--
+        return index
+    }
+
+    private fun nextWordEnd(): Int {
+        var index = cursor()
+        while (index < stagedInput.value.length && stagedInput.value[index].isWhitespace()) index++
+        while (index < stagedInput.value.length && !stagedInput.value[index].isWhitespace()) index++
+        return index
+    }
+
+    private fun cursor(): Int = stagedCursor.value.coerceIn(0, stagedInput.value.length)
+
+    private fun clearModifiers() {
+        controlActive.value = false
+        altActive.value = false
     }
 
     private fun controlOf(text: String): String? {
@@ -174,7 +316,6 @@ internal fun TerminalInputCapture(
 
 @Composable
 internal fun TerminalExtraKeys(
-    ptyEnabled: Boolean,
     controlActive: Boolean,
     altActive: Boolean,
     onControl: () -> Unit,
@@ -193,18 +334,18 @@ internal fun TerminalExtraKeys(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         ExtraKey("⌨", onClick = onFocus)
-        ExtraKey("ESC") { if (ptyEnabled) onKey(TerminalKey.ESCAPE) else onFocus() }
-        ExtraKey("CTRL", active = controlActive) { if (ptyEnabled) onControl() else onFocus() }
-        ExtraKey("ALT", active = altActive) { if (ptyEnabled) onAlt() else onFocus() }
-        ExtraKey("TAB") { if (ptyEnabled) onKey(TerminalKey.TAB) else onFocus() }
-        ExtraKey("←") { if (ptyEnabled) onKey(TerminalKey.LEFT) else onFocus() }
-        ExtraKey("↓") { if (ptyEnabled) onKey(TerminalKey.DOWN) else onFocus() }
-        ExtraKey("↑") { if (ptyEnabled) onKey(TerminalKey.UP) else onFocus() }
-        ExtraKey("→") { if (ptyEnabled) onKey(TerminalKey.RIGHT) else onFocus() }
-        ExtraKey("HOME") { if (ptyEnabled) onKey(TerminalKey.HOME) else onFocus() }
-        ExtraKey("END") { if (ptyEnabled) onKey(TerminalKey.END) else onFocus() }
-        ExtraKey("PGUP") { if (ptyEnabled) onKey(TerminalKey.PAGE_UP) else onFocus() }
-        ExtraKey("PGDN") { if (ptyEnabled) onKey(TerminalKey.PAGE_DOWN) else onFocus() }
+        ExtraKey("ESC") { onKey(TerminalKey.ESCAPE) }
+        ExtraKey("CTRL", active = controlActive, onClick = onControl)
+        ExtraKey("ALT", active = altActive, onClick = onAlt)
+        ExtraKey("TAB") { onKey(TerminalKey.TAB) }
+        ExtraKey("←") { onKey(TerminalKey.LEFT) }
+        ExtraKey("↓") { onKey(TerminalKey.DOWN) }
+        ExtraKey("↑") { onKey(TerminalKey.UP) }
+        ExtraKey("→") { onKey(TerminalKey.RIGHT) }
+        ExtraKey("HOME") { onKey(TerminalKey.HOME) }
+        ExtraKey("END") { onKey(TerminalKey.END) }
+        ExtraKey("PGUP") { onKey(TerminalKey.PAGE_UP) }
+        ExtraKey("PGDN") { onKey(TerminalKey.PAGE_DOWN) }
     }
 }
 
@@ -217,6 +358,10 @@ private fun ExtraKey(
     Box(
         modifier = Modifier
             .sizeIn(minWidth = EXTRA_KEY_MIN_WIDTH, minHeight = EXTRA_KEY_MIN_HEIGHT)
+            .background(
+                color = if (active) TerminalPalette.live.copy(alpha = ACTIVE_KEY_ALPHA) else TerminalPalette.chrome,
+                shape = RoundedCornerShape(EXTRA_KEY_RADIUS),
+            )
             .clickable(onClick = onClick)
             .padding(horizontal = EXTRA_KEY_HORIZONTAL, vertical = EXTRA_KEY_VERTICAL),
         contentAlignment = Alignment.Center,
@@ -233,12 +378,15 @@ private fun ExtraKey(
 @Composable
 internal fun TerminalInputDisplay(
     value: String,
+    cursor: Int,
     prompt: String,
     live: Boolean,
     focused: Boolean,
     onTap: () -> Unit,
     onPaste: () -> Unit,
 ) {
+    val at = cursor.coerceIn(0, value.length)
+    val rendered = if (focused) value.substring(0, at) + INPUT_CURSOR + value.substring(at) else value
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -255,7 +403,7 @@ internal fun TerminalInputDisplay(
             fontSize = INPUT_TEXT_SIZE,
         )
         Text(
-            text = value + if (focused) INPUT_CURSOR else "",
+            text = rendered,
             color = TerminalPalette.foreground,
             fontFamily = FontFamily.Monospace,
             fontSize = INPUT_TEXT_SIZE,
@@ -278,12 +426,6 @@ internal fun Modifier.terminalTap(
     }
 }
 
-private fun String.dropLastCodePoint(): String {
-    if (isEmpty()) return this
-    val end = offsetByCodePoints(length, -1)
-    return substring(0, end)
-}
-
 private val INPUT_CAPTURE_SIZE = 1.dp
 private val INPUT_HORIZONTAL_PADDING = 6.dp
 private val INPUT_VERTICAL_PADDING = 6.dp
@@ -296,7 +438,10 @@ private val EXTRA_KEY_MIN_WIDTH = 44.dp
 private val EXTRA_KEY_MIN_HEIGHT = 40.dp
 private val EXTRA_KEY_HORIZONTAL = 8.dp
 private val EXTRA_KEY_VERTICAL = 6.dp
+private val EXTRA_KEY_RADIUS = 6.dp
 private val EXTRA_TEXT_SIZE = 13.sp
+private const val ACTIVE_KEY_ALPHA = 0.18f
+private const val HISTORY_PAGE = 5
 private const val INPUT_CURSOR = "▌"
 private const val DELETE_CHARACTER = "\u007F"
 private const val ESCAPE_CHARACTER = "\u001B"
