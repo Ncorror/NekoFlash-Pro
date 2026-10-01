@@ -49,6 +49,8 @@ private fun VtRow.toLine(columns: Int): VtLine = VtLine(columns).also { line ->
     }
 }
 
+private fun VtLine.isVisuallyBlank(): Boolean = freeze().text.isEmpty()
+
 /**
  * Экран терминала: сетка [columns] × [rows], курсор, область прокрутки и
  * второй экран (`?1049h`), у которого нет истории, как у xterm.
@@ -164,9 +166,7 @@ internal class VtBuffer(var columns: Int, var rows: Int) {
      * Soft-keyboard and lifecycle transitions change rows much more often than
      * columns. Blank rows below the cursor are discarded first. If real rows
      * must leave the visible grid they enter scrollback, and an expansion pulls
-     * those same rows back before adding new blanks. This mirrors the behaviour
-     * users expect from Termux/NetHunter and avoids history/blank gaps after an
-     * IME or background/foreground resize cycle.
+     * those same rows back before adding new blanks.
      */
     fun resize(newColumns: Int, newRows: Int) {
         if (newColumns <= 0 || newRows <= 0) return
@@ -195,7 +195,30 @@ internal class VtBuffer(var columns: Int, var rows: Int) {
 
     private fun resizeMainRows(newRows: Int) {
         if (newRows == rows || newRows <= 0) return
-        if (newRows < rows) shrinkMainRows(newRows) else expandMainRows(newRows)
+        var remaining = kotlin.math.abs(newRows - rows)
+        if (newRows < rows) {
+            while (remaining > 0 && main.size > newRows) {
+                if (row >= main.lastIndex || !main.last().isVisuallyBlank()) break
+                main.removeAt(main.lastIndex)
+                remaining--
+            }
+            while (remaining > 0 && main.size > newRows) {
+                archive(main.removeAt(0))
+                row = (row - 1).coerceAtLeast(0)
+                saved = saved.copy(row = (saved.row - 1).coerceAtLeast(0))
+                remaining--
+            }
+        } else {
+            while (remaining > 0 && history.isNotEmpty()) {
+                main.add(0, history.removeLast().toLine(columns))
+                row++
+                saved = saved.copy(row = saved.row + 1)
+                remaining--
+            }
+            repeat(remaining) {
+                main.add(VtLine(columns).also { it.clear(0, columns, blank()) })
+            }
+        }
         rows = newRows
         top = 0
         bottom = rows - 1
@@ -204,35 +227,6 @@ internal class VtBuffer(var columns: Int, var rows: Int) {
         saved = saved.clamp(rows, columns)
         wrapPending = false
     }
-
-    private fun shrinkMainRows(newRows: Int) {
-        var remaining = rows - newRows
-        while (remaining > 0 && main.size > newRows && row < main.lastIndex && main.last().isVisuallyBlank()) {
-            main.removeAt(main.lastIndex)
-            remaining--
-        }
-        while (remaining > 0 && main.size > newRows) {
-            archive(main.removeAt(0))
-            row = (row - 1).coerceAtLeast(0)
-            saved = saved.copy(row = (saved.row - 1).coerceAtLeast(0))
-            remaining--
-        }
-    }
-
-    private fun expandMainRows(newRows: Int) {
-        var remaining = newRows - rows
-        while (remaining > 0 && history.isNotEmpty()) {
-            main.add(0, history.removeLast().toLine(columns))
-            row++
-            saved = saved.copy(row = saved.row + 1)
-            remaining--
-        }
-        repeat(remaining) {
-            main.add(VtLine(columns).also { it.clear(0, columns, blank()) })
-        }
-    }
-
-    private fun VtLine.isVisuallyBlank(): Boolean = freeze().text.isEmpty()
 
     fun reset() {
         main = MutableList(rows) { VtLine(columns) }
