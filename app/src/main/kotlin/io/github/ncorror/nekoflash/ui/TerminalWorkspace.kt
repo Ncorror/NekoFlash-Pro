@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -218,6 +217,7 @@ private fun TerminalCommandLine(
             onSubmit = submit,
             onInterrupt = onInterrupt,
             onSpecialKey = onSpecialKey,
+            modifier = Modifier.weight(1f),
         )
     }
 
@@ -245,6 +245,7 @@ private fun TerminalInputField(
     onSubmit: () -> Unit,
     onInterrupt: () -> Unit,
     onSpecialKey: (TerminalKey) -> Unit,
+    modifier: Modifier,
 ) {
     BasicTextField(
         value = value,
@@ -259,8 +260,7 @@ private fun TerminalInputField(
         cursorBrush = SolidColor(TerminalPalette.live),
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
         keyboardActions = KeyboardActions(onSend = { onSubmit() }),
-        modifier = Modifier
-            .weight(1f)
+        modifier = modifier
             .focusRequester(focus)
             .onPreviewKeyEvent { event ->
                 handleTerminalKey(event, onSubmit, onInterrupt, onSpecialKey)
