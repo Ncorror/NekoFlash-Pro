@@ -44,8 +44,7 @@ internal class TerminalInputRouter(
 ) {
     fun onText(text: String) {
         if (!ptyInput) {
-            controlActive.value = false
-            altActive.value = false
+            clearModifiers()
             stagedInput.value += text
             return
         }
@@ -53,14 +52,12 @@ internal class TerminalInputRouter(
     }
 
     fun onEnter() {
-        controlActive.value = false
-        altActive.value = false
+        clearModifiers()
         if (ptyInput) actions.onType("\r") else submitHost()
     }
 
     fun onBackspace() {
-        controlActive.value = false
-        altActive.value = false
+        clearModifiers()
         if (ptyInput) {
             actions.onType(DELETE_CHARACTER)
         } else {
@@ -69,8 +66,7 @@ internal class TerminalInputRouter(
     }
 
     fun onSpecialKey(key: TerminalKey) {
-        controlActive.value = false
-        altActive.value = false
+        clearModifiers()
         if (ptyInput) actions.onKey(key)
     }
 
@@ -90,17 +86,24 @@ internal class TerminalInputRouter(
 
     private fun dispatchPtyText(text: String) {
         if (text.isEmpty()) return
+        if (!controlActive.value && !altActive.value) {
+            actions.onType(text)
+            return
+        }
         val firstEnd = text.offsetByCodePoints(0, 1)
         val first = text.substring(0, firstEnd)
         val rest = text.substring(firstEnd)
         when {
-            controlActive.value -> controlOf(first)?.let(actions.onType) ?: actions.onType(first)
+            controlActive.value -> actions.onType(controlOf(first) ?: first)
             altActive.value -> actions.onType(ESCAPE_CHARACTER + first)
-            else -> actions.onType(text)
         }
+        clearModifiers()
+        if (rest.isNotEmpty()) actions.onType(rest)
+    }
+
+    private fun clearModifiers() {
         controlActive.value = false
         altActive.value = false
-        if (rest.isNotEmpty() && (firstEnd < text.length)) actions.onType(rest)
     }
 
     private fun submitHost() {
