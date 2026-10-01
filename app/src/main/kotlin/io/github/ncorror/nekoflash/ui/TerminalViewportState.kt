@@ -15,6 +15,9 @@ internal class TerminalViewportState {
     var historyOffset: Int = 0
         private set
 
+    var historyScrollOffsetPx: Int = 0
+        private set
+
     private var userScrollPending: Boolean = false
     private var previousScreenStartRow: Int? = null
 
@@ -29,12 +32,17 @@ internal class TerminalViewportState {
      * [historyOffset] is measured from the first live screen row backwards into
      * scrollback. Zero therefore means the live terminal grid is visible.
      */
-    fun settleUserScroll(firstVisibleRow: Int, screenStartRow: Int) {
+    fun settleUserScroll(
+        firstVisibleRow: Int,
+        firstVisibleScrollOffsetPx: Int,
+        screenStartRow: Int,
+    ) {
         if (!userScrollPending) return
         userScrollPending = false
         previousScreenStartRow = screenStartRow
         historyOffset = (screenStartRow - firstVisibleRow).coerceAtLeast(0)
         followLive = historyOffset == 0
+        historyScrollOffsetPx = if (followLive) 0 else firstVisibleScrollOffsetPx.coerceAtLeast(0)
     }
 
     /**
@@ -51,8 +59,11 @@ internal class TerminalViewportState {
         return target.coerceIn(0, lastRow)
     }
 
+    fun targetScrollOffsetPx(): Int = if (followLive) 0 else historyScrollOffsetPx
+
     fun returnToLive() {
         historyOffset = 0
+        historyScrollOffsetPx = 0
         followLive = true
         userScrollPending = false
     }
@@ -61,7 +72,7 @@ internal class TerminalViewportState {
         val previous = previousScreenStartRow
         if (previous != null && !followLive) {
             historyOffset = (historyOffset + screenStartRow - previous).coerceAtLeast(0)
-            if (historyOffset == 0) followLive = true
+            if (historyOffset == 0) returnToLive()
         }
         previousScreenStartRow = screenStartRow
     }
