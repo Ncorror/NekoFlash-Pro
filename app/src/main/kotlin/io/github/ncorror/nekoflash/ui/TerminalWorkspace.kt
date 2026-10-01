@@ -88,27 +88,11 @@ internal fun TerminalWorkspace(
         hostPrompt = HOST_PROMPT,
         controlActive = TerminalUiSession.controlActive,
         altActive = TerminalUiSession.altActive,
-        onHostCommand = { command ->
-            compileAndRunHostCommand(command, desktopCommand, hostTranscript)
-        },
+        onHostCommand = { command -> compileAndRunHostCommand(command, desktopCommand, hostTranscript) },
     )
 
     TerminalAutomation(fastbootLink, current, desktopCommand, hostTranscript)
-    LaunchedEffect(current.ready, current.ended) {
-        when {
-            current.ready -> selectedPane.value = TerminalPane.SHELL
-            current.ended != null -> selectedPane.value = TerminalPane.HOST
-        }
-    }
-    LaunchedEffect(ptyInput) {
-        if (!ptyInput) {
-            TerminalUiSession.controlActive.value = false
-            TerminalUiSession.altActive.value = false
-        }
-    }
-    LaunchedEffect(current.ready) {
-        if (current.ready) stagedInput.value = ""
-    }
+    TerminalLifecycle(current, ptyInput, selectedPane, stagedInput)
     TerminalWorkspaceLayout(
         terminal = terminal,
         actions = actions,
@@ -124,6 +108,30 @@ internal fun TerminalWorkspace(
         inputFocused = inputFocused,
         modifier = modifier,
     )
+}
+
+@Composable
+private fun TerminalLifecycle(
+    current: AdbTerminalState,
+    ptyInput: Boolean,
+    selectedPane: MutableState<TerminalPane>,
+    stagedInput: MutableState<String>,
+) {
+    LaunchedEffect(current.ready, current.ended) {
+        when {
+            current.ready -> selectedPane.value = TerminalPane.SHELL
+            current.ended != null -> selectedPane.value = TerminalPane.HOST
+        }
+    }
+    LaunchedEffect(ptyInput) {
+        if (!ptyInput) {
+            TerminalUiSession.controlActive.value = false
+            TerminalUiSession.altActive.value = false
+        }
+    }
+    LaunchedEffect(current.ready) {
+        if (current.ready) stagedInput.value = ""
+    }
 }
 
 @Composable
@@ -164,19 +172,9 @@ private fun TerminalWorkspaceLayout(
     val shellSelected = selectedPane.value == TerminalPane.SHELL
     val ptyEnabled = shellSelected && terminal.current.ready
     val inputEnabled = !shellSelected || ptyEnabled
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .background(TerminalPalette.background)
-            .imePadding(),
-    ) {
+    Box(modifier = modifier.fillMaxSize().background(TerminalPalette.background).imePadding()) {
         Column(modifier = Modifier.fillMaxSize()) {
-            TerminalPaneBar(
-                hostLabel = hostLabel,
-                selected = selectedPane.value,
-                shellAvailable = shellAvailable,
-                onSelect = { selectedPane.value = it },
-            )
+            TerminalPaneBar(hostLabel, selectedPane.value, shellAvailable) { selectedPane.value = it }
             if (shellSelected) {
                 TerminalScreen(
                     screen = terminal.current.screen,
