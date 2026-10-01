@@ -238,9 +238,9 @@ private fun colorOf(value: Int): Color? = when {
     }
 }
 
-private val PADDING = 8.dp
-private val TEXT_SIZE = 12.sp
-private val LINE_HEIGHT = 15.sp
+private val PADDING = 4.dp
+private val TEXT_SIZE = 11.sp
+private val LINE_HEIGHT = 13.sp
 private const val DIM_ALPHA = 0.6f
 private const val OPAQUE = -0x1000000
 private const val RGB_MASK = 0xFFFFFF
