@@ -16,7 +16,7 @@ class TerminalViewportStateTest {
     }
 
     @Test
-    fun manualHistoryScrollKeepsOffsetAcrossLiveMovement() {
+    fun manualHistoryScrollKeepsTheSameHistoricalRowAsLiveMoves() {
         val state = TerminalViewportState()
 
         state.noteUserScroll()
@@ -24,7 +24,8 @@ class TerminalViewportStateTest {
 
         assertFalse(state.followLive)
         assertEquals(14, state.historyOffset)
-        assertEquals(17, state.targetRow(screenStartRow = 31, lastRow = 54))
+        assertEquals(10, state.targetRow(screenStartRow = 31, lastRow = 54))
+        assertEquals(21, state.historyOffset)
     }
 
     @Test
@@ -47,6 +48,17 @@ class TerminalViewportStateTest {
         state.noteUserScroll()
         state.settleUserScroll(firstVisibleRow = 24, screenStartRow = 24)
 
+        assertTrue(state.followLive)
+        assertEquals(0, state.historyOffset)
+    }
+
+    @Test
+    fun shrinkingLiveOriginCanReturnHistoryViewToLive() {
+        val state = TerminalViewportState()
+        state.noteUserScroll()
+        state.settleUserScroll(firstVisibleRow = 20, screenStartRow = 24)
+
+        assertEquals(0, state.targetRow(screenStartRow = 0, lastRow = 7))
         assertTrue(state.followLive)
         assertEquals(0, state.historyOffset)
     }
