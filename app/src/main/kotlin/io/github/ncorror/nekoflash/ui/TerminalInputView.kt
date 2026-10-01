@@ -1,5 +1,6 @@
 package io.github.ncorror.nekoflash.ui
 
+import android.content.ClipboardManager
 import android.content.Context
 import android.graphics.Color
 import android.text.InputType
@@ -90,6 +91,17 @@ internal class TerminalInputView @JvmOverloads constructor(
         post {
             val manager = context.getSystemService(InputMethodManager::class.java)
             manager?.showSoftInput(this, InputMethodManager.SHOW_IMPLICIT)
+        }
+    }
+
+    fun pasteClipboard() {
+        val clipboard = context.getSystemService(ClipboardManager::class.java) ?: return
+        val clip = clipboard.primaryClip ?: return
+        if (clip.itemCount == 0) return
+        val text = clip.getItemAt(0).coerceToText(context)?.toString().orEmpty()
+        if (text.isNotEmpty()) {
+            dispatchCommittedText(text)
+            showKeyboard()
         }
     }
 
