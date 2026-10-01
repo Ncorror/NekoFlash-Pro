@@ -3,7 +3,6 @@ package io.github.ncorror.nekoflash.ui
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -134,8 +133,7 @@ private fun NekoFlashBody(
         modifier = Modifier
             .fillMaxSize()
             .statusBarsPadding()
-            .navigationBarsPadding()
-            .imePadding(),
+            .navigationBarsPadding(),
     ) {
         ConnectionStatusBar(adb = adbLink, fastboot = fastboot.state)
         DestinationContent(
