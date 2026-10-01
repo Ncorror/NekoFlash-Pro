@@ -147,13 +147,13 @@ private fun TerminalRows(
         }
     }
     LaunchedEffect(screen.screenStartRow, screen.rows.size) {
-        if (viewport.followLive) {
+        if (screen.rows.isNotEmpty()) {
             val target = viewport.targetRow(screen.screenStartRow, screen.rows.lastIndex)
             listState.scrollToItem(target)
         }
     }
     LaunchedEffect(resumeGeneration) {
-        if (viewport.followLive && screen.rows.isNotEmpty()) {
+        if (screen.rows.isNotEmpty()) {
             val target = viewport.targetRow(screen.screenStartRow, screen.rows.lastIndex)
             listState.scrollToItem(target)
         }
