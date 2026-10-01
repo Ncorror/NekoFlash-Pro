@@ -206,6 +206,7 @@ internal fun TerminalExtraKeys(
             horizontalArrangement = Arrangement.spacedBy(EXTRA_GAP),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            Box(modifier = Modifier.weight(1f).sizeIn(minHeight = EXTRA_KEY_MIN_HEIGHT))
             ExtraKey("CTRL", active = controlActive, onClick = onControl, modifier = Modifier.weight(1f))
             ExtraKey("ALT", active = altActive, onClick = onAlt, modifier = Modifier.weight(1f))
             ExtraKey("←", onClick = { onKey(TerminalKey.LEFT) }, modifier = Modifier.weight(1f))
