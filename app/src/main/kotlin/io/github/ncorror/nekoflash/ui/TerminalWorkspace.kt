@@ -1,9 +1,11 @@
 package io.github.ncorror.nekoflash.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
@@ -35,10 +37,13 @@ import io.github.ncorror.nekoflash.fastboot.FastbootConsoleState
 import io.github.ncorror.nekoflash.fastboot.FastbootLinkState
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootReply
 
+private enum class TerminalPane { HOST, SHELL }
+
 /** Process-owned terminal UI state. Sidebar destinations may leave composition. */
 private object TerminalUiSession {
     val hostTranscript = mutableStateListOf<String>()
     val stagedInput = mutableStateOf("")
+    val pane = mutableStateOf(TerminalPane.HOST)
     var fastbootInfoGeneration: Long? = null
     var previousFastbootState: FastbootConsoleState? = null
     var previousHostAnswer: String? = null
@@ -48,14 +53,7 @@ private object TerminalUiSession {
     var previousTerminalEnded: String? = null
 }
 
-/**
- * NekoFlash terminal has two explicit modes.
- *
- * The default is a host CLI: `adb ...` and `fastboot ...` are compiled into the
- * same plans used by the rest of the application. Only an explicit `adb shell`
- * opens the remote PTY. While that PTY is ready, IME text and special keys go
- * directly to the remote shell through the InputConnection bridge.
- */
+/** Host CLI and remote PTY are deliberately separate terminal views. */
 @Composable
 internal fun TerminalWorkspace(
     adbLink: AdbLinkState,
@@ -70,25 +68,34 @@ internal fun TerminalWorkspace(
     val adbConnected = adbLink is AdbLinkState.Connected
     val hostTranscript = TerminalUiSession.hostTranscript
     val stagedInput = TerminalUiSession.stagedInput
+    val selectedPane = TerminalUiSession.pane
     val focusRequest = remember { mutableStateOf(0) }
+    val pasteRequest = remember { mutableStateOf(0) }
     val inputFocused = remember { mutableStateOf(false) }
-    val prompt = when {
-        fastbootConnected -> FASTBOOT_PROMPT
-        adbConnected -> ADB_HOST_PROMPT
-        else -> HOST_PROMPT
+    val ptyInput = selectedPane.value == TerminalPane.SHELL && current.ready
+    val hostLabel = when {
+        fastbootConnected -> "FASTBOOT"
+        adbConnected -> "ADB"
+        else -> "HOST"
     }
     val router = TerminalInputRouter(
-        currentReady = current.ready,
+        ptyInput = ptyInput,
         stagedInput = stagedInput,
         hostTranscript = hostTranscript,
         actions = actions,
-        hostPrompt = prompt,
+        hostPrompt = HOST_PROMPT,
         onHostCommand = { command ->
             compileAndRunHostCommand(command, desktopCommand, hostTranscript)
         },
     )
 
     TerminalAutomation(fastbootLink, current, desktopCommand, hostTranscript)
+    LaunchedEffect(current.ready, current.ended) {
+        when {
+            current.ready -> selectedPane.value = TerminalPane.SHELL
+            current.ended != null -> selectedPane.value = TerminalPane.HOST
+        }
+    }
     LaunchedEffect(current.ready) {
         if (current.ready) stagedInput.value = ""
     }
@@ -96,11 +103,14 @@ internal fun TerminalWorkspace(
         terminal = terminal,
         actions = actions,
         router = router,
+        hostLabel = hostLabel,
+        selectedPane = selectedPane,
+        shellAvailable = current.active || current.screen.rows.isNotEmpty() || current.ended != null,
         transportConnected = adbConnected || fastbootConnected,
-        hostPrompt = prompt,
         hostTranscript = hostTranscript,
         stagedInput = stagedInput,
         focusRequest = focusRequest,
+        pasteRequest = pasteRequest,
         inputFocused = inputFocused,
         modifier = modifier,
     )
@@ -128,15 +138,21 @@ private fun TerminalWorkspaceLayout(
     terminal: TerminalPanel,
     actions: TerminalActions,
     router: TerminalInputRouter,
+    hostLabel: String,
+    selectedPane: MutableState<TerminalPane>,
+    shellAvailable: Boolean,
     transportConnected: Boolean,
-    hostPrompt: String,
     hostTranscript: List<String>,
     stagedInput: MutableState<String>,
     focusRequest: MutableState<Int>,
+    pasteRequest: MutableState<Int>,
     inputFocused: MutableState<Boolean>,
     modifier: Modifier,
 ) {
     val focusInput = { focusRequest.value += 1 }
+    val pasteInput = { pasteRequest.value += 1 }
+    val shellSelected = selectedPane.value == TerminalPane.SHELL
+    val inputEnabled = !shellSelected || terminal.current.ready
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -144,41 +160,99 @@ private fun TerminalWorkspaceLayout(
             .imePadding(),
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            if (terminal.current.ready) {
+            TerminalPaneBar(
+                hostLabel = hostLabel,
+                selected = selectedPane.value,
+                shellAvailable = shellAvailable,
+                onSelect = { selectedPane.value = it },
+            )
+            if (shellSelected) {
                 TerminalScreen(
                     screen = terminal.current.screen,
-                    placeholder = "",
-                    showCursor = true,
+                    placeholder = if (terminal.current.active) "Opening adb shell…" else "adb shell is not active",
+                    showCursor = terminal.current.ready,
                     onResize = actions.onResize,
-                    onTap = focusInput,
+                    onTap = if (terminal.current.ready) focusInput else ({}),
+                    onPaste = if (terminal.current.ready) pasteInput else ({}),
                     modifier = Modifier.weight(1f).fillMaxWidth(),
                 )
             } else {
                 LineTerminalOutput(
                     lines = hostTranscript,
                     onTap = focusInput,
+                    onPaste = pasteInput,
                     modifier = Modifier.weight(1f).fillMaxWidth(),
                 )
                 TerminalInputDisplay(
                     value = stagedInput.value,
-                    prompt = hostPrompt,
+                    prompt = HOST_PROMPT,
                     live = transportConnected,
                     focused = inputFocused.value,
                     onTap = focusInput,
+                    onPaste = pasteInput,
                 )
             }
         }
         TerminalInputCapture(
             focusRequest = focusRequest.value,
+            pasteRequest = pasteRequest.value,
             onFocusChanged = { inputFocused.value = it },
-            onText = router::onText,
-            onEnter = router::onEnter,
-            onBackspace = router::onBackspace,
-            onInterrupt = actions.onInterrupt,
-            onSpecialKey = router::onSpecialKey,
+            onText = { if (inputEnabled) router.onText(it) },
+            onEnter = { if (inputEnabled) router.onEnter() },
+            onBackspace = { if (inputEnabled) router.onBackspace() },
+            onInterrupt = { if (inputEnabled) actions.onInterrupt() },
+            onSpecialKey = { if (inputEnabled) router.onSpecialKey(it) },
             modifier = Modifier.align(Alignment.BottomStart),
         )
     }
+}
+
+@Composable
+private fun TerminalPaneBar(
+    hostLabel: String,
+    selected: TerminalPane,
+    shellAvailable: Boolean,
+    onSelect: (TerminalPane) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().background(TerminalPalette.chrome),
+        horizontalArrangement = Arrangement.spacedBy(PANE_GAP),
+    ) {
+        PaneLabel(
+            text = hostLabel,
+            selected = selected == TerminalPane.HOST,
+            enabled = true,
+            onClick = { onSelect(TerminalPane.HOST) },
+        )
+        PaneLabel(
+            text = "SHELL",
+            selected = selected == TerminalPane.SHELL,
+            enabled = shellAvailable,
+            onClick = { onSelect(TerminalPane.SHELL) },
+        )
+    }
+}
+
+@Composable
+private fun PaneLabel(
+    text: String,
+    selected: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    Text(
+        text = text,
+        color = when {
+            selected -> TerminalPalette.live
+            enabled -> TerminalPalette.foreground
+            else -> TerminalPalette.muted
+        },
+        fontFamily = FontFamily.Monospace,
+        fontSize = PANE_TEXT_SIZE,
+        modifier = Modifier
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = PANE_HORIZONTAL_PADDING, vertical = PANE_VERTICAL_PADDING),
+    )
 }
 
 @Composable
@@ -192,7 +266,7 @@ private fun AutoPrintFastbootDeviceInfo(
         if (TerminalUiSession.fastbootInfoGeneration != currentGeneration) {
             TerminalUiSession.fastbootInfoGeneration = currentGeneration
             transcript += "[NekoFlash] Fastboot connected"
-            transcript += "$FASTBOOT_PROMPT getvar all"
+            transcript += "$HOST_PROMPT fastboot getvar all"
             compileAndRunHostCommand("fastboot getvar all", panel, transcript)
         }
     }
@@ -284,10 +358,11 @@ private fun ObserveFastbootOutcome(state: FastbootConsoleState, transcript: Muta
 private fun LineTerminalOutput(
     lines: List<String>,
     onTap: () -> Unit,
+    onPaste: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val state = rememberLazyListState()
-    var followTail = remember { mutableStateOf(true) }
+    val followTail = remember { mutableStateOf(true) }
 
     LaunchedEffect(state) {
         snapshotFlow { state.isScrollInProgress }.collect { scrolling ->
@@ -303,7 +378,7 @@ private fun LineTerminalOutput(
 
     LazyColumn(
         state = state,
-        modifier = modifier.terminalTap(onTap).padding(OUTPUT_PADDING),
+        modifier = modifier.terminalTap(onTap, onPaste).padding(OUTPUT_PADDING),
         verticalArrangement = Arrangement.spacedBy(OUTPUT_GAP),
     ) {
         itemsIndexed(lines) { _, line ->
@@ -388,6 +463,8 @@ private fun fastbootStateLines(state: FastbootConsoleState): List<String> = when
 private val OUTPUT_PADDING = 4.dp
 private val OUTPUT_GAP = 0.dp
 private val OUTPUT_TEXT_SIZE = 11.sp
+private val PANE_GAP = 4.dp
+private val PANE_TEXT_SIZE = 10.sp
+private val PANE_HORIZONTAL_PADDING = 10.dp
+private val PANE_VERTICAL_PADDING = 5.dp
 private const val HOST_PROMPT = "❯"
-private const val ADB_HOST_PROMPT = "adb ❯"
-private const val FASTBOOT_PROMPT = "fastboot ❯"
