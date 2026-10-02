@@ -44,7 +44,7 @@ import io.github.ncorror.nekoflash.fastboot.FastbootLinkState
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootReply
 
 private enum class TerminalPane { HOST, SHELL }
-private enum class HostTransport { NONE, ADB, FASTBOOT }
+private enum class HostTransport { HOST, ADB, FASTBOOT }
 
 /** Process-owned terminal UI state. Sidebar destinations may leave composition. */
 private object TerminalUiSession {
@@ -79,7 +79,7 @@ internal fun TerminalWorkspace(
     val transport = when {
         fastbootLink is FastbootLinkState.Connected -> HostTransport.FASTBOOT
         adbLink is AdbLinkState.Connected -> HostTransport.ADB
-        else -> HostTransport.NONE
+        else -> HostTransport.HOST
     }
     val hostTranscript = TerminalUiSession.hostTranscript
     val stagedInput = TerminalUiSession.stagedInput
@@ -92,11 +92,6 @@ internal fun TerminalWorkspace(
     val shellPlaceholder = stringResource(
         if (current.active) R.string.terminal_shell_opening else R.string.terminal_shell_inactive,
     )
-    val hostLabel = when (transport) {
-        HostTransport.FASTBOOT -> "FASTBOOT"
-        HostTransport.ADB -> "ADB"
-        HostTransport.NONE -> "HOST"
-    }
     val hostEditor = HostLineEditor(
         input = stagedInput,
         cursor = TerminalUiSession.stagedCursor,
@@ -122,11 +117,11 @@ internal fun TerminalWorkspace(
         terminal = terminal,
         actions = actions,
         router = router,
-        hostLabel = hostLabel,
+        hostLabel = transport.name,
         shellPlaceholder = shellPlaceholder,
         selectedPane = selectedPane,
         shellAvailable = current.active || current.screen.rows.isNotEmpty() || current.ended != null,
-        transportConnected = transport != HostTransport.NONE,
+        transportConnected = transport != HostTransport.HOST,
         hostTranscript = hostTranscript,
         stagedInput = stagedInput,
         stagedCursor = TerminalUiSession.stagedCursor,
@@ -459,7 +454,7 @@ private fun compileAndRunHostCommand(
     raw: String,
     panel: DesktopCommandPanel,
     transcript: MutableList<String>,
-    transport: HostTransport = HostTransport.NONE,
+    transport: HostTransport = HostTransport.HOST,
     noTransport: String = "",
 ) {
     val line = raw.trim()
