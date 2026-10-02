@@ -130,7 +130,7 @@ internal class VtBuffer(var columns: Int, var rows: Int) {
     fun scrollUp(count: Int) = repeat(count.coerceAtMost(bottom - top + 1)) {
         val gone = lines.removeAt(top)
         if (top == 0 && alternate == null) {
-            archive(gone)
+            history.add(gone.freeze())
             if (restoredForResize > 0) restoredForResize--
         }
         lines.add(bottom, VtLine(columns).also { it.clear(0, columns, blank()) })
@@ -188,7 +188,7 @@ internal class VtBuffer(var columns: Int, var rows: Int) {
             screen.forEach { it.resize(newColumns) }
             while (screen.size > newRows) {
                 val gone = screen.removeAt(0)
-                if (screen === main) archive(gone)
+                if (screen === main) history.add(gone.freeze())
             }
             while (screen.size < newRows) screen.add(VtLine(newColumns))
         }
@@ -233,7 +233,7 @@ internal class VtBuffer(var columns: Int, var rows: Int) {
         // сжатие сначала возвращает именно эти строки. Иначе пустой хвост
         // под курсором съедается раньше и screenStartRow незаметно уезжает.
         while (remaining > 0 && restoredForResize > 0 && main.size > newRows) {
-            archive(main.removeAt(0))
+            history.add(main.removeAt(0).freeze())
             restoredForResize--
             row = (row - 1).coerceAtLeast(0)
             saved = saved.copy(row = (saved.row - 1).coerceAtLeast(0))
@@ -245,7 +245,7 @@ internal class VtBuffer(var columns: Int, var rows: Int) {
             remaining--
         }
         while (remaining > 0 && main.size > newRows) {
-            archive(main.removeAt(0))
+            history.add(main.removeAt(0).freeze())
             row = (row - 1).coerceAtLeast(0)
             saved = saved.copy(row = (saved.row - 1).coerceAtLeast(0))
             remaining--
@@ -280,10 +280,6 @@ internal class VtBuffer(var columns: Int, var rows: Int) {
     /** Стертые клетки получают текущий фон, как у xterm (`bce`). */
     internal fun blank(): VtStyle =
         if (style.background == VtStyle.DEFAULT) VtStyle.PLAIN else VtStyle(background = style.background)
-
-    private fun archive(line: VtLine) {
-        history.add(line.freeze())
-    }
 
     private data class Saved(val row: Int, val column: Int, val style: VtStyle) {
         fun clamp(rows: Int, columns: Int, shift: Int = 0): Saved = copy(
