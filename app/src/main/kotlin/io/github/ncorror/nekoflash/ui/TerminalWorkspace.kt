@@ -89,6 +89,9 @@ internal fun TerminalWorkspace(
     val inputFocused = remember { mutableStateOf(false) }
     val ptyInput = selectedPane.value == TerminalPane.SHELL && current.ready
     val noTransport = stringResource(R.string.terminal_no_transport)
+    val shellPlaceholder = stringResource(
+        if (current.active) R.string.terminal_shell_opening else R.string.terminal_shell_inactive,
+    )
     val hostLabel = when (transport) {
         HostTransport.FASTBOOT -> "FASTBOOT"
         HostTransport.ADB -> "ADB"
@@ -120,6 +123,7 @@ internal fun TerminalWorkspace(
         actions = actions,
         router = router,
         hostLabel = hostLabel,
+        shellPlaceholder = shellPlaceholder,
         selectedPane = selectedPane,
         shellAvailable = current.active || current.screen.rows.isNotEmpty() || current.ended != null,
         transportConnected = transport != HostTransport.NONE,
@@ -183,6 +187,7 @@ private fun TerminalWorkspaceLayout(
     actions: TerminalActions,
     router: TerminalInputRouter,
     hostLabel: String,
+    shellPlaceholder: String,
     selectedPane: MutableState<TerminalPane>,
     shellAvailable: Boolean,
     transportConnected: Boolean,
@@ -205,13 +210,7 @@ private fun TerminalWorkspaceLayout(
             if (shellSelected) {
                 TerminalScreen(
                     screen = terminal.current.screen,
-                    placeholder = stringResource(
-                        if (terminal.current.active) {
-                            R.string.terminal_shell_opening
-                        } else {
-                            R.string.terminal_shell_inactive
-                        },
-                    ),
+                    placeholder = shellPlaceholder,
                     showCursor = terminal.current.ready,
                     onResize = actions.onResize,
                     onTap = if (ptyEnabled) focusInput else ({}),
