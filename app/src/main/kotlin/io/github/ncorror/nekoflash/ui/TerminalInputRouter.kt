@@ -181,38 +181,47 @@ internal fun TerminalExtraKeys(
     onKey: (TerminalKey) -> Unit,
     onFocus: () -> Unit,
 ) {
-    Column(
+    Row(
         modifier = Modifier
             .fillMaxWidth()
             .background(TerminalPalette.chrome)
             .padding(horizontal = EXTRA_ROW_PADDING, vertical = EXTRA_VERTICAL_PADDING),
-        verticalArrangement = Arrangement.spacedBy(EXTRA_GAP),
+        horizontalArrangement = Arrangement.spacedBy(EXTRA_GAP),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(EXTRA_GAP),
-            verticalAlignment = Alignment.CenterVertically,
+        ExtraKey(
+            label = "⌨",
+            onClick = onFocus,
+            modifier = Modifier.size(EXTRA_KEYBOARD_SIZE),
+        )
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(EXTRA_GAP),
         ) {
-            ExtraKey("⌨", onClick = onFocus, modifier = Modifier.weight(1f))
-            ExtraKey("ESC", onClick = { onKey(TerminalKey.ESCAPE) }, modifier = Modifier.weight(1f))
-            ExtraKey("TAB", onClick = { onKey(TerminalKey.TAB) }, modifier = Modifier.weight(1f))
-            ExtraKey("HOME", onClick = { onKey(TerminalKey.HOME) }, modifier = Modifier.weight(1f))
-            ExtraKey("↑", onClick = { onKey(TerminalKey.UP) }, modifier = Modifier.weight(1f))
-            ExtraKey("END", onClick = { onKey(TerminalKey.END) }, modifier = Modifier.weight(1f))
-            ExtraKey("PGUP", onClick = { onKey(TerminalKey.PAGE_UP) }, modifier = Modifier.weight(1f))
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(EXTRA_GAP),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Box(modifier = Modifier.weight(1f).sizeIn(minHeight = EXTRA_KEY_MIN_HEIGHT))
-            ExtraKey("CTRL", active = controlActive, onClick = onControl, modifier = Modifier.weight(1f))
-            ExtraKey("ALT", active = altActive, onClick = onAlt, modifier = Modifier.weight(1f))
-            ExtraKey("←", onClick = { onKey(TerminalKey.LEFT) }, modifier = Modifier.weight(1f))
-            ExtraKey("↓", onClick = { onKey(TerminalKey.DOWN) }, modifier = Modifier.weight(1f))
-            ExtraKey("→", onClick = { onKey(TerminalKey.RIGHT) }, modifier = Modifier.weight(1f))
-            ExtraKey("PGDN", onClick = { onKey(TerminalKey.PAGE_DOWN) }, modifier = Modifier.weight(1f))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(EXTRA_GAP),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                ExtraKey("ESC", onClick = { onKey(TerminalKey.ESCAPE) }, modifier = Modifier.weight(1f))
+                ExtraKey("TAB", onClick = { onKey(TerminalKey.TAB) }, modifier = Modifier.weight(1f))
+                ExtraKey("HOME", onClick = { onKey(TerminalKey.HOME) }, modifier = Modifier.weight(1f))
+                ExtraKey("↑", onClick = { onKey(TerminalKey.UP) }, modifier = Modifier.weight(1f))
+                ExtraKey("END", onClick = { onKey(TerminalKey.END) }, modifier = Modifier.weight(1f))
+                ExtraKey("PGUP", onClick = { onKey(TerminalKey.PAGE_UP) }, modifier = Modifier.weight(1f))
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(EXTRA_GAP),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                ExtraKey("CTRL", active = controlActive, onClick = onControl, modifier = Modifier.weight(1f))
+                ExtraKey("ALT", active = altActive, onClick = onAlt, modifier = Modifier.weight(1f))
+                ExtraKey("←", onClick = { onKey(TerminalKey.LEFT) }, modifier = Modifier.weight(1f))
+                ExtraKey("↓", onClick = { onKey(TerminalKey.DOWN) }, modifier = Modifier.weight(1f))
+                ExtraKey("→", onClick = { onKey(TerminalKey.RIGHT) }, modifier = Modifier.weight(1f))
+                ExtraKey("PGDN", onClick = { onKey(TerminalKey.PAGE_DOWN) }, modifier = Modifier.weight(1f))
+            }
         }
     }
 }
@@ -287,9 +296,8 @@ internal fun Modifier.terminalTap(
     awaitEachGesture {
         val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
         val up = waitForUpOrCancellation(pass = PointerEventPass.Initial)
-        val still = up != null && (up.position - down.position).getDistance() < viewConfiguration.touchSlop
-        if (still) {
-            val held = up!!.uptimeMillis - down.uptimeMillis
+        if (up != null && (up.position - down.position).getDistance() < viewConfiguration.touchSlop) {
+            val held = up.uptimeMillis - down.uptimeMillis
             if (held >= viewConfiguration.longPressTimeoutMillis) onLongPress() else onTap()
         }
     }
@@ -304,6 +312,7 @@ private val EXTRA_ROW_PADDING = 6.dp
 private val EXTRA_VERTICAL_PADDING = 4.dp
 private val EXTRA_GAP = 4.dp
 private val EXTRA_KEY_MIN_HEIGHT = 40.dp
+private val EXTRA_KEYBOARD_SIZE = 40.dp
 private val EXTRA_KEY_HORIZONTAL = 4.dp
 private val EXTRA_KEY_VERTICAL = 6.dp
 private val EXTRA_KEY_RADIUS = 6.dp
