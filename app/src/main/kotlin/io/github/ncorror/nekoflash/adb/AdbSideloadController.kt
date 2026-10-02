@@ -94,7 +94,7 @@ public sealed interface AdbSideloadState {
  */
 public class AdbSideloadController(
     private val executor: Executor,
-    private val diagnostics: DiagnosticSink = DiagnosticSink { },
+    private val diagnostics: DiagnosticSink,
     /**
      * Владелец записей операций.
      *
@@ -108,7 +108,7 @@ public class AdbSideloadController(
      * Функция, а не `Context`: контроллер не знает про Android и знать не
      * должен — кто именно держит процесс, решает приложение.
      */
-    private val holdProcess: () -> Unit = {},
+    private val holdProcess: () -> Unit,
 ) {
     private val mutableState = MutableStateFlow<AdbSideloadState>(AdbSideloadState.None)
 
