@@ -63,6 +63,9 @@ internal class VtBuffer(var columns: Int, var rows: Int) {
     private var alternate: MutableList<VtLine>? = null
     val history = ArrayDeque<VtRow>()
 
+    /** Сколько верхних строк main были временно возвращены из history именно resize-ом. */
+    private var restoredForResize = 0
+
     internal val lines: MutableList<VtLine> get() = alternate ?: main
 
     var row = 0
@@ -126,13 +129,17 @@ internal class VtBuffer(var columns: Int, var rows: Int) {
 
     fun scrollUp(count: Int) = repeat(count.coerceAtMost(bottom - top + 1)) {
         val gone = lines.removeAt(top)
-        if (top == 0 && alternate == null) archive(gone)
+        if (top == 0 && alternate == null) {
+            archive(gone)
+            if (restoredForResize > 0) restoredForResize--
+        }
         lines.add(bottom, VtLine(columns).also { it.clear(0, columns, blank()) })
     }
 
     fun scrollDown(count: Int) = repeat(count.coerceAtMost(bottom - top + 1)) {
         lines.removeAt(bottom)
         lines.add(top, VtLine(columns).also { it.clear(0, columns, blank()) })
+        if (top == 0 && alternate == null) restoredForResize = 0
     }
 
     fun setRegion(newTop: Int, newBottom: Int) {
@@ -175,6 +182,7 @@ internal class VtBuffer(var columns: Int, var rows: Int) {
             return
         }
 
+        restoredForResize = 0
         val oldRows = rows
         for (screen in listOfNotNull(main, alternate)) {
             screen.forEach { it.resize(newColumns) }
@@ -197,6 +205,16 @@ internal class VtBuffer(var columns: Int, var rows: Int) {
         if (newRows == rows || newRows <= 0) return
         var remaining = kotlin.math.abs(newRows - rows)
         if (newRows < rows) {
+            // Если прошлое расширение подняло history в live-grid, обратное
+            // сжатие сначала возвращает именно эти строки. Иначе пустой хвост
+            // под курсором съедается раньше и screenStartRow незаметно уезжает.
+            while (remaining > 0 && restoredForResize > 0 && main.size > newRows) {
+                archive(main.removeAt(0))
+                restoredForResize--
+                row = (row - 1).coerceAtLeast(0)
+                saved = saved.copy(row = (saved.row - 1).coerceAtLeast(0))
+                remaining--
+            }
             while (remaining > 0 && main.size > newRows) {
                 if (row >= main.lastIndex || !main.last().isVisuallyBlank()) break
                 main.removeAt(main.lastIndex)
@@ -211,6 +229,7 @@ internal class VtBuffer(var columns: Int, var rows: Int) {
         } else {
             while (remaining > 0 && history.isNotEmpty()) {
                 main.add(0, history.removeLast().toLine(columns))
+                restoredForResize++
                 row++
                 saved = saved.copy(row = saved.row + 1)
                 remaining--
@@ -232,6 +251,7 @@ internal class VtBuffer(var columns: Int, var rows: Int) {
         main = MutableList(rows) { VtLine(columns) }
         alternate = null
         history.clear()
+        restoredForResize = 0
         style = VtStyle.PLAIN
         top = 0
         bottom = rows - 1
