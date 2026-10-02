@@ -90,7 +90,7 @@ internal class TerminalInputView @JvmOverloads constructor(
         requestFocus()
         post {
             val manager = context.getSystemService(InputMethodManager::class.java)
-            manager?.showSoftInput(this, InputMethodManager.SHOW_IMPLICIT)
+            manager?.showSoftInput(this, 0)
         }
     }
 
