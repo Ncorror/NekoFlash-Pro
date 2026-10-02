@@ -6,13 +6,12 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import com.ncorror.nekoflash.pro.engine.TerminalFileNeed
-import com.ncorror.nekoflash.pro.engine.TerminalParser
 import com.ncorror.nekoflash.pro.engine.TerminalPlan
 import com.ncorror.nekoflash.pro.engine.TerminalPlanStep
 import com.ncorror.nekoflash.pro.engine.fileNeed
@@ -20,24 +19,16 @@ import io.github.ncorror.nekoflash.adb.AdbLinkController
 import io.github.ncorror.nekoflash.artifact.SafArtifactSink
 import io.github.ncorror.nekoflash.artifact.SafArtifactSource
 import io.github.ncorror.nekoflash.artifact.SafFolder
-import io.github.ncorror.nekoflash.command.DesktopCommandArea
+import io.github.ncorror.nekoflash.command.ControllerCommandTargets
 import io.github.ncorror.nekoflash.command.DesktopCommandExecutor
 import io.github.ncorror.nekoflash.command.DesktopCommandStart
-import io.github.ncorror.nekoflash.command.ControllerCommandTargets
 import io.github.ncorror.nekoflash.command.PickedFile
 import io.github.ncorror.nekoflash.fastboot.FastbootLinkController
-import io.github.ncorror.nekoflash.fastboot.FastbootLinkState
 import io.github.ncorror.nekoflash.ui.DesktopCommandOutcomes
 import io.github.ncorror.nekoflash.ui.DesktopCommandPanel
 import io.github.ncorror.nekoflash.usb.api.UsbSessionCoordinator
 
-/**
- * Проводка команд настольных клиентов: выбор файла, исполнение, исход.
- *
- * План, которому нужен файл, ждёт системного диалога и исполняется ровно тот,
- * что был показан: выбор привязывается к плану, а не к строке, которую за это
- * время могли поменять (`04` §3, правило 7).
- */
+/** Command execution wiring used by the host terminal. */
 @Composable
 internal fun desktopCommandPanel(
     adbLink: AdbLinkController,
@@ -50,56 +41,27 @@ internal fun desktopCommandPanel(
             ControllerCommandTargets(adbLink, fastbootLink, context.cacheDir) { coordinator.sessions.value },
         )
     }
-    var area by remember { mutableStateOf<DesktopCommandArea?>(null) }
-    var fileProblem by remember { mutableStateOf<DesktopCommandStart?>(null) }
     var answer by remember { mutableStateOf<String?>(null) }
 
     fun run(plan: TerminalPlan, file: PickedFile?) {
         val started = executor.execute(plan, file)
-        area = (started as? DesktopCommandStart.Started)?.area
         answer = (started as? DesktopCommandStart.Answered)?.text
-        fileProblem = started.takeIf { it is DesktopCommandStart.FileMissing || it is DesktopCommandStart.FileCount }
     }
 
-    val onRun = rememberFilePickers(::run)
-
-    val fastbootState by fastbootLink.state.collectAsState()
-    val link = fastbootState as? FastbootLinkState.Connected
     return DesktopCommandPanel(
-        // Без префикса строка относится к тому, с чем связь есть сейчас: у
-        // устройства в загрузчике ADB нет, а в Android нет Fastboot.
-        defaultTool = if (link != null) TerminalParser.Tool.FASTBOOT else TerminalParser.Tool.ADB,
-        lock = link?.lock,
-        onRun = onRun,
-        onEdit = {
-            area = null
-            fileProblem = null
-            answer = null
-        },
-        area = area,
+        onRun = rememberFilePickers(::run),
+        onEdit = { answer = null },
         answer = answer,
-        fileProblem = fileProblem,
         outcomes = DesktopCommandOutcomes(
             fastboot = fastbootLink.console.collectAsState().value,
             shell = adbLink.command.collectAsState().value,
             service = adbLink.rawService.collectAsState().value,
             reboot = adbLink.reboot.collectAsState().value,
-            sideload = adbLink.sideload.collectAsState().value,
-            install = adbLink.install.collectAsState().value,
-            transfer = adbLink.transfer.collectAsState().value,
-            terminal = adbLink.terminals.collectAsState().value.let { tabs ->
-                tabs.tabs[tabs.selected].collectAsState().value
-            },
         ),
     )
 }
 
-/**
- * Системные диалоги выбора файла для плана.
- *
- * Возвращает вход «исполнить план»: без файла план уходит сразу, с файлом —
- * после диалога, и исполняется тот же план, что был показан.
- */
+/** File/folder pickers required by command plans. */
 @Composable
 private fun rememberFilePickers(run: (TerminalPlan, PickedFile?) -> Unit): (TerminalPlan, Boolean) -> Unit {
     val resolver = LocalContext.current.contentResolver
@@ -137,7 +99,6 @@ private fun rememberFilePickers(run: (TerminalPlan, PickedFile?) -> Unit): (Term
     }
 }
 
-/** Какой диалог открыть: у «файла или папки» решает выбор оператора. */
 private fun dialogFor(need: TerminalFileNeed, asFolder: Boolean): TerminalFileNeed =
     if (need == TerminalFileNeed.OPEN_OR_FOLDER) {
         if (asFolder) TerminalFileNeed.FOLDER else TerminalFileNeed.OPEN
@@ -155,7 +116,6 @@ private fun created(resolver: ContentResolver, uri: Uri?, name: String): PickedF
 
 private fun suggestedName(plan: TerminalPlan): String = plan.fileStep?.let(::suggestedName) ?: DEFAULT_NAME
 
-/** Имя, которое предлагается в диалоге сохранения: из самой команды. */
 private fun suggestedName(step: TerminalPlanStep): String = when (step) {
     is TerminalPlanStep.FastbootFetch -> step.destinationName.substringAfterLast('/')
     else -> DEFAULT_NAME
