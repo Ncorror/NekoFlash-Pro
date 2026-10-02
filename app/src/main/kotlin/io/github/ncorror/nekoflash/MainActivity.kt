@@ -17,7 +17,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -64,8 +63,7 @@ class MainActivity : LocaleAwareActivity() {
         val fastbootLink = application.fastbootLink
 
         setContent {
-            val firstRun = remember { FirstRun(this) }
-            var welcomeSeen by rememberSaveable { mutableStateOf(firstRun.seen) }
+            var welcomeSeen by remember { mutableStateOf(FirstRun.seen) }
             NekoFlashTheme {
                 // Вводный экран показывается один раз и ничего не решает: это
                 // «понял, дальше», а не согласие с условиями. Права быть
@@ -75,7 +73,7 @@ class MainActivity : LocaleAwareActivity() {
                 } else {
                     WelcomeScreen(
                         onContinue = {
-                            firstRun.seen = true
+                            FirstRun.seen = true
                             welcomeSeen = true
                         },
                     )
