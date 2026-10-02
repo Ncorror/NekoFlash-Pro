@@ -11,9 +11,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
@@ -34,9 +32,6 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import io.github.ncorror.nekoflash.terminal.VtRow
 import io.github.ncorror.nekoflash.terminal.VtSnapshot
 import io.github.ncorror.nekoflash.terminal.VtStyle
@@ -131,7 +126,6 @@ private fun TerminalRows(
 ) {
     val listState = rememberLazyListState()
     val viewport = remember { TerminalViewportState() }
-    val resumeGeneration = rememberResumeGeneration()
     val userScrollConnection = remember(viewport) {
         object : NestedScrollConnection {
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
@@ -158,12 +152,6 @@ private fun TerminalRows(
             listState.scrollToItem(target, viewport.targetScrollOffsetPx())
         }
     }
-    LaunchedEffect(resumeGeneration) {
-        if (screen.rows.isNotEmpty()) {
-            val target = viewport.targetRow(screen.screenStartRow, screen.rows.lastIndex)
-            listState.scrollToItem(target, viewport.targetScrollOffsetPx())
-        }
-    }
 
     LazyColumn(
         state = listState,
@@ -180,20 +168,6 @@ private fun TerminalRows(
             }
         }
     }
-}
-
-@Composable
-private fun rememberResumeGeneration(): Int {
-    val generation = remember { mutableStateOf(0) }
-    val lifecycleOwner = LocalLifecycleOwner.current
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) generation.value += 1
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
-    }
-    return generation.value
 }
 
 /** Dark terminal palette independent from the app light/dark surface theme. */
