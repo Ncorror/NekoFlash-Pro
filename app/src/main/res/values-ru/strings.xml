@@ -134,9 +134,6 @@
     <string name="operation_notification_line_percent">%1$s — %2$s, %3$d%%</string>
 
     <string name="welcome_continue">Продолжить</string>
-    <string name="diagnostics_recent_title">Записывается прямо сейчас</string>
-    <string name="diagnostics_recent_empty">В этом сеансе пока ничего не записано.</string>
-    <string name="diagnostics_recent_note">Последние %1$d строк, свежие сверху. Полный отчёт — выгрузка выше; здесь видна текущая диагностическая активность.</string>
 
     <string name="mi_login_continue">Продолжить</string>
     <string name="mi_login_logout">Выйти</string>

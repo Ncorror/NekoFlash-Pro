@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="terminal_no_transport">Команда не выполнена: нет активного транспорта ADB/Fastboot.</string>
+    <string name="terminal_shell_opening">Открытие adb shell…</string>
+    <string name="terminal_shell_inactive">adb shell не активен</string>
 </resources>

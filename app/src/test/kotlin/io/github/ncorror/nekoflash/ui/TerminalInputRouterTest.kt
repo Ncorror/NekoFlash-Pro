@@ -18,7 +18,7 @@ class TerminalInputRouterTest {
             pty = true,
             control = control,
             alt = alt,
-            actions = TerminalActions(onType = typed::add),
+            actions = testActions(onType = typed::add),
         )
 
         router.toggleControl()
@@ -39,7 +39,7 @@ class TerminalInputRouterTest {
             pty = true,
             control = control,
             alt = alt,
-            actions = TerminalActions(onType = typed::add),
+            actions = testActions(onType = typed::add),
         )
 
         router.toggleAlt()
@@ -74,7 +74,7 @@ class TerminalInputRouterTest {
             pty = true,
             control = control,
             alt = alt,
-            actions = TerminalActions(onKey = keys::add),
+            actions = testActions(onKey = keys::add),
         )
 
         router.toggleControl()
@@ -93,7 +93,7 @@ class TerminalInputRouterTest {
         val router = TerminalInputRouter(
             ptyInput = false,
             hostEditor = fixture.editor,
-            actions = TerminalActions(),
+            actions = testActions(),
             controlActive = control,
             altActive = alt,
         )
@@ -115,7 +115,7 @@ class TerminalInputRouterTest {
         val router = TerminalInputRouter(
             ptyInput = false,
             hostEditor = fixture.editor,
-            actions = TerminalActions(),
+            actions = testActions(),
             controlActive = control,
             altActive = alt,
         )
@@ -127,11 +127,23 @@ class TerminalInputRouterTest {
         assertFalse(alt.value)
     }
 
+    private fun testActions(
+        onInterrupt: () -> Unit = {},
+        onResize: (Int, Int) -> Unit = { _, _ -> },
+        onKey: (TerminalKey) -> Unit = {},
+        onType: (String) -> Unit = {},
+    ): TerminalActions = TerminalActions(
+        onInterrupt = onInterrupt,
+        onResize = onResize,
+        onKey = onKey,
+        onType = onType,
+    )
+
     private fun router(
         pty: Boolean,
         control: MutableState<Boolean>,
         alt: MutableState<Boolean>,
-        actions: TerminalActions = TerminalActions(),
+        actions: TerminalActions = testActions(),
     ): TerminalInputRouter = TerminalInputRouter(
         ptyInput = pty,
         hostEditor = hostFixture("").editor,

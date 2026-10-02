@@ -39,14 +39,14 @@ import kotlinx.coroutines.delay
 
 /** Консоль Fastboot: произвольная команда, переменная по имени и весь список. */
 data class FastbootConsolePanel(
-    val state: FastbootConsoleState = FastbootConsoleState.Idle,
-    val onCommand: (String) -> Unit = {},
-    val onVariable: (String) -> Unit = {},
-    val onAllVariables: () -> Unit = {},
+    val state: FastbootConsoleState,
+    val onCommand: (String) -> Unit,
+    val onVariable: (String) -> Unit,
+    val onAllVariables: () -> Unit,
     /** Прочитать раздел в файл, который выберет пользователь. */
-    val onFetchToFile: (String) -> Unit = {},
+    val onFetchToFile: (String) -> Unit,
     /** Загрузить в буфер устройства файл, который выберет пользователь. */
-    val onDownloadFile: () -> Unit = {},
+    val onDownloadFile: () -> Unit,
     /**
      * Перезахват интерфейса — выход из потерянной рамки.
      *
@@ -55,7 +55,7 @@ data class FastbootConsolePanel(
      * §6.89 выхода из `STALLED` на экране не было вовсе — слово печаталось,
      * а делать с ним было нечего.
      */
-    val onReclaim: () -> Unit = {},
+    val onReclaim: () -> Unit,
     /**
      * Роль устройства — **здесь**, а не только в шапке связи.
      *
@@ -64,7 +64,7 @@ data class FastbootConsolePanel(
      * момент не видит. Прогон `07` §6.88 прошёл целиком не в той роли, и
      * прочитать это по журналу удалось, а по экрану — нет.
      */
-    val mode: FastbootMode = FastbootMode.UNKNOWN,
+    val mode: FastbootMode,
 )
 
 /**

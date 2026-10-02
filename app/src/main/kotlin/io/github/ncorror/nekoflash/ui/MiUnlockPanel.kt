@@ -31,13 +31,13 @@ import io.github.ncorror.nekoflash.protocol.fastboot.FastbootLockState
 import io.github.ncorror.nekoflash.vendor.xiaomi.MiAccountClient
 
 data class MiUnlockPanel(
-    val account: MiAccountState = MiAccountState.SignedOut,
-    val operation: MiUnlockStatus = MiUnlockStatus.Idle,
-    val fastboot: FastbootLinkState = FastbootLinkState.Idle,
-    val onSignIn: () -> Unit = {},
-    val onSignOut: () -> Unit = {},
-    val onChangeZone: (String) -> Unit = {},
-    val onUnlock: () -> Unit = {},
+    val account: MiAccountState,
+    val operation: MiUnlockStatus,
+    val fastboot: FastbootLinkState,
+    val onSignIn: () -> Unit,
+    val onSignOut: () -> Unit,
+    val onChangeZone: (String) -> Unit,
+    val onUnlock: () -> Unit,
 )
 
 @Composable

@@ -20,14 +20,14 @@ import io.github.ncorror.nekoflash.protocol.fastboot.FastbootMode
 
 /** Состояние Fastboot-соединения и два действия над ним. */
 data class FastbootPanel(
-    val state: FastbootLinkState = FastbootLinkState.Idle,
-    val onProbe: () -> Unit = {},
-    val onDisconnect: () -> Unit = {},
+    val state: FastbootLinkState,
+    val onProbe: () -> Unit,
+    val onDisconnect: () -> Unit,
     /**
      * Тот же вход, что и у консоли: разрушающая кнопка своего обмена не заводит.
      * Вызывается из группы «Запись» секции консоли, которой отсюда передаётся замок.
      */
-    val onPlan: (List<String>) -> Unit = {},
+    val onPlan: (List<String>) -> Unit,
 )
 
 /**

@@ -42,19 +42,19 @@ import kotlinx.coroutines.launch
 @Suppress("LongParameterList")
 @Composable
 fun NekoFlashApp(
-    sessions: List<UsbSession> = emptyList(),
-    scan: UsbScanSummary = UsbScanSummary.NEVER_SCANNED,
-    usbHostSupported: Boolean = true,
-    adbLink: AdbLinkState = AdbLinkState.Idle,
-    terminal: TerminalPanel = TerminalPanel(),
-    sideload: SideloadPanel = SideloadPanel(),
-    recentEvents: RecentEvents = RecentEvents { emptyList() },
-    fastboot: FastbootPanel = FastbootPanel(),
-    miUnlock: MiUnlockPanel = MiUnlockPanel(),
-    fastbootConsole: FastbootConsolePanel = FastbootConsolePanel(),
-    terminalActions: TerminalActions = TerminalActions(),
-    desktopCommand: DesktopCommandPanel = DesktopCommandPanel(),
-    onExportDiagnostics: () -> Unit = {},
+    sessions: List<UsbSession>,
+    scan: UsbScanSummary,
+    usbHostSupported: Boolean,
+    adbLink: AdbLinkState,
+    terminal: TerminalPanel,
+    sideload: SideloadPanel,
+    recentEvents: RecentEvents,
+    fastboot: FastbootPanel,
+    miUnlock: MiUnlockPanel,
+    fastbootConsole: FastbootConsolePanel,
+    terminalActions: TerminalActions,
+    desktopCommand: DesktopCommandPanel,
+    onExportDiagnostics: () -> Unit,
 ) {
     var destination by rememberSaveable { mutableStateOf(SidebarDestination.TERMINAL) }
     AutoConnectFastboot(sessions, fastboot)

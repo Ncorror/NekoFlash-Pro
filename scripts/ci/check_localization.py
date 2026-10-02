@@ -12,10 +12,6 @@ RUSSIAN_STRINGS = ROOT / "app/src/main/res/values-ru/strings.xml"
 RESOURCES_PROPERTIES = ROOT / "app/src/main/res/resources.properties"
 KOTLIN_ROOT = ROOT / "app/src/main/kotlin"
 
-# Protocol / terminal mode labels that intentionally stay identical in every locale.
-NON_TRANSLATABLE_COMPOSE_LINES = {
-    'text = "SHELL",',
-}
 
 
 def resource_keys(path: Path, *, include_non_translatable: bool) -> set[tuple[str, str]]:
@@ -96,8 +92,6 @@ def main() -> int:
     for path in sorted(KOTLIN_ROOT.rglob("*.kt")):
         for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
             stripped = line.strip()
-            if stripped in NON_TRANSLATABLE_COMPOSE_LINES:
-                continue
             if any(pattern.search(line) for pattern in hardcoded_patterns):
                 violations.append(f"{path.relative_to(ROOT)}:{line_number}: {stripped}")
 

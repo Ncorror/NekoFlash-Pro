@@ -138,9 +138,6 @@
     <string name="operation_notification_line_percent">%1$s — %2$s, %3$d%%</string>
 
     <string name="welcome_continue">Continue</string>
-    <string name="diagnostics_recent_title">Being recorded right now</string>
-    <string name="diagnostics_recent_empty">Nothing recorded yet in this session.</string>
-    <string name="diagnostics_recent_note">The last %1$d lines, newest first. Export the full report above; this pane shows recent diagnostic activity while you work.</string>
 
     <string name="mi_login_continue">Continue</string>
     <string name="mi_login_logout">Sign out</string>

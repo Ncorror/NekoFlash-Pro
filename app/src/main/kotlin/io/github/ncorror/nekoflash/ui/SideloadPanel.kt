@@ -11,10 +11,10 @@ import io.github.ncorror.nekoflash.protocol.adb.AdbSideloadOutcome
 
 /** Передача пакета в Recovery: состояние и два действия над ним. */
 data class SideloadPanel(
-    val state: AdbSideloadState = AdbSideloadState.None,
+    val state: AdbSideloadState,
     /** Отдать пакет, который выберет пользователь. */
-    val onChoose: () -> Unit = {},
-    val onCancel: () -> Unit = {},
+    val onChoose: () -> Unit,
+    val onCancel: () -> Unit,
 )
 
 /**

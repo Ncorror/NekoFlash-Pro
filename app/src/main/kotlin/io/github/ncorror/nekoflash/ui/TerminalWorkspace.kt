@@ -205,7 +205,13 @@ private fun TerminalWorkspaceLayout(
             if (shellSelected) {
                 TerminalScreen(
                     screen = terminal.current.screen,
-                    placeholder = if (terminal.current.active) "Opening adb shell…" else "adb shell is not active",
+                    placeholder = stringResource(
+                        if (terminal.current.active) {
+                            R.string.terminal_shell_opening
+                        } else {
+                            R.string.terminal_shell_inactive
+                        },
+                    ),
                     showCursor = terminal.current.ready,
                     onResize = actions.onResize,
                     onTap = if (ptyEnabled) focusInput else ({}),
@@ -270,7 +276,7 @@ private fun TerminalPaneBar(
             onClick = { onSelect(TerminalPane.HOST) },
         )
         PaneLabel(
-            text = "SHELL",
+            text = stringResource(R.string.terminal_shell_label),
             selected = selected == TerminalPane.SHELL,
             enabled = shellAvailable,
             onClick = { onSelect(TerminalPane.SHELL) },
