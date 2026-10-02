@@ -5,8 +5,8 @@ package io.github.ncorror.nekoflash.ui
  *
  * The terminal buffer owns text/history; Compose owns only rendering. This
  * object keeps the user's place in scrollback independently from LazyListState,
- * so lifecycle/layout/programmatic scrolls cannot be mistaken for a manual
- * history gesture.
+ * so layout and programmatic scrolls cannot be mistaken for a manual history
+ * gesture.
  */
 internal class TerminalViewportState {
     var followLive: Boolean = true
@@ -46,7 +46,7 @@ internal class TerminalViewportState {
     }
 
     /**
-     * Target row for composition, resume and VT-grid resize.
+     * Target row for composition and VT-grid resize.
      *
      * When output grows while the user reads history, the live-grid origin moves
      * forward. The offset grows by the same delta so the same historical row
@@ -93,10 +93,5 @@ internal class TerminalTailViewportState {
         if (!userScrollPending) return
         userScrollPending = false
         followTail = lastRow < 0 || lastVisibleRow >= lastRow - 1
-    }
-
-    fun returnToTail() {
-        followTail = true
-        userScrollPending = false
     }
 }
