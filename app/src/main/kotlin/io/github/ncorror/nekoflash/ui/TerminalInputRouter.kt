@@ -25,6 +25,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontFamily
@@ -185,6 +187,15 @@ internal fun TerminalExtraKeys(
         modifier = Modifier
             .fillMaxWidth()
             .background(TerminalPalette.chrome)
+            .drawBehind {
+                val stroke = EXTRA_DIVIDER_WIDTH.toPx()
+                drawLine(
+                    color = TerminalPalette.muted.copy(alpha = EXTRA_DIVIDER_ALPHA),
+                    start = Offset(0f, stroke / 2f),
+                    end = Offset(size.width, stroke / 2f),
+                    strokeWidth = stroke,
+                )
+            }
             .padding(horizontal = EXTRA_ROW_PADDING, vertical = EXTRA_VERTICAL_PADDING),
         horizontalArrangement = Arrangement.spacedBy(EXTRA_GAP),
         verticalAlignment = Alignment.CenterVertically,
@@ -237,7 +248,11 @@ private fun ExtraKey(
         modifier = modifier
             .sizeIn(minHeight = EXTRA_KEY_MIN_HEIGHT)
             .background(
-                color = if (active) TerminalPalette.live.copy(alpha = ACTIVE_KEY_ALPHA) else TerminalPalette.chrome,
+                color = if (active) {
+                    TerminalPalette.live.copy(alpha = ACTIVE_KEY_ALPHA)
+                } else {
+                    TerminalPalette.muted.copy(alpha = EXTRA_KEY_SURFACE_ALPHA)
+                },
                 shape = RoundedCornerShape(EXTRA_KEY_RADIUS),
             )
             .clickable(onClick = onClick)
@@ -316,8 +331,11 @@ private val EXTRA_KEYBOARD_SIZE = 40.dp
 private val EXTRA_KEY_HORIZONTAL = 4.dp
 private val EXTRA_KEY_VERTICAL = 6.dp
 private val EXTRA_KEY_RADIUS = 6.dp
+private val EXTRA_DIVIDER_WIDTH = 1.dp
 private val EXTRA_TEXT_SIZE = 12.sp
 private const val ACTIVE_KEY_ALPHA = 0.18f
+private const val EXTRA_DIVIDER_ALPHA = 0.45f
+private const val EXTRA_KEY_SURFACE_ALPHA = 0.10f
 private const val INPUT_CURSOR = "▌"
 private const val DELETE_CHARACTER = "\u007F"
 private const val ESCAPE_CHARACTER = "\u001B"
