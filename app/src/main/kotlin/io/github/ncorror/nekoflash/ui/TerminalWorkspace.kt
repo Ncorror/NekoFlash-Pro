@@ -15,7 +15,6 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateListOf
@@ -32,9 +31,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.ncorror.nekoflash.pro.engine.TerminalPlanCompiler
 import com.ncorror.nekoflash.pro.engine.TerminalPlanResult
 import io.github.ncorror.nekoflash.R
@@ -412,7 +408,6 @@ private fun LineTerminalOutput(
 ) {
     val state = rememberLazyListState()
     val viewport = remember { TerminalTailViewportState() }
-    val resumeGeneration = rememberHostResumeGeneration()
     val userScrollConnection = remember(viewport) {
         object : NestedScrollConnection {
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
@@ -429,9 +424,6 @@ private fun LineTerminalOutput(
                 viewport.settleUserScroll(lastVisible, lines.lastIndex)
             }
         }
-    }
-    LaunchedEffect(resumeGeneration) {
-        if (viewport.followTail && lines.isNotEmpty()) state.scrollToItem(lines.lastIndex)
     }
     LaunchedEffect(lines.size, lines.lastOrNull()) {
         if (viewport.followTail && lines.isNotEmpty()) state.scrollToItem(lines.lastIndex)
@@ -456,20 +448,6 @@ private fun LineTerminalOutput(
             )
         }
     }
-}
-
-@Composable
-private fun rememberHostResumeGeneration(): Int {
-    val generation = remember { mutableStateOf(0) }
-    val lifecycleOwner = LocalLifecycleOwner.current
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) generation.value += 1
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
-    }
-    return generation.value
 }
 
 private fun compileAndRunHostCommand(
