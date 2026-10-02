@@ -41,11 +41,11 @@ public class UsbSessionCoordinator(
      * Куда записываются события USB.
      *
      * Нужен для evidence: `07_TESTING_CI_HARDWARE_EVIDENCE_RU.md` требует
-     * структурных логов, а не пересказа увиденного на экране. По умолчанию
-     * события никуда не идут — это позволяет использовать координатор в тестах,
-     * не собирая журнал.
+     * структурных логов, а не пересказа увиденного на экране. Production обязан
+     * передать реальный журнал; no-op sink для изолированных тестов живёт только
+     * в test source set.
      */
-    private val diagnostics: DiagnosticSink = DiagnosticSink { },
+    private val diagnostics: DiagnosticSink,
     /** Источник времени. Вынесен, чтобы в тестах отметки были предсказуемы. */
     private val clock: () -> Instant = Instant::now,
 ) : UsbHost.Listener {
