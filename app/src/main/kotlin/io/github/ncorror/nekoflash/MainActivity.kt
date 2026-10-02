@@ -245,7 +245,6 @@ private fun MainActivity.exportDiagnostics(
     }
 }
 
-/** Действия терминала собраны отдельно: в теле экрана они только шумят. */
 /**
  * Панель Fastboot: состояние опроса и два действия над ним.
  *
@@ -321,15 +320,8 @@ private fun fastbootConsolePanel(
 }
 
 private fun terminalActions(link: AdbLinkController) = TerminalActions(
-    onStart = { link.shells.start() },
-    onSend = { text -> link.shells.send(text) },
     onInterrupt = link.shells::interrupt,
-    onStop = link.shells::stop,
     onResize = link.shells::resize,
     onKey = link.shells::key,
     onType = { text -> link.shells.send(text, enter = false) },
-    onAddTab = link.shells::addTab,
-    onSelectTab = link.shells::selectTab,
-    onCloseTab = link.shells::closeTab,
 )
-
