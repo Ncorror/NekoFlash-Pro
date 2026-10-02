@@ -29,6 +29,27 @@ class VtViewportContractTest {
     }
 
     @Test
+    fun imeResumeRoundTripKeepsHistoryWhenBlankRowsAreBelowCursor() {
+        val esc = "\u001B"
+        val screen = VtScreen(columns = 10, rows = 4)
+        screen.feed("1\r\n2\r\n3\r\n4\r\n5")
+        screen.feed("${esc}[2J${esc}[Hprompt")
+
+        val before = screen.snapshot()
+        assertEquals(1, before.screenStartRow)
+
+        // Backgrounding with the keyboard open can briefly expose a taller
+        // viewport; restoring the IME then returns to the original height.
+        screen.resize(columns = 10, rows = 6)
+        screen.resize(columns = 10, rows = 4)
+
+        val after = screen.snapshot()
+        assertEquals(before.screenStartRow, after.screenStartRow)
+        assertEquals(before.cursorRow, after.cursorRow)
+        assertEquals(before.rows.map { it.text }, after.rows.map { it.text })
+    }
+
+    @Test
     fun alternateScreenDoesNotExposeMainScrollback() {
         val esc = "\u001B"
         val screen = VtScreen(columns = 10, rows = 2)
