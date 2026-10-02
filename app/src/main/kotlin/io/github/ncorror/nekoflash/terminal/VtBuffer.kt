@@ -203,41 +203,52 @@ internal class VtBuffer(var columns: Int, var rows: Int) {
 
     private fun resizeMainRows(newRows: Int) {
         if (newRows == rows || newRows <= 0) return
-        var remaining = kotlin.math.abs(newRows - rows)
-        if (newRows < rows) {
-            // Если прошлое расширение подняло history в live-grid, обратное
-            // сжатие сначала возвращает именно эти строки. Иначе пустой хвост
-            // под курсором съедается раньше и screenStartRow незаметно уезжает.
-            while (remaining > 0 && restoredForResize > 0 && main.size > newRows) {
-                archive(main.removeAt(0))
-                restoredForResize--
-                row = (row - 1).coerceAtLeast(0)
-                saved = saved.copy(row = (saved.row - 1).coerceAtLeast(0))
-                remaining--
-            }
-            while (remaining > 0 && main.size > newRows) {
-                if (row >= main.lastIndex || !main.last().isVisuallyBlank()) break
-                main.removeAt(main.lastIndex)
-                remaining--
-            }
-            while (remaining > 0 && main.size > newRows) {
-                archive(main.removeAt(0))
-                row = (row - 1).coerceAtLeast(0)
-                saved = saved.copy(row = (saved.row - 1).coerceAtLeast(0))
-                remaining--
-            }
-        } else {
-            while (remaining > 0 && history.isNotEmpty()) {
-                main.add(0, history.removeLast().toLine(columns))
-                restoredForResize++
-                row++
-                saved = saved.copy(row = saved.row + 1)
-                remaining--
-            }
-            repeat(remaining) {
-                main.add(VtLine(columns).also { it.clear(0, columns, blank()) })
-            }
+        if (newRows < rows) shrinkMainRows(newRows) else growMainRows(newRows)
+        finishMainResize(newRows)
+    }
+
+    private fun shrinkMainRows(newRows: Int) {
+        var remaining = rows - newRows
+        // Если прошлое расширение подняло history в live-grid, обратное
+        // сжатие сначала возвращает именно эти строки. Иначе пустой хвост
+        // под курсором съедается раньше и screenStartRow незаметно уезжает.
+        while (remaining > 0 && restoredForResize > 0 && main.size > newRows) {
+            archiveFirstMainRow()
+            restoredForResize--
+            remaining--
         }
+        while (remaining > 0 && main.size > newRows) {
+            if (row >= main.lastIndex || !main.last().isVisuallyBlank()) break
+            main.removeAt(main.lastIndex)
+            remaining--
+        }
+        while (remaining > 0 && main.size > newRows) {
+            archiveFirstMainRow()
+            remaining--
+        }
+    }
+
+    private fun growMainRows(newRows: Int) {
+        var remaining = newRows - rows
+        while (remaining > 0 && history.isNotEmpty()) {
+            main.add(0, history.removeLast().toLine(columns))
+            restoredForResize++
+            row++
+            saved = saved.copy(row = saved.row + 1)
+            remaining--
+        }
+        repeat(remaining) {
+            main.add(VtLine(columns).also { it.clear(0, columns, blank()) })
+        }
+    }
+
+    private fun archiveFirstMainRow() {
+        archive(main.removeAt(0))
+        row = (row - 1).coerceAtLeast(0)
+        saved = saved.copy(row = (saved.row - 1).coerceAtLeast(0))
+    }
+
+    private fun finishMainResize(newRows: Int) {
         rows = newRows
         top = 0
         bottom = rows - 1
