@@ -72,14 +72,14 @@ public class AdbLinkController(
     private val apiLevel: Int,
     private val executor: Executor,
     private val terminalWriterExecutor: Executor,
-    private val diagnostics: DiagnosticSink = DiagnosticSink { },
+    private val diagnostics: DiagnosticSink,
     /**
      * Что платформа говорит о праве открыть сокет.
      *
      * Прокидывается насквозь до пробросов: `Context` есть у приложения, а не у
      * контроллера. Зачем это нужно — `AdbForwardController.networkPermission`.
      */
-    private val networkPermission: () -> String = { "unknown" },
+    private val networkPermission: () -> String,
     /**
      * Владелец записей длительных операций.
      *
@@ -93,7 +93,7 @@ public class AdbLinkController(
      * Функция, а не `Context`: контроллер про Android не знает, и кто именно
      * держит процесс, решает приложение (`06` §1).
      */
-    private val holdProcess: () -> Unit = {},
+    private val holdProcess: () -> Unit,
 ) {
     private val mutableState = MutableStateFlow<AdbLinkState>(AdbLinkState.Idle)
 
