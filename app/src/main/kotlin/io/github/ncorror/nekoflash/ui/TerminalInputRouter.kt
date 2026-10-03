@@ -64,8 +64,9 @@ internal class TerminalInputRouter(
 
     fun onSpecialKey(key: TerminalKey) {
         if (ptyInput) {
+            val modified = modifiedNavigationSequence(key, controlActive.value, altActive.value)
             clearModifiers()
-            actions.onKey(key)
+            if (modified == null) actions.onKey(key) else actions.onType(modified)
         } else {
             hostEditor.key(key, controlActive.value || altActive.value)
             clearModifiers()
@@ -128,6 +129,36 @@ internal class TerminalInputRouter(
             else -> return null
         }
         return code.toChar().toString()
+    }
+}
+
+/**
+ * Encodes the xterm modifier form used by navigation keys in a live PTY.
+ *
+ * Plain keys still go through [TerminalActions.onKey], so DECCKM/application
+ * cursor mode remains owned by the terminal controller. A modified cursor key
+ * uses CSI directly, as xterm does: Alt is parameter 3 and Control is 5.
+ */
+private fun modifiedNavigationSequence(
+    key: TerminalKey,
+    control: Boolean,
+    alt: Boolean,
+): String? {
+    val modifier = when {
+        control -> CONTROL_CSI_MODIFIER
+        alt -> ALT_CSI_MODIFIER
+        else -> return null
+    }
+    return when (key) {
+        TerminalKey.UP -> "${CSI_PREFIX}${CSI_CURSOR_PARAMETER};${modifier}A"
+        TerminalKey.DOWN -> "${CSI_PREFIX}${CSI_CURSOR_PARAMETER};${modifier}B"
+        TerminalKey.RIGHT -> "${CSI_PREFIX}${CSI_CURSOR_PARAMETER};${modifier}C"
+        TerminalKey.LEFT -> "${CSI_PREFIX}${CSI_CURSOR_PARAMETER};${modifier}D"
+        TerminalKey.HOME -> "${CSI_PREFIX}${CSI_CURSOR_PARAMETER};${modifier}H"
+        TerminalKey.END -> "${CSI_PREFIX}${CSI_CURSOR_PARAMETER};${modifier}F"
+        TerminalKey.PAGE_UP -> "${CSI_PREFIX}${CSI_PAGE_UP_PARAMETER};${modifier}~"
+        TerminalKey.PAGE_DOWN -> "${CSI_PREFIX}${CSI_PAGE_DOWN_PARAMETER};${modifier}~"
+        TerminalKey.ESCAPE, TerminalKey.TAB -> null
     }
 }
 
@@ -339,5 +370,11 @@ private const val EXTRA_KEY_SURFACE_ALPHA = 0.10f
 private const val INPUT_CURSOR = "▌"
 private const val DELETE_CHARACTER = "\u007F"
 private const val ESCAPE_CHARACTER = "\u001B"
+private const val CSI_PREFIX = "\u001B["
+private const val CSI_CURSOR_PARAMETER = 1
+private const val CSI_PAGE_UP_PARAMETER = 5
+private const val CSI_PAGE_DOWN_PARAMETER = 6
+private const val ALT_CSI_MODIFIER = 3
+private const val CONTROL_CSI_MODIFIER = 5
 private const val CONTROL_MASK = 0x1F
 private const val DELETE_CODE = 0x7F

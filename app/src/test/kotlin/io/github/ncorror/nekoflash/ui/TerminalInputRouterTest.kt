@@ -66,7 +66,7 @@ class TerminalInputRouterTest {
     }
 
     @Test
-    fun ptySpecialKeyRoutesAndClearsModifier() {
+    fun plainPtySpecialKeyRoutesAndClearsModifierState() {
         val keys = mutableListOf<TerminalKey>()
         val control = mutableStateOf(false)
         val alt = mutableStateOf(false)
@@ -77,10 +77,101 @@ class TerminalInputRouterTest {
             actions = testActions(onKey = keys::add),
         )
 
-        router.toggleControl()
         router.onSpecialKey(TerminalKey.LEFT)
 
         assertEquals(listOf(TerminalKey.LEFT), keys)
+        assertFalse(control.value)
+        assertFalse(alt.value)
+    }
+
+    @Test
+    fun ctrlNavigationUsesXtermModifierFive() {
+        val typed = mutableListOf<String>()
+        val keys = mutableListOf<TerminalKey>()
+        val control = mutableStateOf(false)
+        val alt = mutableStateOf(false)
+        val router = router(
+            pty = true,
+            control = control,
+            alt = alt,
+            actions = testActions(onKey = keys::add, onType = typed::add),
+        )
+        val cases = listOf(
+            TerminalKey.UP to "\u001B[1;5A",
+            TerminalKey.DOWN to "\u001B[1;5B",
+            TerminalKey.RIGHT to "\u001B[1;5C",
+            TerminalKey.LEFT to "\u001B[1;5D",
+            TerminalKey.HOME to "\u001B[1;5H",
+            TerminalKey.END to "\u001B[1;5F",
+            TerminalKey.PAGE_UP to "\u001B[5;5~",
+            TerminalKey.PAGE_DOWN to "\u001B[6;5~",
+        )
+
+        cases.forEach { (key, _) ->
+            router.toggleControl()
+            router.onSpecialKey(key)
+            assertFalse(control.value)
+            assertFalse(alt.value)
+        }
+
+        assertEquals(cases.map { it.second }, typed)
+        assertTrue(keys.isEmpty())
+    }
+
+    @Test
+    fun altNavigationUsesXtermModifierThree() {
+        val typed = mutableListOf<String>()
+        val keys = mutableListOf<TerminalKey>()
+        val control = mutableStateOf(false)
+        val alt = mutableStateOf(false)
+        val router = router(
+            pty = true,
+            control = control,
+            alt = alt,
+            actions = testActions(onKey = keys::add, onType = typed::add),
+        )
+        val cases = listOf(
+            TerminalKey.UP to "\u001B[1;3A",
+            TerminalKey.DOWN to "\u001B[1;3B",
+            TerminalKey.RIGHT to "\u001B[1;3C",
+            TerminalKey.LEFT to "\u001B[1;3D",
+            TerminalKey.HOME to "\u001B[1;3H",
+            TerminalKey.END to "\u001B[1;3F",
+            TerminalKey.PAGE_UP to "\u001B[5;3~",
+            TerminalKey.PAGE_DOWN to "\u001B[6;3~",
+        )
+
+        cases.forEach { (key, _) ->
+            router.toggleAlt()
+            router.onSpecialKey(key)
+            assertFalse(control.value)
+            assertFalse(alt.value)
+        }
+
+        assertEquals(cases.map { it.second }, typed)
+        assertTrue(keys.isEmpty())
+    }
+
+    @Test
+    fun modifierDoesNotInventSequencesForEscapeOrTab() {
+        val typed = mutableListOf<String>()
+        val keys = mutableListOf<TerminalKey>()
+        val control = mutableStateOf(false)
+        val alt = mutableStateOf(false)
+        val router = router(
+            pty = true,
+            control = control,
+            alt = alt,
+            actions = testActions(onKey = keys::add, onType = typed::add),
+        )
+
+        router.toggleControl()
+        router.onSpecialKey(TerminalKey.ESCAPE)
+        router.toggleAlt()
+        router.onSpecialKey(TerminalKey.TAB)
+
+        assertEquals(listOf(TerminalKey.ESCAPE, TerminalKey.TAB), keys)
+        assertTrue(typed.isEmpty())
         assertFalse(control.value)
         assertFalse(alt.value)
     }
