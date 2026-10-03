@@ -83,10 +83,10 @@ public class AdbLinkController(
     /**
      * Владелец записей длительных операций.
      *
-     * `null` означает, что записей нет вовсе — так бывает в тестах. Операции от
-     * этого не меняются, меняется только то, останется ли от них след.
+     * На уровне приложения журнал обязателен: молчаливо отключить след
+     * длительной операции здесь нельзя.
      */
-    private val operations: OperationEngine? = null,
+    private val operations: OperationEngine,
     /**
      * Поднять foreground service.
      *
