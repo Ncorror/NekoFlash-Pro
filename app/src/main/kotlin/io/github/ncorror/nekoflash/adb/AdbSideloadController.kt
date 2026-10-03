@@ -101,7 +101,7 @@ public class AdbSideloadController(
      * Передача — длительная операция, и её след обязан пережить процесс: после
      * падения решает **граница мутации**, а не то, что помнил экран (`06` §3).
      */
-    private val operations: OperationEngine? = null,
+    private val operations: OperationEngine,
     /**
      * Поднять foreground service.
      *
@@ -124,21 +124,15 @@ public class AdbSideloadController(
     public val active: Boolean
         get() = running
 
-    /**
-     * Заводит запись операции и держит процесс, пока она идёт.
-     *
-     * `null` означает, что владельца записей нет вовсе — так бывает в тестах;
-     * передача от этого не меняется, меняется только то, останется ли от неё
-     * след.
-     */
+    /** Заводит обязательную запись операции и держит процесс, пока она идёт. */
     private fun record(
         summary: String,
         target: TargetId,
         generation: SessionGeneration,
         sizeBytes: Long?,
-    ): OperationHandle? {
+    ): OperationHandle {
         holdProcess()
-        return operations?.begin(
+        return operations.begin(
             intent = OperationIntent(OperationKind.ADB_SIDELOAD, summary),
             targetId = target,
             generation = generation,
@@ -186,9 +180,9 @@ public class AdbSideloadController(
         peerMode: AdbPeerMode,
         stagingDirectory: File,
         origin: () -> ArtifactSource,
-        handle: OperationHandle?,
+        handle: OperationHandle,
     ) {
-        handle?.state(STAGING)
+        handle.state(STAGING)
         val prepared = runCatching { ready(origin(), stagingDirectory) }.getOrElse { error ->
             Ready.No("источник не открылся: ${error.message ?: error.javaClass.simpleName}")
         }
@@ -197,7 +191,7 @@ public class AdbSideloadController(
                 mutableState.value = AdbSideloadState.Refused(prepared.detail)
                 // Отказ до передачи — это провал операции, а не неизвестность:
                 // устройство не тронуто, и сказать это можно уверенно.
-                handle?.finish(OperationOutcome.FAILED, REFUSED, Instant.now())
+                handle.finish(OperationOutcome.FAILED, REFUSED, Instant.now())
                 running = false
             }
 
@@ -268,9 +262,9 @@ public class AdbSideloadController(
         peerMode: AdbPeerMode,
         sizeBytes: Long,
         access: ArtifactRandomAccess,
-        handle: OperationHandle?,
+        handle: OperationHandle,
     ) {
-        handle?.state(SENDING)
+        handle.state(SENDING)
         val outcome = runCatching {
             connection.sideloadDriver(diagnostics).send(
                 source = AdbSideloadSource { offset, length -> access.read(offset, length) },
@@ -288,7 +282,7 @@ public class AdbSideloadController(
         }
         val pending = AdbSideloadContract.requiresVerification(outcome)
         mutableState.value = AdbSideloadState.Finished(outcome, pending)
-        handle?.finish(outcomeOf(outcome, pending), outcome.javaClass.simpleName, Instant.now())
+        handle.finish(outcomeOf(outcome, pending), outcome.javaClass.simpleName, Instant.now())
         running = false
     }
 
@@ -318,20 +312,20 @@ public class AdbSideloadController(
     }
 
     /** Переносит события передачи в состояние экрана. */
-    private inner class Watcher(private val handle: OperationHandle?) : AdbSideloadListener {
+    private inner class Watcher(private val handle: OperationHandle) : AdbSideloadListener {
         @Volatile
         private var cancellable = true
 
         override fun onProgress(progress: AdbSideloadProgress) {
             mutableState.value = AdbSideloadState.Running(progress, cancellable)
-            handle?.progress(progress.servedBytes, progress.uniqueBytes, System.currentTimeMillis())
+            handle.progress(progress.servedBytes, progress.uniqueBytes, System.currentTimeMillis())
         }
 
         override fun onMutationBoundary() {
             cancellable = false
             // В хранилище это уходит немедленно: после падения именно граница
             // решает, можно ли сказать, что устройство не тронуто.
-            handle?.crossedMutationBoundary("первый блок нагрузки ушёл на провод", Instant.now())
+            handle.crossedMutationBoundary("первый блок нагрузки ушёл на провод", Instant.now())
             // Кнопка гаснет сразу, а не со следующим подтверждением: между
             // границей и первым подтверждением проходит целый блок, и всё это
             // время отмена была бы обещанием, которого никто не сдержит.
