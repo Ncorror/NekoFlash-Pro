@@ -112,42 +112,18 @@ class AdbTerminalControllerTest {
         }
     }
 
-    /**
-     * Терминал в стиле NetHunter (D078): оболочка открывается командой с
-     * настройками, а логотип виден ещё до ответа устройства.
-     */
+    /** `adb shell -T`: оболочка открывается без PTY-профиля. */
     @Test
-    fun theProfileOpensTheShellWithItsSettingsAndShowsTheBanner() = withConnection { connection, handle ->
+    fun rawShellOpensWithoutPtySetup() = withConnection { connection, handle ->
         val reader = Executors.newSingleThreadExecutor()
         val writer = RecordingExecutor()
-        val controller = AdbTerminalController(reader, writer, profile = true)
-        try {
-            controller.start(connection)
-
-            assertTrue(eventually { controller.state.value.output.contains("adb · fastboot") })
-            val open = synchronized(handle.sent) { handle.sent.joinToString("") { String(it, Charsets.ISO_8859_1) } }
-            assertTrue(open.contains("shell:exec 3<&0; printf %s "))
-            assertTrue(open.contains("export ENV=/proc/self/fd/9; exec sh -i"))
-            assertFalse("ввод за оператора не набирается", controller.state.value.ready)
-        } finally {
-            controller.stop()
-            reader.shutdownNow()
-        }
-    }
-
-    /** `adb shell -T`: без терминала приглашения нет, и настраивать нечего. */
-    @Test
-    fun aRawShellOpensWithoutTheProfile() = withConnection { connection, handle ->
-        val reader = Executors.newSingleThreadExecutor()
-        val writer = RecordingExecutor()
-        val controller = AdbTerminalController(reader, writer, profile = true)
+        val controller = AdbTerminalController(reader, writer)
         try {
             controller.start(connection, mode = AdbShellMode.RAW)
 
             assertTrue(eventually { handle.sendCalls >= 1 })
             val open = synchronized(handle.sent) { handle.sent.joinToString("") { String(it, Charsets.ISO_8859_1) } }
             assertTrue(open.contains("shell:\u0000"))
-            assertFalse(controller.state.value.output.contains("adb · fastboot"))
         } finally {
             controller.stop()
             reader.shutdownNow()
