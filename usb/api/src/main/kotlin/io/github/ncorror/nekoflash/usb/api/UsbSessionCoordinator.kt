@@ -34,9 +34,10 @@ public class UsbSessionCoordinator(
      * Существует ради планирования таймаута: сам координатор время не
      * планирует, потому что планирование нельзя выполнить детерминированно в
      * тесте. Платформенный слой по этому уведомлению заводит отсчёт и по
-     * истечении вызывает [onPermissionTimeout].
+     * истечении вызывает [onPermissionTimeout]. Production обязан передать
+     * реальный планировщик; no-op callback допустим только в test source set.
      */
-    private val onPermissionRequested: (SessionGeneration) -> Unit = {},
+    private val onPermissionRequested: (SessionGeneration) -> Unit,
     /**
      * Куда записываются события USB.
      *
