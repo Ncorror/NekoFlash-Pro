@@ -1,5 +1,6 @@
 package io.github.ncorror.nekoflash.operation
 
+import android.annotation.SuppressLint
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -8,7 +9,6 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
-import android.os.Build
 import android.os.IBinder
 import io.github.ncorror.nekoflash.MainActivity
 import io.github.ncorror.nekoflash.NekoFlashApplication
@@ -141,18 +141,20 @@ public class OperationService : Service() {
          *
          * Вызывается в начале каждой длительной операции. Повторный вызов
          * безопасен: сервис один, и второй `startForegroundService` его не
-         * дублирует.
+         * дублирует. `minSdk` проекта — 26, поэтому отдельной ветки для старого
+         * `startService` у приложения больше нет.
          */
         public fun start(context: Context) {
-            val intent = Intent(context, OperationService::class.java)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
-            } else {
-                context.startService(intent)
-            }
+            context.startForegroundService(Intent(context, OperationService::class.java))
         }
 
-        /** Тип, который платформа требует объявить и здесь, и в манифесте. */
+        /**
+         * Тип, который платформа требует объявить и здесь, и в манифесте.
+         *
+         * Значение константы встраивается компилятором; на API 26–28 поле как
+         * символ не читается во время выполнения.
+         */
+        @SuppressLint("InlinedApi")
         internal const val TYPE_CONNECTED_DEVICE: Int =
             ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
     }

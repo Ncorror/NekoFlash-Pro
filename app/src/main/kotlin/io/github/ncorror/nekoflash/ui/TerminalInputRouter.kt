@@ -271,9 +271,9 @@ internal fun TerminalExtraKeys(
 @Composable
 private fun ExtraKey(
     label: String,
-    active: Boolean = false,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    active: Boolean = false,
 ) {
     Box(
         modifier = modifier
