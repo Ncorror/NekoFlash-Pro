@@ -36,13 +36,16 @@ import kotlinx.coroutines.launch
 /**
  * Production shell: Terminal first, every secondary tool in a navigation drawer.
  *
- * The top bar contains only OTG state. There is deliberately no bottom bar,
- * tool picker, home dashboard, mock panel or duplicate ADB/Fastboot navigation.
+ * The compact top bar contains OTG state and the selected target. There is
+ * deliberately no bottom bar, home dashboard, mock panel or duplicate
+ * ADB/Fastboot navigation.
  */
 @Suppress("LongParameterList")
 @Composable
 fun NekoFlashApp(
     sessions: List<UsbSession>,
+    selected: UsbSession?,
+    onSelectTarget: (UsbSession) -> Unit,
     scan: UsbScanSummary,
     usbHostSupported: Boolean,
     adbLink: AdbLinkState,
@@ -57,7 +60,7 @@ fun NekoFlashApp(
     onExportDiagnostics: () -> Unit,
 ) {
     var destination by rememberSaveable { mutableStateOf(SidebarDestination.TERMINAL) }
-    AutoConnectFastboot(sessions, fastboot)
+    AutoConnectFastboot(selected, fastboot)
     NekoFlashDrawer(
         destination = destination,
         onSelect = { destination = it },
@@ -65,6 +68,8 @@ fun NekoFlashApp(
         NekoFlashBody(
             destination = destination,
             sessions = sessions,
+            selected = selected,
+            onSelectTarget = onSelectTarget,
             scan = scan,
             usbHostSupported = usbHostSupported,
             adbLink = adbLink,
@@ -115,6 +120,8 @@ private fun NekoFlashDrawer(
 private fun NekoFlashBody(
     destination: SidebarDestination,
     sessions: List<UsbSession>,
+    selected: UsbSession?,
+    onSelectTarget: (UsbSession) -> Unit,
     scan: UsbScanSummary,
     usbHostSupported: Boolean,
     adbLink: AdbLinkState,
@@ -128,14 +135,19 @@ private fun NekoFlashBody(
     desktopCommand: DesktopCommandPanel,
     onExportDiagnostics: () -> Unit,
 ) {
-    val selected = sessions.firstOrNull()
     Column(
         modifier = Modifier
             .fillMaxSize()
             .statusBarsPadding()
             .navigationBarsPadding(),
     ) {
-        ConnectionStatusBar(adb = adbLink, fastboot = fastboot.state)
+        ConnectionStatusBar(
+            adb = adbLink,
+            fastboot = fastboot.state,
+            sessions = sessions,
+            selected = selected,
+            onSelectTarget = onSelectTarget,
+        )
         DestinationContent(
             destination = destination,
             selected = selected,
@@ -199,8 +211,8 @@ private fun DestinationContent(
 }
 
 @Composable
-private fun AutoConnectFastboot(sessions: List<UsbSession>, fastboot: FastbootPanel) {
-    val candidate = sessions.firstOrNull { session ->
+private fun AutoConnectFastboot(selected: UsbSession?, fastboot: FastbootPanel) {
+    val candidate = selected?.takeIf { session ->
         !session.closed &&
             session.state == UsbSessionState.READY &&
             session.candidate.kind == UsbInterfaceKind.FASTBOOT

@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -21,15 +22,19 @@ import androidx.compose.ui.unit.sp
 import io.github.ncorror.nekoflash.R
 import io.github.ncorror.nekoflash.adb.AdbLinkState
 import io.github.ncorror.nekoflash.fastboot.FastbootLinkState
+import io.github.ncorror.nekoflash.usb.api.UsbSession
 
 /**
- * Верхняя панель намеренно содержит только состояние OTG.
- * Навигация открывается жестом drawer и не занимает место терминала.
+ * Compact status line: OTG state on the left, selected target on the right.
+ * Navigation remains a drawer gesture and does not take terminal space.
  */
 @Composable
 internal fun ConnectionStatusBar(
     adb: AdbLinkState,
     fastboot: FastbootLinkState,
+    sessions: List<UsbSession>,
+    selected: UsbSession?,
+    onSelectTarget: (UsbSession) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val visual = connectionVisual(adb, fastboot)
@@ -51,6 +56,12 @@ internal fun ConnectionStatusBar(
             text = stringResource(visual.label),
             color = MaterialTheme.colorScheme.onSurface,
             fontSize = STATUS_TEXT_SIZE,
+        )
+        Spacer(Modifier.weight(1f))
+        TargetSelector(
+            sessions = sessions,
+            selected = selected,
+            onSelect = onSelectTarget,
         )
     }
 }

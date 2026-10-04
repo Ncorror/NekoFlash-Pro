@@ -99,6 +99,8 @@ class MainActivity : LocaleAwareActivity() {
         fastbootLink: FastbootLinkController,
     ) {
         val sessions by coordinator.sessions.collectAsState()
+        val targetSelection by application.targetSelection.state.collectAsState()
+        val selected = remember(sessions, targetSelection) { application.targetSelection.resolve(sessions) }
         val linkState by adbLink.state.collectAsState()
         val terminalTabs by adbLink.terminals.collectAsState()
         // Каждая вкладка меняется своим потоком: заголовки и выбранная читаются все.
@@ -131,6 +133,8 @@ class MainActivity : LocaleAwareActivity() {
 
         NekoFlashApp(
             sessions = sessions,
+            selected = selected,
+            onSelectTarget = application.targetSelection::select,
             scan = coordinator.lastScan.collectAsState().value,
             usbHostSupported = packageManager.hasSystemFeature(PackageManager.FEATURE_USB_HOST),
             adbLink = linkState,
@@ -138,9 +142,9 @@ class MainActivity : LocaleAwareActivity() {
             terminalActions = terminalActions(adbLink),
             sideload = sideloadPanel(adbLink, linkState),
             recentEvents = RecentEvents { application.recentDiagnostics() },
-            fastboot = fastbootPanel(fastbootLink, fastbootState, sessions),
+            fastboot = fastbootPanel(fastbootLink, fastbootState, selected),
             miUnlock = miUnlockPanel(application, fastbootLink, fastbootState),
-            fastbootConsole = fastbootConsolePanel(fastbootLink, fastbootConsole, fastbootState, sessions),
+            fastbootConsole = fastbootConsolePanel(fastbootLink, fastbootConsole, fastbootState, selected),
             desktopCommand = desktopCommandPanel(adbLink, fastbootLink, coordinator),
             onExportDiagnostics = { saveLauncher.launch(application.suggestedDiagnosticsFileName()) },
         )
@@ -261,15 +265,10 @@ private fun MainActivity.exportDiagnostics(
 private fun fastbootPanel(
     link: FastbootLinkController,
     state: FastbootLinkState,
-    sessions: List<UsbSession>,
+    selected: UsbSession?,
 ): FastbootPanel = FastbootPanel(
     state = state,
-    // Generation берётся из живой сессии: опрос принадлежит тому подключению,
-    // в котором он начат.
-    onProbe = {
-        sessions.firstOrNull { it.candidate.kind == UsbInterfaceKind.FASTBOOT }
-            ?.let { session -> link.connect(session.generation) }
-    },
+    onProbe = { reconnectFastboot(link, selected) },
     onDisconnect = link::disconnect,
     // Тот же вход, что и у консоли: второго пути к полосе нет по построению.
     onPlan = link::runPlan,
@@ -280,7 +279,7 @@ private fun fastbootConsolePanel(
     link: FastbootLinkController,
     state: FastbootConsoleState,
     linkState: FastbootLinkState,
-    sessions: List<UsbSession>,
+    selected: UsbSession?,
 ): FastbootConsolePanel {
     val resolver = LocalContext.current.contentResolver
     val pendingFetch = remember { mutableStateOf<String?>(null) }
@@ -311,18 +310,19 @@ private fun fastbootConsolePanel(
             saveLauncher.launch(partition.ifBlank { "partition" } + ".img")
         },
         onDownloadFile = { openLauncher.launch(arrayOf("*/*")) },
-        // Отпустить и взять заново — тем же входом, что и кнопки шапки.
-        // Generation берётся из живой сессии, а не из прошлой связи: захват
-        // принадлежит тому подключению, которое есть сейчас.
-        onReclaim = {
-            link.disconnect()
-            sessions.firstOrNull { it.candidate.kind == UsbInterfaceKind.FASTBOOT }
-                ?.let { session -> link.connect(session.generation) }
-        },
+        onReclaim = { reconnectFastboot(link, selected) },
         // Роль берётся из той же связи, что и в шапке, а не из отдельной
         // догадки: две строки о роли, способные разойтись, хуже одной.
         mode = (linkState as? FastbootLinkState.Connected)?.identity?.mode ?: FastbootMode.UNKNOWN,
     )
+}
+
+private fun reconnectFastboot(link: FastbootLinkController, selected: UsbSession?) {
+    val target = selected?.takeIf { it.candidate.kind == UsbInterfaceKind.FASTBOOT } ?: return
+    // Re-probe is a fresh claim. Close the old lane first so two generations
+    // can never share ownership through the UI path.
+    link.disconnect()
+    link.connect(target.generation)
 }
 
 private fun terminalActions(link: AdbLinkController) = TerminalActions(
