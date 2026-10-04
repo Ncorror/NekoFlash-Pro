@@ -57,29 +57,9 @@ interface DesktopCommandTargets {
     fun adbService(service: String)
     fun adbReboot(target: String)
 
-    /** Existing host-side TCP forward controller, formerly reachable only from the removed ADB workspace. */
-    fun adbForwardAdd(localPort: Int, remote: String) {
-        error("adb forward target is not wired")
-    }
-
-    fun adbForwardRemove(localPort: Int) {
-        error("adb forward target is not wired")
-    }
-
-    fun adbForwardList(): String = error("adb forward target is not wired")
-
-    /** Existing device-side reverse controller. */
-    fun adbReverseAdd(remote: String, local: String) {
-        error("adb reverse target is not wired")
-    }
-
-    fun adbReverseList() {
-        error("adb reverse target is not wired")
-    }
-
-    fun adbReverseRemoveAll() {
-        error("adb reverse target is not wired")
-    }
+    /** Long-lived forwarding operations are one capability surface, not six unrelated target functions. */
+    val adbForwarding: AdbForwardingTargets
+        get() = MissingAdbForwardingTargets
 
     /** `adb pull`; [keepAttributes] — `-a`; [compression] — имя из `-z` (`none` — без сжатия). */
     fun adbPull(
@@ -109,6 +89,26 @@ interface DesktopCommandTargets {
 
     /** Ответ приложения о своей связи: `devices`, `get-state`, `status`. */
     fun localReport(tool: TerminalParser.Tool, kind: LocalReportKind): String
+}
+
+/** Forward/reverse command surface formerly owned by the removed ADB workspace. */
+interface AdbForwardingTargets {
+    fun forwardAdd(localPort: Int, remote: String)
+    fun forwardRemove(localPort: Int)
+    fun forwardList(): String
+    fun reverseAdd(remote: String, local: String)
+    fun reverseList()
+    fun reverseRemoveAll()
+}
+
+private object MissingAdbForwardingTargets : AdbForwardingTargets {
+    private fun missing(): Nothing = error("adb forwarding target is not wired")
+    override fun forwardAdd(localPort: Int, remote: String): Unit = missing()
+    override fun forwardRemove(localPort: Int): Unit = missing()
+    override fun forwardList(): String = missing()
+    override fun reverseAdd(remote: String, local: String): Unit = missing()
+    override fun reverseList(): Unit = missing()
+    override fun reverseRemoveAll(): Unit = missing()
 }
 
 /** Файл, выбранный через Android для шага плана. */
@@ -162,14 +162,26 @@ class DesktopCommandExecutor(private val targets: DesktopCommandTargets) {
         onStarting: (DesktopCommandArea) -> Unit = {},
     ): DesktopCommandStart {
         val first = plan.steps.first()
-        if (first is TerminalPlanStep.LocalReport) {
-            return DesktopCommandStart.Answered(targets.localReport(first.tool, first.kind))
-        }
-        if (first is AdbForwardListStep) {
-            return DesktopCommandStart.Answered(targets.adbForwardList())
-        }
-        fileProblem(plan, file)?.let { return it }
+        return immediate(first, plan, file) ?: start(first, plan, file, onStarting)
+    }
 
+    private fun immediate(
+        first: TerminalPlanStep,
+        plan: TerminalPlan,
+        file: PickedFile?,
+    ): DesktopCommandStart? = when {
+        first is TerminalPlanStep.LocalReport ->
+            DesktopCommandStart.Answered(targets.localReport(first.tool, first.kind))
+        first is AdbForwardListStep -> DesktopCommandStart.Answered(targets.adbForwarding.forwardList())
+        else -> fileProblem(plan, file)
+    }
+
+    private fun start(
+        first: TerminalPlanStep,
+        plan: TerminalPlan,
+        file: PickedFile?,
+        onStarting: (DesktopCommandArea) -> Unit,
+    ): DesktopCommandStart {
         val area = if (first.isFastboot()) DesktopCommandArea.FASTBOOT else adbArea(first)
         onStarting(area)
         if (first.isFastboot()) fastboot(plan.steps, file) else adb(first, file)
@@ -245,7 +257,8 @@ class DesktopCommandExecutor(private val targets: DesktopCommandTargets) {
         is TerminalPlanStep.AdbSideload -> DesktopCommandArea.ADB_SIDELOAD
         is TerminalPlanStep.AdbInstall -> DesktopCommandArea.ADB_INSTALL
         is AdbForwardAddStep, is AdbForwardRemoveStep -> DesktopCommandArea.ADB_FORWARD
-        is AdbReverseAddStep, AdbReverseRemoveAllStep -> DesktopCommandArea.ADB_REVERSE
+        is AdbReverseAddStep -> DesktopCommandArea.ADB_REVERSE
+        AdbReverseRemoveAllStep -> DesktopCommandArea.ADB_REVERSE
         AdbReverseListStep -> DesktopCommandArea.ADB_REVERSE_LIST
         else -> error("Fastboot step in an ADB plan: $step")
     }
@@ -273,11 +286,11 @@ class DesktopCommandExecutor(private val targets: DesktopCommandTargets) {
                 val origins = (file as? PickedFile.OpenMany)?.origins ?: listOf(file.open())
                 targets.adbInstall(origins, step.options, step.several)
             }
-            is AdbForwardAddStep -> targets.adbForwardAdd(step.localPort, step.remote)
-            is AdbForwardRemoveStep -> targets.adbForwardRemove(step.localPort)
-            is AdbReverseAddStep -> targets.adbReverseAdd(step.remote, step.local)
-            AdbReverseListStep -> targets.adbReverseList()
-            AdbReverseRemoveAllStep -> targets.adbReverseRemoveAll()
+            is AdbForwardAddStep -> targets.adbForwarding.forwardAdd(step.localPort, step.remote)
+            is AdbForwardRemoveStep -> targets.adbForwarding.forwardRemove(step.localPort)
+            is AdbReverseAddStep -> targets.adbForwarding.reverseAdd(step.remote, step.local)
+            AdbReverseListStep -> targets.adbForwarding.reverseList()
+            AdbReverseRemoveAllStep -> targets.adbForwarding.reverseRemoveAll()
             else -> error("Fastboot step in an ADB plan: $step")
         }
     }

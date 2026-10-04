@@ -167,7 +167,8 @@ internal object AdbPlans {
     private const val NO_TTY = "-T"
     private const val STREAMING = "--streaming"
     private const val TCP = "tcp:"
-    private val HOST_PORTS = 0..65_535
+    private const val MAX_TCP_PORT = 65_535
+    private val HOST_PORTS = 0..MAX_TCP_PORT
     private val PACKAGE_LONG_FLAGS = setOf("--instant", "--abi")
     private val SHORT_FLAGS = Regex("""-[lrtsdpg]{2,}""")
     private val PLAIN_WORD = Regex("""[A-Za-z0-9_./:=*+@%,-]+""")

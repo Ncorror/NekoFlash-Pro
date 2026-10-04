@@ -50,6 +50,30 @@ class ForwardingExecutorTest {
     }
 
     private class Targets(private val calls: MutableList<String>) : DesktopCommandTargets {
+        override val adbForwarding: AdbForwardingTargets = object : AdbForwardingTargets {
+            override fun forwardAdd(localPort: Int, remote: String) {
+                calls += "forward+ $localPort $remote"
+            }
+
+            override fun forwardRemove(localPort: Int) {
+                calls += "forward- $localPort"
+            }
+
+            override fun forwardList(): String = "forward-list".also { calls += it }
+
+            override fun reverseAdd(remote: String, local: String) {
+                calls += "reverse+ $remote $local"
+            }
+
+            override fun reverseList() {
+                calls += "reverse-list"
+            }
+
+            override fun reverseRemoveAll() {
+                calls += "reverse-clear"
+            }
+        }
+
         override fun fastbootCommand(command: String) = Unit
         override fun fastbootPlan(commands: List<String>, slot: String?) = Unit
         override fun fastbootVariable(name: String?) = Unit
@@ -73,22 +97,6 @@ class ForwardingExecutorTest {
         override fun adbInteractiveShell(firstLine: String?, mode: ShellMode) = Unit
         override fun adbService(service: String) = Unit
         override fun adbReboot(target: String) = Unit
-        override fun adbForwardAdd(localPort: Int, remote: String) {
-            calls += "forward+ $localPort $remote"
-        }
-        override fun adbForwardRemove(localPort: Int) {
-            calls += "forward- $localPort"
-        }
-        override fun adbForwardList(): String = "forward-list".also { calls += it }
-        override fun adbReverseAdd(remote: String, local: String) {
-            calls += "reverse+ $remote $local"
-        }
-        override fun adbReverseList() {
-            calls += "reverse-list"
-        }
-        override fun adbReverseRemoveAll() {
-            calls += "reverse-clear"
-        }
         override fun adbPull(
             remotePaths: List<String>,
             localName: String?,

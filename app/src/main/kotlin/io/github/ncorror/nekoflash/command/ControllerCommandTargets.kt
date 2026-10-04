@@ -107,25 +107,27 @@ internal class ControllerCommandTargets(
     override fun adbService(service: String) = adb.callRawService(service)
     override fun adbReboot(target: String) = adb.requestReboot(target)
 
-    override fun adbForwardAdd(localPort: Int, remote: String) = adb.forwards.add(localPort, remote)
+    override val adbForwarding: AdbForwardingTargets = object : AdbForwardingTargets {
+        override fun forwardAdd(localPort: Int, remote: String) = adb.forwards.add(localPort, remote)
 
-    override fun adbForwardRemove(localPort: Int) = adb.forwards.remove(localPort)
+        override fun forwardRemove(localPort: Int) = adb.forwards.remove(localPort)
 
-    override fun adbForwardList(): String {
-        val serial = (adb.state.value as? AdbLinkState.Connected)?.generation
-            ?.let { generation -> sessions().firstOrNull { it.generation == generation }?.identity?.serialNumber }
-            ?.takeIf { it.isNotBlank() }
-            ?: UNKNOWN_SERIAL
-        return adb.forward.value.forwards.joinToString("\n") { entry ->
-            "$serial\ttcp:${entry.localPort}\t${entry.address}"
+        override fun forwardList(): String {
+            val serial = (adb.state.value as? AdbLinkState.Connected)?.generation
+                ?.let { generation -> sessions().firstOrNull { it.generation == generation }?.identity?.serialNumber }
+                ?.takeIf { it.isNotBlank() }
+                ?: UNKNOWN_SERIAL
+            return adb.forward.value.forwards.joinToString("\n") { entry ->
+                "$serial\ttcp:${entry.localPort}\t${entry.address}"
+            }
         }
+
+        override fun reverseAdd(remote: String, local: String) = adb.reverses.add(remote, local)
+
+        override fun reverseList() = adb.reverses.refresh()
+
+        override fun reverseRemoveAll() = adb.reverses.removeAll()
     }
-
-    override fun adbReverseAdd(remote: String, local: String) = adb.reverses.add(remote, local)
-
-    override fun adbReverseList() = adb.reverses.refresh()
-
-    override fun adbReverseRemoveAll() = adb.reverses.removeAll()
 
     override fun adbPull(
         remotePaths: List<String>,

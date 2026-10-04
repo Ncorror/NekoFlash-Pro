@@ -82,7 +82,7 @@ internal class AdbLineParser(private val original: String, private val tokens: L
             args == listOf("--list") -> AdbForwardRequest.List
             args == listOf("--remove-all") -> AdbForwardRequest.RemoveAll
             args.size == 2 && args[0] == "--remove" -> AdbForwardRequest.Remove(args[1])
-            args.size == 3 && args[0] in NO_REBIND_FLAGS ->
+            args.size == NO_REBIND_ARG_COUNT && args[0] in NO_REBIND_FLAGS ->
                 AdbForwardRequest.Add(args[1], args[2], noRebind = true)
             args.size == 2 -> AdbForwardRequest.Add(args[0], args[1])
             else -> return verdict.invalid(op)
@@ -96,7 +96,7 @@ internal class AdbLineParser(private val original: String, private val tokens: L
             args == listOf("--list") -> AdbReverseRequest.List
             args == listOf("--remove-all") -> AdbReverseRequest.RemoveAll
             args.size == 2 && args[0] == "--remove" -> AdbReverseRequest.Remove(args[1])
-            args.size == 3 && args[0] in NO_REBIND_FLAGS ->
+            args.size == NO_REBIND_ARG_COUNT && args[0] in NO_REBIND_FLAGS ->
                 AdbReverseRequest.Add(args[1], args[2], noRebind = true)
             args.size == 2 -> AdbReverseRequest.Add(args[0], args[1])
             else -> return verdict.invalid(op)
@@ -216,6 +216,7 @@ internal class AdbLineParser(private val original: String, private val tokens: L
         const val PULL = "pull"
         const val INSTALL = "install"
         const val ABI = "--abi"
+        const val NO_REBIND_ARG_COUNT = 3
         val LONG = listOf("-l")
         val TTY_FLAGS = setOf("-t", "-tt", "-T")
         val NO_REBIND_FLAGS = setOf("--no-rebind", "--norebind")
