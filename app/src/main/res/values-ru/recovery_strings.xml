@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="recovery_log_note">Снимите базу до установки и прочитайте вердикт после: только новая запись в журнале Recovery позволяет определить исход именно этой установки.</string>
+    <string name="recovery_log_needs_adb">Подключите устройство в Recovery по ADB, чтобы прочитать доказательства установки.</string>
+    <string name="recovery_baseline">Снять базу Recovery</string>
+    <string name="recovery_verdict_read">Прочитать вердикт Recovery</string>
+    <string name="recovery_evidence_busy">Читаем доказательства Recovery…</string>
+    <string name="recovery_evidence_failed">Не удалось прочитать доказательства Recovery: %1$s</string>
+    <string name="recovery_verdict_success">Recovery подтвердило установку. %1$s</string>
+    <string name="recovery_verdict_failed">Recovery сообщило об ошибке установки. %1$s</string>
+    <string name="recovery_verdict_unknown">Исход установки неизвестен. %1$s</string>
+    <string name="recovery_verdict_evidence">Основание: %1$s</string>
+</resources>

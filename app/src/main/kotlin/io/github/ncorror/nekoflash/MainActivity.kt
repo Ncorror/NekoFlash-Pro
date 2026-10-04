@@ -1,11 +1,11 @@
 package io.github.ncorror.nekoflash
 
-import android.content.pm.PackageManager
 import android.app.Activity
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
-import android.webkit.CookieManager
 import android.os.Bundle
+import android.webkit.CookieManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -24,27 +24,29 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.lifecycleScope
-import io.github.ncorror.nekoflash.ui.NekoFlashApp
-import io.github.ncorror.nekoflash.ui.MiUnlockPanel
-import io.github.ncorror.nekoflash.miunlock.MiLoginActivity
-import io.github.ncorror.nekoflash.ui.RecentEvents
 import io.github.ncorror.nekoflash.adb.AdbLinkController
+import io.github.ncorror.nekoflash.adb.AdbLinkState
+import io.github.ncorror.nekoflash.artifact.SafArtifactSink
+import io.github.ncorror.nekoflash.artifact.SafArtifactSource
 import io.github.ncorror.nekoflash.fastboot.FastbootConsoleState
 import io.github.ncorror.nekoflash.fastboot.FastbootLinkController
 import io.github.ncorror.nekoflash.fastboot.FastbootLinkState
+import io.github.ncorror.nekoflash.miunlock.MiLoginActivity
+import io.github.ncorror.nekoflash.protocol.adb.AdbPeerMode
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootMode
 import io.github.ncorror.nekoflash.ui.FastbootConsolePanel
 import io.github.ncorror.nekoflash.ui.FastbootPanel
-import io.github.ncorror.nekoflash.usb.api.UsbInterfaceKind
-import io.github.ncorror.nekoflash.usb.api.UsbSession
-import io.github.ncorror.nekoflash.artifact.SafArtifactSink
-import io.github.ncorror.nekoflash.artifact.SafArtifactSource
 import io.github.ncorror.nekoflash.ui.FirstRun
+import io.github.ncorror.nekoflash.ui.MiUnlockPanel
+import io.github.ncorror.nekoflash.ui.NekoFlashApp
+import io.github.ncorror.nekoflash.ui.RecentEvents
 import io.github.ncorror.nekoflash.ui.SideloadPanel
 import io.github.ncorror.nekoflash.ui.TerminalActions
 import io.github.ncorror.nekoflash.ui.TerminalPanel
 import io.github.ncorror.nekoflash.ui.WelcomeScreen
 import io.github.ncorror.nekoflash.ui.theme.NekoFlashTheme
+import io.github.ncorror.nekoflash.usb.api.UsbInterfaceKind
+import io.github.ncorror.nekoflash.usb.api.UsbSession
 import io.github.ncorror.nekoflash.usb.api.UsbSessionCoordinator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -134,7 +136,7 @@ class MainActivity : LocaleAwareActivity() {
             adbLink = linkState,
             terminal = TerminalPanel(terminalStates, terminalTabs.selected),
             terminalActions = terminalActions(adbLink),
-            sideload = sideloadPanel(adbLink),
+            sideload = sideloadPanel(adbLink, linkState),
             recentEvents = RecentEvents { application.recentDiagnostics() },
             fastboot = fastbootPanel(fastbootLink, fastbootState, sessions),
             miUnlock = miUnlockPanel(application, fastbootLink, fastbootState),
@@ -199,13 +201,14 @@ private fun RescanOnResume(coordinator: UsbSessionCoordinator) {
 }
 
 /**
- * То же для передачи пакета в Recovery — и выбор пакета через системный диалог.
+ * Передача пакета и корреляция Recovery evidence живут в одном сценарии.
  *
- * Копия непрозрачного источника кладётся в кэш приложения: она не переживает
- * операцию намеренно, и система вправе убрать её сама, если места станет мало.
+ * Baseline читается до перехода в Sideload, вердикт — после возврата в обычный
+ * Recovery. Поэтому evidence-кнопки разрешены только когда сам баннер говорит
+ * `recovery::`; в `sideload::` устройство занято протоколом передачи.
  */
 @Composable
-private fun sideloadPanel(adbLink: AdbLinkController): SideloadPanel {
+private fun sideloadPanel(adbLink: AdbLinkController, linkState: AdbLinkState): SideloadPanel {
     val context = LocalContext.current
     val resolver = context.contentResolver
     val chooser = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { chosen ->
@@ -213,10 +216,15 @@ private fun sideloadPanel(adbLink: AdbLinkController): SideloadPanel {
             adbLink.recovery.sideloadFrom(context.cacheDir) { SafArtifactSource(resolver, chosen) }
         }
     }
+    val recoveryConnected = (linkState as? AdbLinkState.Connected)?.peerMode == AdbPeerMode.RECOVERY
     return SideloadPanel(
         state = adbLink.sideload.collectAsState().value,
+        evidence = adbLink.files.collectAsState().value,
+        evidenceEnabled = recoveryConnected,
         onChoose = { chooser.launch(arrayOf("application/zip", "*/*")) },
         onCancel = adbLink.recovery::cancelSideload,
+        onCaptureBaseline = adbLink.recovery::captureBaseline,
+        onReadVerdict = adbLink.recovery::readVerdict,
     )
 }
 

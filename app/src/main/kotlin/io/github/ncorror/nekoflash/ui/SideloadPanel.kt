@@ -2,19 +2,28 @@ package io.github.ncorror.nekoflash.ui
 
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.stringResource
 import io.github.ncorror.nekoflash.R
+import io.github.ncorror.nekoflash.adb.AdbFileState
 import io.github.ncorror.nekoflash.adb.AdbSideloadState
+import io.github.ncorror.nekoflash.protocol.adb.AdbRecoveryVerdict
 import io.github.ncorror.nekoflash.protocol.adb.AdbSideloadOutcome
 
-/** Передача пакета в Recovery: состояние и два действия над ним. */
+/** Передача пакета и доказательства установки из Recovery. */
 data class SideloadPanel(
     val state: AdbSideloadState,
     /** Отдать пакет, который выберет пользователь. */
     val onChoose: () -> Unit,
     val onCancel: () -> Unit,
+    /** Последнее состояние чтения журнала Recovery. */
+    val evidence: AdbFileState = AdbFileState.None,
+    /** Evidence читается только из обычного Recovery, не из Sideload peer. */
+    val evidenceEnabled: Boolean = false,
+    val onCaptureBaseline: () -> Unit = {},
+    val onReadVerdict: () -> Unit = {},
 )
 
 /**
@@ -22,8 +31,8 @@ data class SideloadPanel(
  *
  * Главное здесь — не прогресс, а то, что **исход передачи не выдаётся за исход
  * установки**: `DONEDONE` кончает передачу, и сказать, установилось ли, может
- * только Recovery (`03` §6, инвариант 1). Поэтому под всяким исходом, которому
- * нужна проверка, стоит напоминание прочитать вердикт, а не слово «готово».
+ * только Recovery (`03` §6, инвариант 1). Поэтому рядом с передачей снова
+ * доступны две части того же сценария: база до установки и вердикт после неё.
  *
  * Отмена гаснет по границе мутации, а не по прогрессу: граница проходится,
  * когда первый блок уходит на провод, а прогресс приходит позже — на
@@ -47,6 +56,64 @@ internal fun SideloadSection(panel: SideloadPanel) {
         SideloadCancel(running, panel.onCancel)
     }
     NoteText(stringResource(R.string.sideload_note))
+    RecoveryEvidenceSection(panel)
+}
+
+/**
+ * Корреляция Recovery — часть того же сценария, а не старого файлового экрана.
+ *
+ * Кнопки доступны только когда баннер прямо говорит `recovery::`. В режиме
+ * `sideload::` peer почти ничего больше не умеет, поэтому пытаться читать там
+ * журнал — не «больше возможностей», а заведомо неверный транспортный момент.
+ */
+@Composable
+private fun RecoveryEvidenceSection(panel: SideloadPanel) {
+    val busy = panel.evidence is AdbFileState.Busy
+    val status = recoveryEvidenceText(panel.evidence)
+    if (status.isNotEmpty()) StatusLine(status)
+    NoteText(
+        stringResource(
+            if (panel.evidenceEnabled) R.string.recovery_log_note else R.string.recovery_log_needs_adb,
+        ),
+    )
+    ActionRow {
+        OutlinedButton(
+            onClick = panel.onCaptureBaseline,
+            enabled = panel.evidenceEnabled && !busy,
+        ) {
+            Text(stringResource(R.string.recovery_baseline))
+        }
+        Button(
+            onClick = panel.onReadVerdict,
+            enabled = panel.evidenceEnabled && !busy,
+        ) {
+            Text(stringResource(R.string.recovery_verdict_read))
+        }
+    }
+}
+
+/** Вердикт показывается отдельно от сырого журнала; сам журнал наружу не выходит. */
+@Composable
+private fun recoveryEvidenceText(state: AdbFileState): String = when (state) {
+    AdbFileState.None -> ""
+    is AdbFileState.Busy -> stringResource(R.string.recovery_evidence_busy)
+    is AdbFileState.Failed -> stringResource(R.string.recovery_evidence_failed, state.reason)
+    is AdbFileState.Verdict -> {
+        val head = stringResource(
+            when (state.verdict) {
+                AdbRecoveryVerdict.SUCCESS -> R.string.recovery_verdict_success
+                AdbRecoveryVerdict.FAILED -> R.string.recovery_verdict_failed
+                AdbRecoveryVerdict.UNKNOWN -> R.string.recovery_verdict_unknown
+            },
+            state.detail,
+        )
+        state.evidence?.let { evidence ->
+            head + "\n" + stringResource(R.string.recovery_verdict_evidence, evidence)
+        } ?: head
+    }
+    // Остальные состояния принадлежат старым однофайловым Sync-действиям и
+    // не должны внезапно объявляться доказательством установки.
+    else -> ""
 }
 
 /**
@@ -93,9 +160,9 @@ internal fun sideloadText(state: AdbSideloadState): String = when (state) {
 /**
  * Исход передачи словами — и отдельной строкой то, чего он **не** говорит.
  *
- * Напоминание о проверке ставится по [AdbSideloadContract.requiresVerification],
- * а не по виду исхода: список того, где проверка нужна, живёт в контракте, и
- * второй его список здесь разошёлся бы с первым.
+ * Напоминание о проверке ставится по состоянию контроллера, а не по красивому
+ * проценту: список исходов, которым нужна проверка, живёт в протокольном
+ * контракте и второй его список здесь не заводится.
  */
 @Composable
 private fun finishedText(state: AdbSideloadState.Finished): String {
