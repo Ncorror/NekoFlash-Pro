@@ -22,6 +22,8 @@ internal object AdbPlans {
                 "exec:cmd package uninstall " + (if (command.keepData) "-k " else "") + command.packageName,
             ),
         )
+        is AdbForwardCommand -> forward(command.request)
+        is AdbReverseCommand -> reverse(command.request)
         // `logcat` без `-d` не кончается: он идёт в живой оболочке, где есть
         // Ctrl+C и окно вывода, как у настольного клиента.
         is AdbCommand.Logcat -> single(
@@ -58,6 +60,41 @@ internal object AdbPlans {
         command.tty != null || command.command.isEmpty() ->
             single(TerminalPlanStep.AdbInteractiveShell(command.command.ifEmpty { null }))
         else -> single(TerminalPlanStep.AdbShellCommand(command.command))
+    }
+
+    private fun forward(request: AdbForwardRequest): TerminalPlanResult = when (request) {
+        AdbForwardRequest.List -> single(AdbForwardListStep)
+        AdbForwardRequest.RemoveAll -> notImplemented("adb forward --remove-all")
+        is AdbForwardRequest.Remove -> hostTcpPort(request.local)?.let { port ->
+            single(AdbForwardRemoveStep(port))
+        } ?: notImplemented("adb forward --remove ${request.local}")
+        is AdbForwardRequest.Add -> when {
+            request.noRebind -> notImplemented("adb forward --no-rebind ${request.local} ${request.remote}")
+            else -> hostTcpPort(request.local)?.let { port ->
+                single(AdbForwardAddStep(port, request.remote))
+            } ?: notImplemented("adb forward ${request.local} ${request.remote}")
+        }
+    }
+
+    private fun reverse(request: AdbReverseRequest): TerminalPlanResult = when (request) {
+        AdbReverseRequest.List -> single(AdbReverseListStep)
+        AdbReverseRequest.RemoveAll -> single(AdbReverseRemoveAllStep)
+        is AdbReverseRequest.Remove -> notImplemented("adb reverse --remove ${request.remote}")
+        is AdbReverseRequest.Add -> if (request.noRebind) {
+            notImplemented("adb reverse --no-rebind ${request.remote} ${request.local}")
+        } else {
+            single(AdbReverseAddStep(request.remote, request.local))
+        }
+    }
+
+    /**
+     * Текущий host forward владеет loopback TCP listener. Остальные формы
+     * распознаны парсером, но не притворяются рабочими до появления host-side
+     * Unix/JDWP listener implementation.
+     */
+    private fun hostTcpPort(spec: String): Int? {
+        val port = spec.takeIf { it.startsWith(TCP) }?.removePrefix(TCP)?.toIntOrNull() ?: return null
+        return port.takeIf { it in HOST_PORTS }
     }
 
     private fun report(kind: LocalReportKind): TerminalPlanResult =
@@ -129,6 +166,8 @@ internal object AdbPlans {
     private const val REBOOT = "reboot:"
     private const val NO_TTY = "-T"
     private const val STREAMING = "--streaming"
+    private const val TCP = "tcp:"
+    private val HOST_PORTS = 0..65_535
     private val PACKAGE_LONG_FLAGS = setOf("--instant", "--abi")
     private val SHORT_FLAGS = Regex("""-[lrtsdpg]{2,}""")
     private val PLAIN_WORD = Regex("""[A-Za-z0-9_./:=*+@%,-]+""")

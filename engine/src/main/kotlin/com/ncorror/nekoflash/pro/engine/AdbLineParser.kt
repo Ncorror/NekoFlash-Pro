@@ -72,6 +72,38 @@ internal class AdbLineParser(private val original: String, private val tokens: L
         return packages.singleOrNull()?.let { AdbCommand.Uninstall(it, keep) } ?: verdict.invalid(op)
     }
 
+    /**
+     * `adb forward` stays a host operation. Recognized-but-not-yet-executable
+     * variants are kept typed so the plan compiler can say exactly what is
+     * missing instead of falling through to a raw device service.
+     */
+    private fun forward(): AdbCommand? {
+        val request = when {
+            args == listOf("--list") -> AdbForwardRequest.List
+            args == listOf("--remove-all") -> AdbForwardRequest.RemoveAll
+            args.size == 2 && args[0] == "--remove" -> AdbForwardRequest.Remove(args[1])
+            args.size == 3 && args[0] in NO_REBIND_FLAGS ->
+                AdbForwardRequest.Add(args[1], args[2], noRebind = true)
+            args.size == 2 -> AdbForwardRequest.Add(args[0], args[1])
+            else -> return verdict.invalid(op)
+        }
+        return AdbForwardCommand(request)
+    }
+
+    /** Same syntax family as forward, but the first endpoint lives on the device. */
+    private fun reverse(): AdbCommand? {
+        val request = when {
+            args == listOf("--list") -> AdbReverseRequest.List
+            args == listOf("--remove-all") -> AdbReverseRequest.RemoveAll
+            args.size == 2 && args[0] == "--remove" -> AdbReverseRequest.Remove(args[1])
+            args.size == 3 && args[0] in NO_REBIND_FLAGS ->
+                AdbReverseRequest.Add(args[1], args[2], noRebind = true)
+            args.size == 2 -> AdbReverseRequest.Add(args[0], args[1])
+            else -> return verdict.invalid(op)
+        }
+        return AdbReverseCommand(request)
+    }
+
     /** Опции `push`/`pull`: у каждой своя сторона, чужая — «не поддержано». */
     private fun transfer(): AdbCommand? {
         var options = FileTransferOptions()
@@ -186,6 +218,7 @@ internal class AdbLineParser(private val original: String, private val tokens: L
         const val ABI = "--abi"
         val LONG = listOf("-l")
         val TTY_FLAGS = setOf("-t", "-tt", "-T")
+        val NO_REBIND_FLAGS = setOf("--no-rebind", "--norebind")
         val PORTS = 1..65_535
         val SYNC_PARTITIONS = setOf("all", "data", "odm", "oem", "product", "system", "system_ext", "vendor")
         val COMPRESSION_TYPES = setOf("any", "none", "brotli", "lz4", "zstd")
@@ -212,6 +245,8 @@ internal class AdbLineParser(private val original: String, private val tokens: L
             "enable-verity" to { simpleService() },
             "usb" to { simpleService() },
             "tcpip" to { tcpip() },
+            "forward" to { forward() },
+            "reverse" to { reverse() },
             PUSH to { transfer() },
             PULL to { transfer() },
             "sync" to { sync() },

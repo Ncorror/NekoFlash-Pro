@@ -17,14 +17,17 @@ import com.ncorror.nekoflash.pro.engine.TerminalFileNeed
 import com.ncorror.nekoflash.pro.engine.TerminalPlan
 import com.ncorror.nekoflash.pro.engine.TerminalPlanStep
 import com.ncorror.nekoflash.pro.engine.fileNeed
+import io.github.ncorror.nekoflash.adb.AdbForwardState
 import io.github.ncorror.nekoflash.adb.AdbInstallState
 import io.github.ncorror.nekoflash.adb.AdbLinkController
+import io.github.ncorror.nekoflash.adb.AdbReverseState
 import io.github.ncorror.nekoflash.adb.AdbSideloadState
 import io.github.ncorror.nekoflash.adb.AdbTransferState
 import io.github.ncorror.nekoflash.artifact.SafArtifactSink
 import io.github.ncorror.nekoflash.artifact.SafArtifactSource
 import io.github.ncorror.nekoflash.artifact.SafFolder
 import io.github.ncorror.nekoflash.command.ControllerCommandTargets
+import io.github.ncorror.nekoflash.command.DesktopCommandArea
 import io.github.ncorror.nekoflash.command.DesktopCommandExecutor
 import io.github.ncorror.nekoflash.command.DesktopCommandStart
 import io.github.ncorror.nekoflash.command.PickedFile
@@ -59,7 +62,8 @@ internal fun desktopCommandPanel(
     ObserveAdbCommandOutcomes(adbLink, terminalEvents)
 
     fun run(plan: TerminalPlan, file: PickedFile?) {
-        desktopStartTerminalText(executor.execute(plan, file))?.let(terminalEvents::emit)
+        val started = executor.execute(plan, file, terminalEvents::expect)
+        desktopStartTerminalText(started)?.let(terminalEvents::emit)
     }
 
     return DesktopCommandPanel(
@@ -79,18 +83,29 @@ internal fun desktopCommandPanel(
  * Bridges asynchronous command outcomes into the host terminal's existing
  * answer slot without losing repeated identical messages.
  *
- * The slot is cleared for one frame before every event. That matters because
- * the terminal intentionally suppresses recompositions of the same String;
- * two identical `Success` replies are still two completed commands and must
- * both be printed. The channel also serializes concurrent ADB streams instead
- * of letting one completion overwrite another.
+ * [expect] is armed before the controller call. That prevents a synchronous
+ * `forward --remove` or a very fast device reply from racing ahead of the UI.
+ * Only the area started by the host CLI may answer this slot; activity caused
+ * by another screen or by a client connecting through an existing forward is
+ * deliberately ignored.
  */
 private class DesktopTerminalEvents {
     val answer = mutableStateOf<String?>(null)
     private val events = Channel<String>(Channel.UNLIMITED)
+    private var awaiting: DesktopCommandArea? = null
+
+    fun expect(area: DesktopCommandArea) {
+        awaiting = area.takeIf { it in ASYNC_ANSWER_AREAS }
+    }
 
     fun emit(message: String) {
         if (message.isNotBlank()) events.trySend(message)
+    }
+
+    fun emitFor(area: DesktopCommandArea, message: String) {
+        if (awaiting != area || message.isBlank()) return
+        awaiting = null
+        emit(message)
     }
 
     fun clear() {
@@ -107,27 +122,36 @@ private class DesktopTerminalEvents {
     }
 }
 
-/**
- * Watches only results which were orphaned when the old command panel was
- * removed. `drop(1)` prevents a finished result from a previous screen visit
- * being printed as if a new command had just completed.
- */
+/** Results that do not already have a dedicated host-terminal observer. */
 @Composable
 private fun ObserveAdbCommandOutcomes(adbLink: AdbLinkController, terminalEvents: DesktopTerminalEvents) {
     LaunchedEffect(adbLink, terminalEvents) {
         launch {
             adbLink.install.drop(1).collect { state ->
-                adbInstallTerminalText(state)?.let(terminalEvents::emit)
+                adbInstallTerminalText(state)?.let { terminalEvents.emitFor(DesktopCommandArea.ADB_INSTALL, it) }
             }
         }
         launch {
             adbLink.transfer.drop(1).collect { state ->
-                adbTransferTerminalText(state)?.let(terminalEvents::emit)
+                adbTransferTerminalText(state)?.let { terminalEvents.emitFor(DesktopCommandArea.ADB_TRANSFER, it) }
             }
         }
         launch {
             adbLink.sideload.drop(1).collect { state ->
-                adbSideloadTerminalText(state)?.let(terminalEvents::emit)
+                adbSideloadTerminalText(state)?.let { terminalEvents.emitFor(DesktopCommandArea.ADB_SIDELOAD, it) }
+            }
+        }
+        launch {
+            adbLink.forward.drop(1).collect { state ->
+                adbForwardTerminalText(state)?.let { terminalEvents.emitFor(DesktopCommandArea.ADB_FORWARD, it) }
+            }
+        }
+        launch {
+            adbLink.reverse.drop(1).collect { state ->
+                adbReverseTerminalText(state)?.let { terminalEvents.emitFor(DesktopCommandArea.ADB_REVERSE, it) }
+                adbReverseListTerminalText(state)?.let {
+                    terminalEvents.emitFor(DesktopCommandArea.ADB_REVERSE_LIST, it)
+                }
             }
         }
     }
@@ -169,6 +193,39 @@ internal fun adbTransferTerminalText(state: AdbTransferState): String? = when (s
             append(state.report.skipped)
         }
     }
+}
+
+/** Final host-forward state after a CLI add/remove. */
+internal fun adbForwardTerminalText(state: AdbForwardState): String? = when {
+    state.failure != null -> "error: forward: ${state.failure}"
+    state.forwards.isEmpty() -> "forward: no active listeners"
+    else -> state.forwards.joinToString("\n") { entry ->
+        "tcp:${entry.localPort}\t${entry.address}"
+    }
+}
+
+/** Final reverse action state. Device listing is handled separately. */
+internal fun adbReverseTerminalText(state: AdbReverseState): String? = when {
+    state.failure != null -> "error: reverse: ${state.failure}"
+    state.reverses.isEmpty() -> "reverse: no active mappings"
+    else -> state.reverses.joinToString("\n") { entry ->
+        buildString {
+            append(entry.onDevice)
+            append('\t')
+            append(entry.onHost)
+            if (entry.assigned.isNotBlank()) {
+                append("\t")
+                append(entry.assigned)
+            }
+        }
+    }
+}
+
+/** `adb reverse --list` is the device's own listing, not our cached map. */
+internal fun adbReverseListTerminalText(state: AdbReverseState): String? = when {
+    state.failure != null -> "error: reverse: ${state.failure}"
+    state.listing != null -> state.listing
+    else -> null
 }
 
 /** Final Sideload transfer result. Installation success still belongs to Recovery evidence. */
@@ -255,3 +312,12 @@ private fun suggestedName(step: TerminalPlanStep): String = when (step) {
 }.ifBlank { DEFAULT_NAME }
 
 private const val DEFAULT_NAME = "artifact.bin"
+
+private val ASYNC_ANSWER_AREAS = setOf(
+    DesktopCommandArea.ADB_TRANSFER,
+    DesktopCommandArea.ADB_SIDELOAD,
+    DesktopCommandArea.ADB_INSTALL,
+    DesktopCommandArea.ADB_FORWARD,
+    DesktopCommandArea.ADB_REVERSE,
+    DesktopCommandArea.ADB_REVERSE_LIST,
+)

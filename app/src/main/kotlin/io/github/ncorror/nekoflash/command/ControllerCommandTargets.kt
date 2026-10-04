@@ -5,6 +5,7 @@ import com.ncorror.nekoflash.pro.engine.ShellMode
 import com.ncorror.nekoflash.pro.engine.TerminalParser
 import com.ncorror.nekoflash.pro.engine.TerminalPlanStep
 import io.github.ncorror.nekoflash.adb.AdbLinkController
+import io.github.ncorror.nekoflash.adb.AdbLinkState
 import io.github.ncorror.nekoflash.adb.AdbPushMode
 import io.github.ncorror.nekoflash.adb.PullTarget
 import io.github.ncorror.nekoflash.adb.PushSource
@@ -105,6 +106,27 @@ internal class ControllerCommandTargets(
     )
     override fun adbService(service: String) = adb.callRawService(service)
     override fun adbReboot(target: String) = adb.requestReboot(target)
+
+    override fun adbForwardAdd(localPort: Int, remote: String) = adb.forwards.add(localPort, remote)
+
+    override fun adbForwardRemove(localPort: Int) = adb.forwards.remove(localPort)
+
+    override fun adbForwardList(): String {
+        val serial = (adb.state.value as? AdbLinkState.Connected)?.generation
+            ?.let { generation -> sessions().firstOrNull { it.generation == generation }?.identity?.serialNumber }
+            ?.takeIf { it.isNotBlank() }
+            ?: UNKNOWN_SERIAL
+        return adb.forward.value.forwards.joinToString("\n") { entry ->
+            "$serial\ttcp:${entry.localPort}\t${entry.address}"
+        }
+    }
+
+    override fun adbReverseAdd(remote: String, local: String) = adb.reverses.add(remote, local)
+
+    override fun adbReverseList() = adb.reverses.refresh()
+
+    override fun adbReverseRemoveAll() = adb.reverses.removeAll()
+
     override fun adbPull(
         remotePaths: List<String>,
         localName: String?,
@@ -141,6 +163,10 @@ internal class ControllerCommandTargets(
             TerminalParser.Tool.ADB -> LocalReports.adb(kind, adb.state.value, identity)
             TerminalParser.Tool.FASTBOOT -> LocalReports.fastboot(kind, fastboot.state.value, identity)
         }
+    }
+
+    private companion object {
+        const val UNKNOWN_SERIAL = "????????????"
     }
 }
 
