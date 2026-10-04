@@ -52,7 +52,7 @@ public enum class TerminalKey { ESCAPE, TAB, UP, DOWN, LEFT, RIGHT, HOME, END, P
 public class AdbTerminalController(
     private val readerExecutor: Executor,
     private val writerExecutor: Executor,
-    private val diagnostics: DiagnosticSink = DiagnosticSink { },
+    private val diagnostics: DiagnosticSink,
     private val elapsedNanos: () -> Long = { System.nanoTime() },
 ) {
     private val mutableState = MutableStateFlow(AdbTerminalState())
