@@ -52,10 +52,9 @@ internal class FlashAllPreflight(
     }
 
     /** `CheckRequirements`: `partition-exists` — отдельно, как `HandlePartitionExists`. */
-    fun checkRequirements(info: ByteArray?, force: Boolean) {
-        if (info == null) throw FlashAllStop("could not read android-info.txt")
+    fun checkRequirements(lines: Sequence<String>, force: Boolean) {
         val product = value(PRODUCT).orEmpty()
-        for (line in String(info, Charsets.UTF_8).split("\n").filter { it.isNotEmpty() }) {
+        for (line in lines.filter { it.isNotEmpty() }) {
             val requirement = FastbootAndroidInfo.parseLine(line)
             when {
                 requirement == null -> report += "android-info.txt syntax error: $line"

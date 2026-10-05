@@ -70,7 +70,9 @@ internal class FastbootFlashAll(
 
     private val preflight = FlashAllPreflight({ variables }, report)
     private val superMetadata: LpMetadata? by lazy {
-        images.bytes(SUPER_EMPTY)?.let { (FastbootSuperMetadata.fromImageBlob(it) as? LpMetadataRead.Parsed)?.metadata }
+        images.source(SUPER_EMPTY)?.open()?.use {
+            (FastbootSuperMetadata.fromImageStream(it) as? LpMetadataRead.Parsed)?.metadata
+        }
     }
 
     fun run(): FastbootConsoleState {
@@ -97,7 +99,8 @@ internal class FastbootFlashAll(
         }
         val slot = preflight.verifiedSlot(request.slot)
         preflight.dumpInfo()
-        preflight.checkRequirements(images.bytes(ANDROID_INFO), request.force)
+        val info = images.source(ANDROID_INFO) ?: throw FlashAllStop("could not read android-info.txt")
+        info.open().bufferedReader().use { preflight.checkRequirements(it.lineSequence(), request.force) }
         val secondary = secondarySlot(slot)
         // Задачи собираются до первой команды, а не после `set_active`, как у
         // настольного клиента: недостающий образ и переход в fastbootd, которым
@@ -159,10 +162,12 @@ internal class FastbootFlashAll(
      * как `AddFlashTasks`.
      */
     private fun collect(slot: String, secondary: String): List<FlashAllTask> {
-        val info = images.bytes(FASTBOOT_INFO)
+        val info = images.source(FASTBOOT_INFO)
         if (info != null) {
-            val text = String(info, Charsets.UTF_8)
-            return when (val read = FastbootInfoFile.parse(text, slot, secondary, request.wipe)) {
+            val read = info.open().bufferedReader().use {
+                FastbootInfoFile.parse(it.lineSequence(), slot, secondary, request.wipe)
+            }
+            return when (read) {
                 is FastbootInfoRead.Tasks -> read.tasks
                 is FastbootInfoRead.Invalid -> throw FlashAllStop(read.reason)
             }
@@ -245,8 +250,8 @@ internal class FastbootFlashAll(
     private fun doFlash(partition: String, imageName: String, applyVbmeta: Boolean) {
         val source = images.source(imageName)
             ?: throw FlashAllStop("could not load '$imageName': No such file or directory")
-        images.bytes(imageName.substringBefore('.') + ".sig")?.let { signature ->
-            download(BytesSource(signature, "signature"))
+        images.source(imageName.substringBefore('.') + ".sig")?.let { signature ->
+            download(signature)
             command("signature")
         }
         if (value(IS_LOGICAL + partition) == YES) {
@@ -282,13 +287,30 @@ internal class FastbootFlashAll(
 
     /** `Download`: весь объём с `OKAY`, иначе дальше не идём. */
     private fun download(source: ArtifactSource) {
-        val size = source.identity.sizeBytes ?: throw FlashAllStop("${source.identity.name}: size unknown")
+        val size = source.identity.sizeBytes ?: measuredSize(source)
         commands += downloadStep(size)
         val outcome = source.open().use { input -> downloadFile(lane, source, size, input) }
         val accepted = outcome is FastbootDownloadOutcome.Answered &&
             outcome.reply == FastbootReply.OKAY && outcome.bytesSent == size
         if (!accepted) throw FlashAllStop(describeDownload(outcome), commands.size - 1)
         applied++
+    }
+
+    /** Для подписи без длины у провайдера: измерить потоком, затем открыть с начала для DATA OUT. */
+    private fun measuredSize(source: ArtifactSource): Long = source.open().use { input ->
+        val bytes = ByteArray(READ_CHUNK)
+        var size = 0L
+        while (true) {
+            val read = input.read(bytes)
+            if (read < 0) break
+            if (read == 0) {
+                if (input.read() < 0) break
+                size++
+            } else {
+                size += read
+            }
+        }
+        size
     }
 
     /** Команда плана; всё, кроме `OKAY`, останавливает `flashall`. */
@@ -332,6 +354,7 @@ internal class FastbootFlashAll(
         const val FASTBOOT_INFO = "fastboot-info.txt"
         const val FASTBOOTD = "fastboot"
         const val SUPER_EMPTY = "super_empty.img"
+        const val READ_CHUNK = 16 * 1024
         val VBMETA = listOf("vbmeta", "vbmeta_a", "vbmeta_b")
         const val DYNAMIC_FROM_BOOTLOADER = "The partition you are trying to flash is dynamic, and should be " +
             "flashed via fastbootd. Please run:\n\n    fastboot reboot fastboot\n\nAnd try again. If you are " +

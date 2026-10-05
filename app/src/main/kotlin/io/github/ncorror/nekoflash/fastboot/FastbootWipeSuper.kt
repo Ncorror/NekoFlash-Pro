@@ -73,8 +73,7 @@ private class WipeSuperRun(private val lane: FastbootLane, private val sparseLim
 
 /** Метаданные и пустые образы; не вышло — остановка до первой команды словами AOSP. */
 private fun superImages(emptySuper: ArtifactSource): Pair<LpMetadata, List<SuperDeviceImage>> {
-    val blob = emptySuper.open().use { it.readBytes() }
-    val metadata = when (val read = FastbootSuperMetadata.fromImageBlob(blob)) {
+    val metadata = when (val read = emptySuper.open().use(FastbootSuperMetadata::fromImageStream)) {
         is LpMetadataRead.Parsed -> read.metadata
         is LpMetadataRead.Invalid ->
             throw FlashAllStop("Could not parse image: ${emptySuper.identity.name}: ${read.reason}")

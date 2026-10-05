@@ -36,9 +36,18 @@ internal object FastbootInfoFile {
     private const val VERSION = 1
 
     fun parse(text: String, slot: String, secondary: String, wantsWipe: Boolean = false): FastbootInfoRead {
-        val lines = text.split("\n").map { line(it, slot, secondary, wantsWipe) }
-        val invalid = lines.firstNotNullOfOrNull { it as? FastbootInfoRead.Invalid }
-        return invalid ?: FastbootInfoRead.Tasks(lines.filterIsInstance<Line>().mapNotNull { it.task })
+        return parse(text.lineSequence(), slot, secondary, wantsWipe)
+    }
+
+    fun parse(lines: Sequence<String>, slot: String, secondary: String, wantsWipe: Boolean = false): FastbootInfoRead {
+        val tasks = mutableListOf<FlashAllTask>()
+        for (text in lines) {
+            when (val parsed = line(text, slot, secondary, wantsWipe)) {
+                is FastbootInfoRead.Invalid -> return parsed
+                is Line -> parsed.task?.let { tasks += it }
+            }
+        }
+        return FastbootInfoRead.Tasks(tasks)
     }
 
     /** Строка файла: задача, пропуск (`task` пуст) или отказ всему файлу. */

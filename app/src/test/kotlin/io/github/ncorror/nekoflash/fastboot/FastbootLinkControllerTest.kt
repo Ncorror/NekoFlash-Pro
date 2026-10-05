@@ -234,7 +234,6 @@ class FastbootLinkControllerTest {
 
         controller.scenarios.flashAll(FlashAllRequest(skipReboot = true)) {
             object : FastbootImageSet {
-                override fun bytes(name: String) = images[name]
                 override fun source(name: String) = images[name]?.let { bytes -> MemorySource(name, bytes) }
             }
         }
@@ -324,7 +323,6 @@ class FastbootLinkControllerTest {
             "super_empty.img" to FastbootFlashAllTest.superEmpty(),
         )
         return object : FastbootImageSet {
-            override fun bytes(name: String) = images[name]
             override fun source(name: String) = images[name]?.let { bytes -> MemorySource(name, bytes) }
         }
     }

@@ -1,5 +1,7 @@
 package io.github.ncorror.nekoflash.fastboot
 
+import io.github.ncorror.nekoflash.artifact.ArtifactStagingOutcome
+import io.github.ncorror.nekoflash.artifact.StagedArtifactSource
 import io.github.ncorror.nekoflash.core.artifact.ArtifactAccess
 import io.github.ncorror.nekoflash.core.artifact.ArtifactIdentity
 import io.github.ncorror.nekoflash.core.artifact.ArtifactRandomAccess
@@ -34,22 +36,45 @@ internal fun flashVendorRamdisk(
     sparseLimit: Long?,
     staging: File,
 ): FastbootConsoleState = try {
-    val bytes = ramdisk.open().use { it.readBytes() }
-    if (bytes.size >= Int.SIZE_BYTES && sparseMagic(bytes)) {
+    val copied = when (val outcome = StagedArtifactSource.stage(ramdisk, staging)) {
+        is ArtifactStagingOutcome.Staged -> outcome.source
+        is ArtifactStagingOutcome.Failed -> throw FlashAllStop(outcome.detail)
+    }
+    copied.use {
+        validateRamdisk(it)
+        flashRamdiskPartitions(lane, it, name, slot, sparseLimit, staging)
+    }
+} catch (stop: FlashAllStop) {
+    FastbootConsoleState.Planned(emptyList(), 0, 0, stop.detail, lane.state)
+}
+
+private fun validateRamdisk(ramdisk: StagedArtifactSource) {
+    val size = checkNotNull(ramdisk.identity.sizeBytes)
+    if (size == 0L) throw FlashAllStop("repack_ramdisk() sees negative size: 0")
+    if (size >= Int.SIZE_BYTES && sparseMagic(ramdisk.randomAccess().read(0, Int.SIZE_BYTES))) {
         throw FlashAllStop("Flashing sparse vendor ramdisk image is not supported.")
     }
-    if (bytes.isEmpty()) throw FlashAllStop("repack_ramdisk() sees negative size: 0")
+}
+
+private fun flashRamdiskPartitions(
+    lane: FastbootLane,
+    ramdisk: StagedArtifactSource,
+    name: String,
+    slot: String,
+    sparseLimit: Long?,
+    staging: File,
+): FastbootConsoleState {
     val partitions = when (val resolved = slotCommands(listOf(FLASH + VENDOR_BOOT), slot, lane)) {
         is SlotResolution.Failed -> throw FlashAllStop(resolved.detail)
         is SlotResolution.Resolved -> resolved.commands.map { it.removePrefix(FLASH) }
     }
     val done = mutableListOf<FastbootConsoleState.Planned>()
     for (partition in partitions) {
-        if (done.lastOrNull()?.stoppedAt == null) done += repackOne(lane, partition, name, bytes, sparseLimit, staging)
+        if (done.lastOrNull()?.stoppedAt == null) {
+            done += repackOne(lane, partition, name, ramdisk, sparseLimit, staging)
+        }
     }
-    merged(done, lane)
-} catch (stop: FlashAllStop) {
-    FastbootConsoleState.Planned(emptyList(), 0, 0, stop.detail, lane.state)
+    return merged(done, lane)
 }
 
 /** Один раздел: `fetch` во временный файл, замена, прошивка; отказ до прошивки — [FlashAllStop]. */
@@ -57,7 +82,7 @@ private fun repackOne(
     lane: FastbootLane,
     partition: String,
     name: String,
-    ramdisk: ByteArray,
+    ramdisk: StagedArtifactSource,
     sparseLimit: Long?,
     staging: File,
 ): FastbootConsoleState.Planned {
@@ -66,9 +91,14 @@ private fun repackOne(
         fetchTo(lane, partition, file)
         val size = file.length()
         val pieces = RandomAccessFile(file, "r").use { image ->
-            FastbootVendorBoot.replace(size, { offset, length -> image.readAt(offset, length) }, name, ramdisk)
+            FastbootVendorBoot.replace(
+                size,
+                { offset, length -> image.readAt(offset, length) },
+                name,
+                checkNotNull(ramdisk.identity.sizeBytes),
+            )
         }.getOrElse { failure -> throw FlashAllStop(failure.message.orEmpty()) }
-        val source = PiecesSource(file, pieces, "$partition.img")
+        val source = PiecesSource(file, ramdisk, pieces, "$partition.img")
         return flashImage(lane, source, size, sparseLimit, listOf(FLASH + partition)) as FastbootConsoleState.Planned
     } finally {
         file.delete()
@@ -117,8 +147,12 @@ private fun RandomAccessFile.readAt(offset: Long, length: Int): ByteArray {
 }
 
 /** Новый образ `vendor_boot` потоком: отрезки прочитанного раздела, новые байты и нули. */
-private class PiecesSource(private val file: File, private val pieces: List<VendorBootPiece>, name: String) :
-    ArtifactSource {
+private class PiecesSource(
+    private val file: File,
+    private val ramdisk: StagedArtifactSource,
+    private val pieces: List<VendorBootPiece>,
+    name: String,
+) : ArtifactSource {
     private val size = pieces.sumOf { it.length }
     override val identity = ArtifactIdentity(name, size, ArtifactAccess.NON_SEEKABLE)
     override val openedStamp = ArtifactStamp(size)
@@ -127,39 +161,42 @@ private class PiecesSource(private val file: File, private val pieces: List<Vend
 
     override fun open(): InputStream {
         val image = RandomAccessFile(file, "r")
+        val reads = ArtifactRandomAccess { offset, count -> image.readAt(offset, count) }
         val streams = pieces.map { piece ->
             when (piece) {
-                is VendorBootPiece.Old -> RangeStream(image, piece.offset, piece.length)
+                is VendorBootPiece.Old -> RangeStream(reads, piece.offset, piece.length)
                 is VendorBootPiece.New -> piece.bytes.inputStream()
+                is VendorBootPiece.Replacement -> RangeStream(ramdisk.randomAccess(), piece.offset, piece.length)
                 is VendorBootPiece.Zero -> ZeroStream(piece.length)
             }
         }
         return object : SequenceInputStream(Collections.enumeration(streams)) {
             override fun close() {
-                super.close()
-                image.close()
+                try {
+                    super.close()
+                } finally {
+                    image.close()
+                }
             }
         }
     }
 }
 
 private class RangeStream(
-    private val image: RandomAccessFile,
+    private val reads: ArtifactRandomAccess,
     private var at: Long,
     private var left: Long,
 ) : InputStream() {
     override fun read(): Int = ByteArray(1).let { if (read(it, 0, 1) < 0) -1 else it[0].toInt() and BYTE }
 
     override fun read(buffer: ByteArray, offset: Int, count: Int): Int {
+        if (count == 0) return 0
         if (left <= 0L) return -1
-        val take = minOf(count.toLong(), left).toInt()
-        image.seek(at)
-        val read = image.read(buffer, offset, take)
-        if (read > 0) {
-            at += read
-            left -= read
-        }
-        return read
+        val take = minOf(count.toLong(), left, CHUNK.toLong()).toInt()
+        reads.read(at, take).copyInto(buffer, offset)
+        at += take
+        left -= take
+        return take
     }
 }
 
@@ -167,6 +204,7 @@ private class ZeroStream(private var left: Long) : InputStream() {
     override fun read(): Int = if (left-- > 0L) 0 else -1
 
     override fun read(buffer: ByteArray, offset: Int, count: Int): Int {
+        if (count == 0) return 0
         if (left <= 0L) return -1
         val take = minOf(count.toLong(), left).toInt()
         buffer.fill(0, offset, offset + take)
@@ -180,3 +218,4 @@ private const val VENDOR_BOOT = "vendor_boot"
 private const val MAX_FETCH_SIZE = "max-fetch-size"
 private const val HEX = 16
 private const val BYTE = 0xFF
+private const val CHUNK = 64 * 1024

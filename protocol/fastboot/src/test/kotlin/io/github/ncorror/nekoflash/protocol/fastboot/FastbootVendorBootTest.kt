@@ -9,6 +9,74 @@ import org.junit.Test
 
 /** `vendor_boot:ИМЯ` — как `replace_vendor_ramdisk` настольного клиента. */
 class FastbootVendorBootTest {
+    @Test
+    fun streamedRamdiskAndPartitionOffsetsCanExceedSignedIntAndFourGiB() {
+        val partitionSize = 6L shl 30
+        val ramdiskSize = (3L shl 30) + 17
+        val prefix = image().copyOf(2128)
+        val calls = mutableListOf<Pair<Long, Int>>()
+        val pieces = FastbootVendorBoot.replace(partitionSize, { at, count ->
+            calls += at to count
+            check(count <= 2128) { "whole page or image was allocated" }
+            when (at) {
+                0L -> prefix.copyOf(count)
+                partitionSize - 64 -> "AVBf".toByteArray()
+                else -> error("unexpected metadata read: $at")
+            }
+        }, "default", ramdiskSize).getOrThrow()
+
+        assertEquals(partitionSize, pieces.sumOf { it.length })
+        assertEquals(ramdiskSize, pieces.filterIsInstance<VendorBootPiece.Replacement>().single().length)
+        val header = pieces.filterIsInstance<VendorBootPiece.New>().first().bytes
+        assertEquals(ramdiskSize, int(header, 24).toLong() and 0xFFFF_FFFFL)
+        assertEquals(VendorBootPiece.Old(partitionSize - 64, 64), pieces.last())
+        assertTrue(calls.any { it.first > 0xFFFF_FFFFL })
+    }
+
+    @Test
+    fun namedFragmentTableBeyondTwoGiBUsesBoundedReads() {
+        val original = image()
+        val oldRamdiskSize = (3L shl 30) + 30
+        val partitionSize = 6L shl 30
+        val tableAt = page + ((oldRamdiskSize + page - 1) / page * page) + page
+        val header = original.copyOf(2128)
+        ByteBuffer.wrap(header).order(ByteOrder.LITTLE_ENDIAN).putInt(24, oldRamdiskSize.toInt())
+        val table = original.copyOfRange(3 * page, 3 * page + 216)
+        ByteBuffer.wrap(table).order(ByteOrder.LITTLE_ENDIAN)
+            .putInt(0, ((3L shl 30) + 10).toInt()).putInt(112, ((3L shl 30) + 10).toInt())
+        val pieces = FastbootVendorBoot.replace(partitionSize, { at, count ->
+            check(count <= 2128)
+            when (at) {
+                0L -> header.copyOf(count)
+                tableAt -> table.copyOfRange(0, count)
+                tableAt + 108 -> table.copyOfRange(108, 108 + count)
+                partitionSize - 64 -> "AVBf".toByteArray()
+                else -> error("unexpected metadata read: $at")
+            }
+        }, "first", (3L shl 30) + 40).getOrThrow()
+
+        assertEquals(partitionSize, pieces.sumOf { it.length })
+        val entries = pieces.filterIsInstance<VendorBootPiece.New>().filter { it.bytes.size == 108 }
+        assertEquals((3L shl 30) + 40, int(entries[1].bytes, 4).toLong() and 0xFFFF_FFFFL)
+        assertTrue(pieces.filterIsInstance<VendorBootPiece.Old>().any { it.offset == tableAt - page })
+    }
+
+    @Test
+    fun formatOverflowIsRejectedAndReplacementDtbSizeReachesHeader() {
+        val bytes = image()
+        val failure = FastbootVendorBoot.replace(bytes.size.toLong(), { at, count ->
+            bytes.copyOfRange(at.toInt(), at.toInt() + count)
+        }, "default", 1L shl 32)
+        assertTrue(failure.exceptionOrNull()?.message.orEmpty().contains("uint32 size overflow"))
+        val replacementDtb = ByteArray(1000) { 8 }
+        val result = FastbootVendorBoot.replace(bytes.size.toLong(), { at, count ->
+            bytes.copyOfRange(at.toInt(), at.toInt() + count)
+        }, "default", ByteArray(20), replacementDtb).getOrThrow()
+        val rendered = FastbootVendorBoot.render(bytes, result)
+        assertEquals(1000, int(rendered, 2100))
+        assertArrayEquals(replacementDtb, rendered.copyOfRange(2 * page, 2 * page + 1000))
+    }
+
     private val page = 4096
     private val first = ByteArray(10) { 1 }
     private val second = ByteArray(20) { 2 }

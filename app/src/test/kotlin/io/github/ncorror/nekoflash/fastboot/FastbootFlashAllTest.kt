@@ -12,11 +12,45 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.security.MessageDigest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /** `fastboot flashall` — порядок `FlashAllTool::Flash` из AOSP `fastboot.cpp`. */
 class FastbootFlashAllTest {
+    @Test
+    fun signatureWithUnknownLengthIsMeasuredAndStreamedBeforeFlash() {
+        val signature = ByteArray(20_000) { 7 }
+        val base = MapImageSet(images + ("boot.sig" to signature))
+        var opens = 0
+        val set = object : FastbootImageSet {
+            override fun source(name: String): ArtifactSource? {
+                val source = base.source(name) ?: return null
+                return if (name == "boot.sig") object : ArtifactSource by source {
+                    override val identity = source.identity.copy(sizeBytes = null)
+                    override fun open(): InputStream {
+                        opens++
+                        return object : ByteArrayInputStream(signature) {
+                            override fun read(bytes: ByteArray, offset: Int, count: Int): Int {
+                                check(count <= 16 * 1024)
+                                return super.read(bytes, offset, count)
+                            }
+                        }
+                    }
+                } else source
+            }
+        }
+        val device = ScriptedBootloader(vayu)
+
+        val planned = FastbootFlashAll(FastbootLane(device), set, FlashAllRequest()).run()
+            as FastbootConsoleState.Planned
+
+        assertEquals(null, planned.stoppedAt)
+        assertEquals(2, opens)
+        assertArrayEquals(signature, device.downloads.first())
+        assertTrue(device.sent.indexOf("signature") < device.sent.indexOf("flash:boot"))
+    }
+
     private val vayu = mapOf("product" to "vayu", "max-download-size" to "0x10000000")
 
     private fun flashAll(device: ScriptedBootloader, set: Map<String, ByteArray>, request: FlashAllRequest = FlashAllRequest()) =
@@ -238,7 +272,6 @@ class FastbootFlashAllTest {
     }
 
     private class MapImageSet(private val files: Map<String, ByteArray>) : FastbootImageSet {
-        override fun bytes(name: String): ByteArray? = files[name]
 
         override fun source(name: String): ArtifactSource? = files[name]?.let { Bytes(name, it) }
     }

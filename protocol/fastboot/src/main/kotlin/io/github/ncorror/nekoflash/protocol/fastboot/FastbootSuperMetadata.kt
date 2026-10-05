@@ -1,5 +1,6 @@
 package io.github.ncorror.nekoflash.protocol.fastboot
 
+import java.io.InputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.security.MessageDigest
@@ -76,7 +77,11 @@ public sealed interface LpMetadataRead {
  * здесь есть, и отказ называется её словами.
  */
 public object FastbootSuperMetadata {
-    public fun fromImageBlob(bytes: ByteArray): LpMetadataRead {
+    public fun fromImageBlob(bytes: ByteArray): LpMetadataRead = fromImageStream(bytes.inputStream())
+
+    /** Читает только геометрию, заголовок и таблицы; хвост образа не загружается. Поток закрывает вызывающий. */
+    public fun fromImageStream(input: InputStream): LpMetadataRead {
+        val bytes = prefix(input, GEOMETRY_SIZE)
         if (bytes.size < GEOMETRY_SIZE) {
             return LpMetadataRead.Invalid("${bytes.size} is smaller than geometry header")
         }
@@ -84,7 +89,27 @@ public object FastbootSuperMetadata {
             is Parsed.Ok -> parsed.value
             is Parsed.Bad -> return LpMetadataRead.Invalid(parsed.reason)
         }
-        return metadata(geometry, ByteBuffer.wrap(bytes, GEOMETRY_SIZE, bytes.size - GEOMETRY_SIZE).slice())
+        return metadata(geometry, input)
+    }
+
+    private fun prefix(input: InputStream, size: Int): ByteArray {
+        val bytes = ByteArray(size)
+        var at = 0
+        while (at < size) {
+            val read = readSome(input, bytes, at, size - at)
+            if (read < 0) break
+            at += read
+        }
+        return if (at == size) bytes else bytes.copyOf(at)
+    }
+
+    private fun readSome(input: InputStream, bytes: ByteArray, at: Int, count: Int): Int {
+        val read = input.read(bytes, at, count)
+        if (read != 0) return read
+        val one = input.read()
+        if (one < 0) return -1
+        bytes[at] = one.toByte()
+        return 1
     }
 
     private sealed interface Parsed<out T> {
@@ -131,41 +156,77 @@ public object FastbootSuperMetadata {
         return MessageDigest.getInstance("SHA-256").digest(copy).contentEquals(stored)
     }
 
-    /** `ReadMetadataHeader` и `ParseMetadata`. */
-    private fun metadata(geometry: LpGeometry, data: ByteBuffer): LpMetadataRead {
-        val header = when (val read = LpHeader.read(data)) {
+    /** `ReadMetadataHeader` и `ParseMetadata`: ни размер образа, ни размер таблиц не задаёт буфер. */
+    private fun metadata(geometry: LpGeometry, input: InputStream): LpMetadataRead {
+        val base = prefix(input, HEADER_V1_0)
+        val expanded = base.size == HEADER_V1_0 &&
+            ByteBuffer.wrap(base).order(ByteOrder.LITTLE_ENDIAN).getInt(HEADER_SIZE_OFFSET) == HEADER_V1_2
+        val raw = if (expanded) base + prefix(input, HEADER_V1_2 - HEADER_V1_0) else base
+        val header = when (val read = LpHeader.read(ByteBuffer.wrap(raw))) {
             is Parsed.Ok -> read.value
             is Parsed.Bad -> return LpMetadataRead.Invalid(read.reason)
         }
-        val tablesSize = header.tablesSize
-        return when {
-            Integer.compareUnsigned(tablesSize, geometry.metadataMaxSize) > 0 ->
-                LpMetadataRead.Invalid("Invalid partition metadata header table size.")
-            data.remaining() - header.size < tablesSize -> LpMetadataRead.Invalid("read $tablesSize bytes failed")
-            else -> tables(geometry, header, data)
+        return if (Integer.compareUnsigned(header.tablesSize, geometry.metadataMaxSize) > 0) {
+            LpMetadataRead.Invalid("Invalid partition metadata header table size.")
+        } else {
+            tables(geometry, header, input)
         }
     }
 
-    private fun tables(geometry: LpGeometry, header: LpHeader, data: ByteBuffer): LpMetadataRead {
-        val tables = ByteArray(header.tablesSize)
-        data.position(header.size)
-        data.get(tables)
-        if (!MessageDigest.getInstance("SHA-256").digest(tables).contentEquals(header.tablesChecksum)) {
+    private fun tables(geometry: LpGeometry, header: LpHeader, input: InputStream): LpMetadataRead {
+        val partitions = TableReader(header.partitions) { partition(it, 0) }
+        val extents = TableReader(header.extents) { extent(it, 0) }
+        val groups = TableReader(header.groups) { LpGroup(name(it, 0), it.getInt(NAME_BYTES), it.getLong(GROUP_MAX_OFFSET)) }
+        val devices = TableReader(header.blockDevices) { blockDevice(it, 0) }
+        val readers = listOf(partitions, extents, groups, devices)
+        val digest = MessageDigest.getInstance("SHA-256")
+        val bytes = ByteArray(TABLE_CHUNK)
+        val size = header.tablesSize.toLong() and UINT
+        var at = 0L
+        while (at < size) {
+            val read = readSome(input, bytes, 0, minOf(bytes.size.toLong(), size - at).toInt())
+            if (read < 0) return LpMetadataRead.Invalid("read $size bytes failed")
+            digest.update(bytes, 0, read)
+            readers.forEach { it.accept(at, bytes, read) }
+            at += read
+        }
+        if (!digest.digest().contentEquals(header.tablesChecksum)) {
             return LpMetadataRead.Invalid("Logical partition metadata has invalid table checksum.")
         }
-        val buffer = ByteBuffer.wrap(tables).order(ByteOrder.LITTLE_ENDIAN)
         val validAttributes = if (header.minor >= VERSION_FOR_UPDATED_ATTR) ATTRIBUTE_MASK else ATTRIBUTE_MASK_V0
-        val partitions = header.partitions.entries(buffer) { at -> partition(buffer, at) }
-        val extents = header.extents.entries(buffer) { at -> extent(buffer, at) }
-        val groups = header.groups.entries(buffer) { at -> LpGroup(name(buffer, at), buffer.getInt(at + NAME_BYTES), buffer.getLong(at + GROUP_MAX_OFFSET)) }
-        val devices = header.blockDevices.entries(buffer) { at -> blockDevice(buffer, at) }
-        val problem = partitions.firstNotNullOfOrNull { partitionProblem(it, validAttributes, header) }
-            ?: extents.firstOrNull { it.targetType == TARGET_LINEAR && Integer.compareUnsigned(it.targetSource, header.blockDevices.count) >= 0 }
+        val problem = partitions.entries.firstNotNullOfOrNull { partitionProblem(it, validAttributes, header) }
+            ?: extents.entries.firstOrNull { it.targetType == TARGET_LINEAR && Integer.compareUnsigned(it.targetSource, header.blockDevices.count) >= 0 }
                 ?.let { "Logical partition extent has invalid block device." }
-            ?: superProblem(geometry, devices)
+            ?: superProblem(geometry, devices.entries)
         return problem?.let(LpMetadataRead::Invalid) ?: LpMetadataRead.Parsed(
-            LpMetadata(geometry, header.major, header.minor, header.flags, partitions, extents, groups, devices),
+            LpMetadata(geometry, header.major, header.minor, header.flags,
+                partitions.entries, extents.entries, groups.entries, devices.entries),
         )
+    }
+
+    /** Собирает одну запись за раз. Таблицы могут идти в любом порядке и пересекаться. */
+    private class TableReader<T>(private val table: Table, private val parse: (ByteBuffer) -> T) {
+        val entries = mutableListOf<T>()
+        private val bytes = ByteArray(table.entrySize)
+        private var index = 0L
+        private var filled = 0
+
+        fun accept(at: Long, chunk: ByteArray, count: Int) {
+            val end = at + count
+            while (index < (table.count.toLong() and UINT)) {
+                val start = (table.offset.toLong() and UINT) + index * table.entrySize
+                val wanted = start + filled
+                if (wanted >= end) break
+                val take = minOf(end - wanted, (bytes.size - filled).toLong()).toInt()
+                chunk.copyInto(bytes, filled, (wanted - at).toInt(), (wanted - at).toInt() + take)
+                filled += take
+                if (filled == bytes.size) {
+                    entries += parse(ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN))
+                    index++
+                    filled = 0
+                }
+            }
+        }
     }
 
     private fun partitionProblem(partition: LpPartition, validAttributes: Int, header: LpHeader): String? {
@@ -224,10 +285,7 @@ public object FastbootSuperMetadata {
     }
 
     /** Описание таблицы: смещение от конца заголовка, число и размер записей. */
-    private class Table(val offset: Int, val count: Int, val entrySize: Int) {
-        fun <T> entries(buffer: ByteBuffer, read: (Int) -> T): List<T> =
-            (0 until count).map { index -> read(offset + index * entrySize) }.also { buffer.position(0) }
-    }
+    private class Table(val offset: Int, val count: Int, val entrySize: Int)
 
     private class LpHeader(
         val major: Int,
@@ -287,6 +345,8 @@ public object FastbootSuperMetadata {
                         Parsed.Bad("Logical partition metadata has invalid extent table entry size.")
                     header.groups.entrySize != GROUP_BYTES ->
                         Parsed.Bad("Logical partition metadata has invalid group table entry size.")
+                    header.blockDevices.entrySize != DEVICE_BYTES ->
+                        Parsed.Bad("Logical partition metadata has invalid block device table entry size.")
                     else -> Parsed.Ok(header)
                 }
             }
@@ -333,6 +393,8 @@ public object FastbootSuperMetadata {
     private const val PARTITION_BYTES = 52
     private const val EXTENT_BYTES = 24
     private const val GROUP_BYTES = 48
+    private const val DEVICE_BYTES = 64
+    private const val TABLE_CHUNK = 16 * 1024
     private const val NAME_BYTES = 36
     private const val GROUP_MAX_OFFSET = 40
     private const val DEVICE_NAME_OFFSET = 24
