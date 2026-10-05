@@ -184,11 +184,12 @@ public class FastbootLinkController(
     }
 
     /** Called under [lifecycleLock]; duplicate requests preserve the running operation. */
-    private fun alreadyConnectedOrProbing(generation: SessionGeneration): Boolean = when (val current = mutableState.value) {
-        is FastbootLinkState.Probing -> current.generation == generation
-        is FastbootLinkState.Connected -> current.generation == generation
-        else -> false
-    }
+    private fun alreadyConnectedOrProbing(generation: SessionGeneration): Boolean =
+        when (val current = mutableState.value) {
+            is FastbootLinkState.Probing -> current.generation == generation
+            is FastbootLinkState.Connected -> current.generation == generation
+            else -> false
+        }
 
     /** Queued probes own their handle before execution; publication is serialized with disconnect. */
     private fun retainProbeHandle(generation: SessionGeneration, epoch: Long, claimed: UsbTransportHandle): Boolean =

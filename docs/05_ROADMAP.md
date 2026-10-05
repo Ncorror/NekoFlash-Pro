@@ -74,7 +74,7 @@
 
 | Пункт | Статус | Где |
 | --- | --- | --- |
-| Привязать все действия ADB/Fastboot, Recovery, терминала и палитры к выбранной USB generation; убрать молчаливую подстановку первой цели | `в репо` | `TargetSelectionController`, привязка контроллеров в `NekoFlashApp` и выбранной сессии в `MainActivity`; `TargetSelectionControllerTest` проверяет несколько целей, потерю generation и возвращение идентифицируемой цели; ручной сценарий ещё не выполнен |
+| Привязать все действия ADB/Fastboot, Recovery, терминала и палитры к выбранной USB generation; убрать молчаливую подстановку первой цели | `в репо` | `TargetSelectionController`, привязка контроллеров в `NekoFlashApplication` и выбранной сессии в `MainActivity`; `TargetSelectionControllerTest` проверяет несколько целей, потерю generation и возвращение идентифицируемой цели; ручной сценарий ещё не выполнен |
 | Освобождать прежний Fastboot handle/lane до подключения другой generation; повторный connect к той же generation сохраняет выполняемую операцию | `в репо` | `FastbootLinkController`: закрытие прежних ресурсов до нового `claim`, владение handle отложенного опроса, отмена устаревших опросов и команд; 13 тестов `FastbootConnectionLifecycleTest`, включая отказ executor и поздний `claim`; [статус аудита](07_BUILD_AND_TESTING.md#состояние-исправлений-аудита-на-05102026) |
 | Убрать `readBytes()` для потенциально больших входов Fastboot/ZIP и проверить потоковую подготовку образов | `нет` | P1: [аудит 0.58](07_BUILD_AND_TESTING.md#аудит-кода-0580-dev) |
 | ADB: оболочка с `logcat` изредка обрывается `PAYLOAD_TRANSFER_FAILED` при живом кабеле | `нет` | 3 раза на 0.23.0–0.25.0, причина не установлена; в 0.27.0 отказ пишет `waitedMs`; без обрыва: 40 с на 0.27.0, 6 мин оболочки с `logcat` на 0.30.0 (D051) |
