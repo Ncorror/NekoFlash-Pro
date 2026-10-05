@@ -39,6 +39,7 @@ import io.github.ncorror.nekoflash.usb.api.UsbSessionState
 import io.github.ncorror.nekoflash.usb.api.UsbTransportHandle
 import java.time.Instant
 import java.util.concurrent.Executor
+import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -164,46 +165,87 @@ public class FastbootLinkController(
      * поток раскладки нельзя.
      */
     public fun connect(generation: SessionGeneration) {
-        val epoch = synchronized(lifecycleLock) {
-            if (mutableState.value is FastbootLinkState.Probing) return
+        val transition = synchronized(lifecycleLock) {
+            when (val current = mutableState.value) {
+                is FastbootLinkState.Probing -> if (current.generation == generation) return
+                is FastbootLinkState.Connected -> if (current.generation == generation) return
+                else -> Unit
+            }
             val next = lifecycleEpoch.incrementAndGet()
-            scenarioRunning = false
+            val resources = detachResources()
             mutableState.value = FastbootLinkState.Probing(generation)
-            next
+            next to resources
         }
+        closeResources(transition.second)
+        val epoch = transition.first
+        if (!synchronized(lifecycleLock) { isCurrentProbe(generation, epoch) }) return
 
         when (val claimed = claim(generation)) {
-            is UsbClaimResult.Failed -> {
-                val current = synchronized(lifecycleLock) {
-                    if (lifecycleEpoch.get() != epoch || mutableState.value !is FastbootLinkState.Probing) {
-                        false
-                    } else {
-                        mutableState.value = FastbootLinkState.Failed(generation, claimed.reason.name)
-                        true
-                    }
-                }
-                if (current) emit("fastboot_claim_failed", mapOf("reason" to claimed.reason.name))
-            }
+            is UsbClaimResult.Failed -> failProbe(generation, epoch, claimed.reason.name, "fastboot_claim_failed")
 
-            is UsbClaimResult.Claimed -> executor.execute { probe(generation, claimed.handle, epoch) }
+            is UsbClaimResult.Claimed -> scheduleProbe(generation, epoch, claimed.handle)
         }
+    }
+
+    /** Queued probes own their handle before execution; publication is serialized with disconnect. */
+    private fun retainProbeHandle(generation: SessionGeneration, epoch: Long, claimed: UsbTransportHandle): Boolean =
+        synchronized(lifecycleLock) {
+            if (!isCurrentProbe(generation, epoch)) {
+                false
+            } else {
+                handle = claimed
+                true
+            }
+        }
+
+    private fun scheduleProbe(generation: SessionGeneration, epoch: Long, claimed: UsbTransportHandle) {
+        if (!retainProbeHandle(generation, epoch, claimed)) {
+            claimed.close()
+            return
+        }
+        try {
+            executor.execute { probe(generation, claimed, epoch) }
+        } catch (rejected: RejectedExecutionException) {
+            failProbe(generation, epoch, rejected.message ?: rejected.javaClass.simpleName, "fastboot_probe_failed")
+            claimed.close()
+        }
+    }
+
+    /** Called under [lifecycleLock]. */
+    private fun isCurrentProbe(generation: SessionGeneration, epoch: Long): Boolean =
+        lifecycleEpoch.get() == epoch && mutableState.value == FastbootLinkState.Probing(generation)
+
+    private fun failProbe(generation: SessionGeneration, epoch: Long, detail: String, event: String) {
+        val resources = synchronized(lifecycleLock) {
+            if (!isCurrentProbe(generation, epoch)) return
+            detachResources().also { mutableState.value = FastbootLinkState.Failed(generation, detail) }
+        }
+        closeResources(resources)
+        emit(event, mapOf("reason" to detail, "generation" to generation.value.toString()))
+    }
+
+    /** Called under [lifecycleLock]; invalidation precedes any potentially blocking close. */
+    private fun detachResources(): Pair<FastbootLane?, UsbTransportHandle?> {
+        val resources = lane to handle
+        scenarioRunning = false
+        lane = null
+        handle = null
+        mutableConsole.value = FastbootConsoleState.Idle
+        return resources
+    }
+
+    private fun closeResources(resources: Pair<FastbootLane?, UsbTransportHandle?>) {
+        resources.first?.close()
+        resources.second?.close()
     }
 
     /** Отпускает интерфейс. Повторный вызов безопасен. */
     public fun disconnect() {
         val resources = synchronized(lifecycleLock) {
             lifecycleEpoch.incrementAndGet()
-            scenarioRunning = false
-            val oldLane = lane
-            val oldHandle = handle
-            lane = null
-            handle = null
-            mutableConsole.value = FastbootConsoleState.Idle
-            mutableState.value = FastbootLinkState.Idle
-            oldLane to oldHandle
+            detachResources().also { mutableState.value = FastbootLinkState.Idle }
         }
-        resources.first?.close()
-        resources.second?.close()
+        closeResources(resources)
     }
 
     /**
@@ -221,25 +263,26 @@ public class FastbootLinkController(
     public fun onUsbSessionsChanged(sessions: List<UsbSession>) {
         // Сценарий сам переводит связь на новое подключение; после него сверка
         // повторяется (см. [busy]).
-        if (scenarioRunning) return
-        val stale = when (val state = mutableState.value) {
-            is FastbootLinkState.Connected -> state.generation.takeIf { generation ->
-                sessions.none { it.generation == generation && !it.closed && it.state == UsbSessionState.CLAIMED }
-            }
-            // Отказ остаётся на экране, пока его сессия существует: он
-            // единственное, что есть у оператора для разбора.
-            is FastbootLinkState.Failed -> state.generation.takeIf { generation ->
-                sessions.none { it.generation == generation && !it.closed }
-            }
-            is FastbootLinkState.Probing -> state.generation.takeIf { generation ->
-                sessions.none { it.generation == generation && !it.closed }
-            }
-            FastbootLinkState.Idle -> null
+        val dropped = synchronized(lifecycleLock) {
+            if (scenarioRunning) return
+            val stale = when (val state = mutableState.value) {
+                is FastbootLinkState.Connected -> state.generation.takeIf { generation ->
+                    sessions.none { it.generation == generation && !it.closed && it.state == UsbSessionState.CLAIMED }
+                }
+                // Отказ остаётся на экране, пока его сессия существует.
+                is FastbootLinkState.Failed -> state.generation.takeIf { generation ->
+                    sessions.none { it.generation == generation && !it.closed }
+                }
+                is FastbootLinkState.Probing -> state.generation.takeIf { generation ->
+                    sessions.none { it.generation == generation && !it.closed }
+                }
+                FastbootLinkState.Idle -> null
+            } ?: return
+            lifecycleEpoch.incrementAndGet()
+            stale to detachResources().also { mutableState.value = FastbootLinkState.Idle }
         }
-        if (stale != null) {
-            emit("fastboot_link_dropped", mapOf("generation" to stale.value.toString()))
-            disconnect()
-        }
+        closeResources(dropped.second)
+        emit("fastboot_link_dropped", mapOf("generation" to dropped.first.value.toString()))
     }
 
     /**
@@ -914,6 +957,10 @@ public class FastbootLinkController(
         claimed: UsbTransportHandle,
         epoch: Long,
     ): FastbootLane? {
+        if (!retainProbeHandle(generation, epoch, claimed)) {
+            claimed.close()
+            return null
+        }
         val opened = FastbootLane(claimed)
         emit("fastboot_probe_started", mapOf("generation" to generation.value.toString()))
 
@@ -923,6 +970,12 @@ public class FastbootLinkController(
             // Исключение — программистская ошибка, а не ответ устройства.
             // Роль от этого не становится известной, поэтому UNKNOWN с текстом.
             FastbootIdentity(FastbootMode.UNKNOWN, failure.message ?: failure.javaClass.simpleName)
+        }
+
+        if (!synchronized(lifecycleLock) { isCurrentProbe(generation, epoch) }) {
+            opened.close()
+            claimed.close()
+            return null
         }
 
         // Замок читается тем же опросом, что и роль: он нужен до первого
