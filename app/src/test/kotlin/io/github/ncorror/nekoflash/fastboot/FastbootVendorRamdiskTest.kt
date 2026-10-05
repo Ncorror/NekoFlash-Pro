@@ -71,7 +71,7 @@ class FastbootVendorRamdiskTest {
         var opens = 0
         var closed = false
         override val identity = ArtifactIdentity("ramdisk.img", null, ArtifactAccess.NON_SEEKABLE)
-        override val openedStamp = ArtifactStamp(null)
+        override val openedStamp = ArtifactStamp(0L)
         override fun stamp() = openedStamp
         override fun randomAccess(): ArtifactRandomAccess? = null
         override fun open(): InputStream {
