@@ -108,18 +108,12 @@ internal class StagedArtifactSource private constructor(
             onProgress: (Long) -> Unit,
         ) {
             val buffer = ByteArray(COPY_BLOCK_BYTES)
-            while (true) {
-                var read = input.read(buffer)
-                if (read < 0) break
-                if (read == 0) {
-                    val one = input.read()
-                    if (one < 0) break
-                    buffer[0] = one.toByte()
-                    read = 1
-                }
+            var read = readArtifactChunk(input, buffer)
+            while (read >= 0) {
                 output.write(buffer, 0, read)
                 digest.update(buffer, 0, read)
                 onProgress(digest.bytes)
+                read = readArtifactChunk(input, buffer)
             }
         }
 

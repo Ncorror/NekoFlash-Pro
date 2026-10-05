@@ -3,6 +3,7 @@ package io.github.ncorror.nekoflash.fastboot
 import com.ncorror.nekoflash.pro.engine.CURRENT_SLOT
 import com.ncorror.nekoflash.pro.engine.SET_ACTIVE_DEFAULT
 import io.github.ncorror.nekoflash.artifact.VbmetaFlagsSource
+import io.github.ncorror.nekoflash.artifact.measuredArtifactSize
 import io.github.ncorror.nekoflash.core.artifact.ArtifactSource
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootAndroidInfo
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootDownloadOutcome
@@ -287,30 +288,13 @@ internal class FastbootFlashAll(
 
     /** `Download`: весь объём с `OKAY`, иначе дальше не идём. */
     private fun download(source: ArtifactSource) {
-        val size = source.identity.sizeBytes ?: measuredSize(source)
+        val size = source.identity.sizeBytes ?: measuredArtifactSize(source)
         commands += downloadStep(size)
         val outcome = source.open().use { input -> downloadFile(lane, source, size, input) }
         val accepted = outcome is FastbootDownloadOutcome.Answered &&
             outcome.reply == FastbootReply.OKAY && outcome.bytesSent == size
         if (!accepted) throw FlashAllStop(describeDownload(outcome), commands.size - 1)
         applied++
-    }
-
-    /** Для подписи без длины у провайдера: измерить потоком, затем открыть с начала для DATA OUT. */
-    private fun measuredSize(source: ArtifactSource): Long = source.open().use { input ->
-        val bytes = ByteArray(READ_CHUNK)
-        var size = 0L
-        while (true) {
-            val read = input.read(bytes)
-            if (read < 0) break
-            if (read == 0) {
-                if (input.read() < 0) break
-                size++
-            } else {
-                size += read
-            }
-        }
-        size
     }
 
     /** Команда плана; всё, кроме `OKAY`, останавливает `flashall`. */
@@ -354,7 +338,6 @@ internal class FastbootFlashAll(
         const val FASTBOOT_INFO = "fastboot-info.txt"
         const val FASTBOOTD = "fastboot"
         const val SUPER_EMPTY = "super_empty.img"
-        const val READ_CHUNK = 16 * 1024
         val VBMETA = listOf("vbmeta", "vbmeta_a", "vbmeta_b")
         const val DYNAMIC_FROM_BOOTLOADER = "The partition you are trying to flash is dynamic, and should be " +
             "flashed via fastbootd. Please run:\n\n    fastboot reboot fastboot\n\nAnd try again. If you are " +

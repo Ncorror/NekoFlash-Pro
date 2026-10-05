@@ -1,7 +1,11 @@
 package io.github.ncorror.nekoflash.fastboot
 
 import com.ncorror.nekoflash.pro.engine.CURRENT_SLOT
+import io.github.ncorror.nekoflash.core.artifact.ArtifactAccess
+import io.github.ncorror.nekoflash.core.artifact.ArtifactIdentity
+import io.github.ncorror.nekoflash.core.artifact.ArtifactRandomAccess
 import io.github.ncorror.nekoflash.core.artifact.ArtifactSource
+import io.github.ncorror.nekoflash.core.artifact.ArtifactStamp
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootGetVar
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootLane
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootMutation
@@ -60,8 +64,14 @@ private class WipeSuperRun(private val lane: FastbootLane, private val sparseLim
     }
 
     private fun flash(image: SuperDeviceImage, name: String) {
-        val size = image.sparse.size.toLong()
-        val source = BytesSource(image.sparse, "${image.partition}.img")
+        val size = image.sizeBytes
+        val source = object : ArtifactSource {
+            override val identity = ArtifactIdentity("${image.partition}.img", size, ArtifactAccess.NON_SEEKABLE)
+            override val openedStamp = ArtifactStamp(size)
+            override fun stamp() = openedStamp
+            override fun randomAccess(): ArtifactRandomAccess? = null
+            override fun open() = image.open()
+        }
         val flashed = flashImage(lane, source, size, sparseLimit, listOf(name))
             as FastbootConsoleState.Planned
         val offset = commands.size

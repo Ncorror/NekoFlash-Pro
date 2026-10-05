@@ -62,9 +62,9 @@ internal class ZipArchive(private val archive: ArtifactSource) {
     private class End(val count: Long, val size: Long, val offset: Long)
 
     private fun checkedRange(offset: Long, size: Long) {
-        if (offset < 0 || size < 0 || offset > length || size > length - offset) {
-            throw IOException("${archive.identity.name}: данные ZIP выходят за границы архива")
-        }
+        val validOffset = offset >= 0 && offset <= length
+        requireZip(validOffset && size >= 0 && size <= length - offset,
+            "${archive.identity.name}: данные ZIP выходят за границы архива")
     }
 
     private fun readAt(offset: Long, size: Int): ByteArray {
@@ -91,12 +91,12 @@ internal class ZipArchive(private val archive: ArtifactSource) {
 
     private fun zip64End(endAt: Long): End {
         val locator = readAt(endAt - LOCATOR_BYTES, LOCATOR_BYTES)
-        if (le32(locator, 0) != LOCATOR_SIGNATURE) throw IOException("ZIP64 без локатора конца каталога")
+        requireZip(le32(locator, 0) == LOCATOR_SIGNATURE, "ZIP64 без локатора конца каталога")
         val recordAt = ByteBuffer.wrap(locator).order(ByteOrder.LITTLE_ENDIAN).getLong(LOCATOR_OFFSET)
         val record = ByteBuffer.wrap(readAt(recordAt, ZIP64_END_BYTES)).order(ByteOrder.LITTLE_ENDIAN)
-        if (record.getInt(0) != ZIP64_END_SIGNATURE) throw IOException("ZIP64: неверная запись конца каталога")
+        requireZip(record.getInt(0) == ZIP64_END_SIGNATURE, "ZIP64: неверная запись конца каталога")
         return End(
-            count = record.getLong(ZIP64_COUNT).also { if (it < 0) throw IOException("ZIP64: неверное число записей") },
+            count = record.getLong(ZIP64_COUNT).also { requireZip(it >= 0, "ZIP64: неверное число записей") },
             size = record.getLong(ZIP64_SIZE),
             offset = record.getLong(ZIP64_OFFSET),
         )
@@ -104,9 +104,9 @@ internal class ZipArchive(private val archive: ArtifactSource) {
 
     /** Одна запись каталога: длины имени/extra — uint16, размер каталога не задаёт буфер. */
     private fun entry(at: Long, end: Long): Pair<Entry, Long> {
-        if (at > end || end - at < CENTRAL_BYTES) throw IOException("повреждён центральный каталог ZIP")
+        requireZip(at <= end && end - at >= CENTRAL_BYTES, "повреждён центральный каталог ZIP")
         val header = ByteBuffer.wrap(readAt(at, CENTRAL_BYTES)).order(ByteOrder.LITTLE_ENDIAN)
-        if (header.getInt(0) != CENTRAL_SIGNATURE) throw IOException("повреждён центральный каталог ZIP")
+        requireZip(header.getInt(0) == CENTRAL_SIGNATURE, "повреждён центральный каталог ZIP")
         val method = header.getShort(CENTRAL_METHOD).toInt() and USHORT
         val compressed = header.getInt(CENTRAL_COMPRESSED).toLong() and UINT
         val size = header.getInt(CENTRAL_SIZE).toLong() and UINT
@@ -115,7 +115,7 @@ internal class ZipArchive(private val archive: ArtifactSource) {
         val commentLength = header.getShort(CENTRAL_COMMENT).toInt() and USHORT
         val offset = header.getInt(CENTRAL_LOCAL).toLong() and UINT
         val bytes = CENTRAL_BYTES.toLong() + nameLength + extraLength + commentLength
-        if (bytes > end - at) throw IOException("повреждён центральный каталог ZIP")
+        requireZip(bytes <= end - at, "повреждён центральный каталог ZIP")
         val name = String(readAt(at + CENTRAL_BYTES, nameLength), Charsets.UTF_8)
         val extra = readAt(at + CENTRAL_BYTES + nameLength, extraLength)
         return withZip64(Entry(name, method, compressed, size, offset), extra) to (at + bytes)
@@ -128,7 +128,7 @@ internal class ZipArchive(private val archive: ArtifactSource) {
         while (extra.remaining() >= EXTRA_HEADER) {
             val id = extra.getShort().toInt() and USHORT
             val size = extra.getShort().toInt() and USHORT
-            if (size > extra.remaining()) throw IOException("${entry.name}: повреждено поле extra ZIP")
+            requireZip(size <= extra.remaining(), "${entry.name}: повреждено поле extra ZIP")
             val end = extra.position() + size
             if (id == ZIP64_EXTRA) {
                 resolved = true
@@ -141,12 +141,10 @@ internal class ZipArchive(private val archive: ArtifactSource) {
             }
             extra.position(end)
         }
-        if (!resolved && listOf(entry.size, entry.compressedSize, entry.localHeaderOffset).any { it == UINT }) {
-            throw IOException("${entry.name}: отсутствует поле ZIP64")
-        }
-        if (listOf(result.size, result.compressedSize, result.localHeaderOffset).any { it < 0 }) {
-            throw IOException("${entry.name}: неверный размер или смещение ZIP64")
-        }
+        val needsZip64 = listOf(entry.size, entry.compressedSize, entry.localHeaderOffset).any { it == UINT }
+        requireZip(resolved || !needsZip64, "${entry.name}: отсутствует поле ZIP64")
+        requireZip(listOf(result.size, result.compressedSize, result.localHeaderOffset).all { it >= 0 },
+            "${entry.name}: неверный размер или смещение ZIP64")
         return result
     }
 
@@ -167,7 +165,9 @@ internal class ZipArchive(private val archive: ArtifactSource) {
 
     private inner class EntrySource(private val entry: Entry) : ArtifactSource {
         override val identity = ArtifactIdentity(entry.name, entry.size, ArtifactAccess.NON_SEEKABLE)
-        override val openedStamp = ArtifactStamp(entry.size, archive.openedStamp.modifiedAtMillis, null)
+        override val openedStamp = ArtifactStamp(
+            entry.size, archive.openedStamp.modifiedAtMillis, archive.openedStamp.version,
+        )
         override fun stamp(): ArtifactStamp =
             archive.stamp().let { ArtifactStamp(entry.size, it.modifiedAtMillis, it.version) }
 
@@ -262,4 +262,8 @@ internal class ZipArchive(private val archive: ArtifactSource) {
 
         fun le32(bytes: ByteArray, at: Int): Int = le16(bytes, at) or (le16(bytes, at + 2) shl SHORT_BITS)
     }
+}
+
+private fun requireZip(condition: Boolean, message: String) {
+    if (!condition) throw IOException(message)
 }

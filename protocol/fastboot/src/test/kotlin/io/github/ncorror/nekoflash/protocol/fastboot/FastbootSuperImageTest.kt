@@ -9,6 +9,49 @@ import org.junit.Test
 
 /** Пустой `super` — как `ImageBuilder` при `wipe-super`. */
 class FastbootSuperImageTest {
+    @Test
+    fun multiGiBMetadataPaddingUsesFillChunksAndRepeatableStreams() {
+        val maxSize = 3L shl 30
+        val region = 12288 + 4 * maxSize
+        val large = metadata.copy(
+            geometry = metadata.geometry.copy(metadataMaxSize = maxSize.toInt()),
+            blockDevices = listOf(metadata.blockDevices.single().copy(
+                size = 16L shl 30, firstLogicalSector = region / 512,
+            )),
+        )
+
+        val image = FastbootSuperImage.empty(large).getOrThrow().single()
+        assertTrue(image.sizeBytes < 64 * 1024)
+        val bytes = image.open().use { it.readBytes() }
+        assertEquals(image.sizeBytes, bytes.size.toLong())
+        assertArrayEquals(bytes, image.open().use { it.readBytes() })
+        val sparse = FastbootSparse.read(image::open, image.sizeBytes)
+        assertEquals(16L shl 30, sparse.length)
+        assertEquals(4, sparse.extents.filterIsInstance<SparseExtent.Fill>().count { it.length > Int.MAX_VALUE })
+    }
+
+    @Test(timeout = 2000)
+    fun closingTheStreamDoesNotVisitUnopenedMetadataCopies() {
+        val slots = 100_000_000
+        val region = 12288 + 2L * slots * 4096
+        val large = metadata.copy(
+            geometry = LpGeometry(4096, slots, 4096),
+            blockDevices = listOf(metadata.blockDevices.single().copy(
+                size = region + 4096, firstLogicalSector = region / 512,
+            )),
+        )
+
+        val image = FastbootSuperImage.empty(large).getOrThrow().single()
+        image.open().use { assertEquals(FastbootSparse.HEADER_LEN, it.read(ByteArray(28))) }
+    }
+
+    @Test
+    fun metadataThatDoesNotFitItsDeclaredRegionStopsBeforeGeneration() {
+        val tiny = metadata.copy(geometry = LpGeometry(0, 2, 4096))
+
+        assertTrue(FastbootSuperImage.empty(tiny).exceptionOrNull()?.message.orEmpty().contains("Metadata size exceeds"))
+    }
+
     private val metadata = LpMetadata(
         geometry = LpGeometry(metadataMaxSize = 65536, metadataSlotCount = 2, logicalBlockSize = 4096),
         majorVersion = 10,
@@ -30,7 +73,7 @@ class FastbootSuperImageTest {
     @Test
     fun theEmptySuperHoldsZeroesGeometryTwiceAndEveryMetadataCopy() {
         val image = FastbootSuperImage.empty(metadata).getOrThrow().single()
-        val expanded = expand(image.sparse)
+        val expanded = expand(image.open().use { it.readBytes() })
 
         assertEquals("super", image.partition)
         assertEquals(64L shl 20, expanded.size.toLong())

@@ -12,6 +12,24 @@ import org.junit.Test
 /** `super_empty.img` — как его пишет и читает `liblp`. */
 class FastbootSuperMetadataTest {
     @Test
+    fun expandedHeaderAndItsTruncationAreReadWithoutTouchingImageData() {
+        val original = superEmpty()
+        val header = original.copyOfRange(4096, 4224).copyOf(256)
+        ByteBuffer.wrap(header).order(ByteOrder.LITTLE_ENDIAN)
+            .putShort(6, 2).putInt(8, 256).putInt(128, 1)
+        header.fill(0, 12, 44)
+        sha256(header).copyInto(header, 12)
+        val prefix = original.copyOf(4096) + header
+        val image = prefix + original.copyOfRange(4224, original.size)
+
+        val parsed = FastbootSuperMetadata.fromImageStream(image.inputStream()) as LpMetadataRead.Parsed
+        assertEquals(2, parsed.metadata.minorVersion)
+        assertEquals(1, parsed.metadata.headerFlags)
+        assertEquals(LpMetadataRead.Invalid("ReadMetadataHeader read failed"),
+            FastbootSuperMetadata.fromImageStream(prefix.copyOf(prefix.size - 1).inputStream()))
+    }
+
+    @Test
     fun largeImageTailIsNotReadAndShortReadsWork() {
         val image = superEmpty()
         var at = 0
