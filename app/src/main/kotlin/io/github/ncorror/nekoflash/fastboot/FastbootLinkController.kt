@@ -166,11 +166,7 @@ public class FastbootLinkController(
      */
     public fun connect(generation: SessionGeneration) {
         val transition = synchronized(lifecycleLock) {
-            when (val current = mutableState.value) {
-                is FastbootLinkState.Probing -> if (current.generation == generation) return
-                is FastbootLinkState.Connected -> if (current.generation == generation) return
-                else -> Unit
-            }
+            if (alreadyConnectedOrProbing(generation)) return
             val next = lifecycleEpoch.incrementAndGet()
             val resources = detachResources()
             mutableState.value = FastbootLinkState.Probing(generation)
@@ -185,6 +181,13 @@ public class FastbootLinkController(
 
             is UsbClaimResult.Claimed -> scheduleProbe(generation, epoch, claimed.handle)
         }
+    }
+
+    /** Called under [lifecycleLock]; duplicate requests preserve the running operation. */
+    private fun alreadyConnectedOrProbing(generation: SessionGeneration): Boolean = when (val current = mutableState.value) {
+        is FastbootLinkState.Probing -> current.generation == generation
+        is FastbootLinkState.Connected -> current.generation == generation
+        else -> false
     }
 
     /** Queued probes own their handle before execution; publication is serialized with disconnect. */
@@ -998,14 +1001,15 @@ public class FastbootLinkController(
             ),
         )
         val published = publishProbe(generation, epoch, claimed, opened, identity, lock)
-        if (!published) {
+        return if (published) {
+            opened
+        } else {
             // A disconnect or a newer connect won while the probe was blocked
             // in USB I/O. Never publish the stale lane or leak its handle.
             opened.close()
             claimed.close()
-            return null
+            null
         }
-        return opened
     }
 
     private fun verifyPendingUnlock(
