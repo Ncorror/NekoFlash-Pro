@@ -104,6 +104,98 @@ private fun mutationClassOf(outcome: FastbootMutationOutcome): FastbootMutationC
     is FastbootMutationOutcome.NotStarted -> FastbootMutation.classify(outcome.command)
 }
 
+/** Diagnostic mutation fields stay outside the transport owner to keep that owner focused. */
+/**
+ * Исход мутации в поля журнала.
+ *
+ * `claim` — то, что можно утверждать о состоянии устройства, одним словом:
+ * по нему прогон разбирается без чтения текста. `applied` означает, что
+ * устройство сказало «сделал»; `refused` — что оно сказало «не сделал», и
+ * доказательством целости раздела это не является; `unknown` — что мы не
+ * знаем; `departed` — что устройство ушло по нашей же просьбе.
+ */
+private fun mutationFields(state: FastbootConsoleState.Mutated): Map<String, String> {
+    val outcome = state.outcome
+    val common = mapOf(
+        "command" to outcome.command,
+        "mutation" to mutationClassOf(outcome).name,
+        "lane" to state.lane.name,
+    )
+    return common + when (outcome) {
+        is FastbootMutationOutcome.Applied -> mapOf(
+            "claim" to "applied",
+            "reply" to "OKAY",
+            "payload" to journalled(outcome.command, outcome.payload),
+            "infoLines" to outcome.info.size.toString(),
+            "confirmation" to (outcome.confirmation ?: "none"),
+        )
+
+        is FastbootMutationOutcome.Refused -> mapOf(
+            "claim" to "refused",
+            "reply" to "FAIL",
+            "detail" to outcome.detail,
+        )
+
+        is FastbootMutationOutcome.Unconfirmed -> mapOf(
+            "claim" to "unconfirmed",
+            "reply" to "OKAY",
+            "expected" to outcome.expected,
+            "observed" to outcome.observed,
+        )
+
+        is FastbootMutationOutcome.Departed -> mapOf(
+            "claim" to "departed",
+            "reply" to "none",
+            "waitedMillis" to outcome.waitedMillis.toString(),
+            "infoLines" to outcome.info.size.toString(),
+        )
+
+        is FastbootMutationOutcome.Unknown -> mapOf(
+            "claim" to "unknown",
+            "reply" to "none",
+            "detail" to outcome.detail,
+        )
+
+        is FastbootMutationOutcome.NotStarted -> mapOf(
+            "claim" to "not_started",
+            "reply" to "none",
+            "detail" to outcome.detail,
+        )
+    }
+}
+
+/**
+ * Значение ответа так, как оно попадёт в **выгрузку диагностики**.
+ *
+ * Токен разблокировки в журнал не пишется. Решение об этом было принято в
+ * §6.72 для `getvar:all` — там записываются имена и счётчики, но не
+ * значения, — и обходилось двумя путями, которые тогда не заметили:
+ * одиночное чтение переменной по имени и ответ произвольной команды. Оба
+ * закрыты здесь.
+ *
+ * **Оператор при этом не теряет ничего**: значение показывается на экране
+ * целиком, как он и просил. Скрыто оно только в архиве, который человек
+ * отдаёт кому-то ещё. Это решение о **нашем отчёте**, а не ограничение
+ * возможностей (`01` §3): команда уходит как набрана, ответ приходит
+ * целиком, прячется одна строка в файле, который мы же и составляем.
+ *
+ * Совпадение ищется по **вопросу**, а не по ответу: спросили про токен —
+ * значение не записываем. Это узкая заглушка на известный случай, а не
+ * общее правило. Общее — чьи ещё ответы нельзя выгружать — принадлежит
+ * `diagnostics privacy review` из Phase 11, и придумывать его на бегу
+ * значило бы дать ложную уверенность списком, который заведомо неполон.
+ */
+private fun journalled(command: String, payload: String): String =
+    if (payload.isNotBlank() && SECRET_ANSWERS.any { command.contains(it, ignoreCase = true) }) {
+        "$HIDDEN, символов: ${payload.length}"
+    } else {
+        payload
+    }
+
+
+private val SECRET_ANSWERS = listOf("token")
+private const val HIDDEN = "не записано"
+
 /**
  * Владелец Fastboot-соединения на уровне приложения.
  *
@@ -919,92 +1011,6 @@ public class FastbootLinkController(
         emit(event + "_finished", fields)
     }
 
-    /**
-     * Исход мутации в поля журнала.
-     *
-     * `claim` — то, что можно утверждать о состоянии устройства, одним словом:
-     * по нему прогон разбирается без чтения текста. `applied` означает, что
-     * устройство сказало «сделал»; `refused` — что оно сказало «не сделал», и
-     * доказательством целости раздела это не является; `unknown` — что мы не
-     * знаем; `departed` — что устройство ушло по нашей же просьбе.
-     */
-    private fun mutationFields(state: FastbootConsoleState.Mutated): Map<String, String> {
-        val outcome = state.outcome
-        val common = mapOf(
-            "command" to outcome.command,
-            "mutation" to mutationClassOf(outcome).name,
-            "lane" to state.lane.name,
-        )
-        return common + when (outcome) {
-            is FastbootMutationOutcome.Applied -> mapOf(
-                "claim" to "applied",
-                "reply" to "OKAY",
-                "payload" to journalled(outcome.command, outcome.payload),
-                "infoLines" to outcome.info.size.toString(),
-                "confirmation" to (outcome.confirmation ?: "none"),
-            )
-
-            is FastbootMutationOutcome.Refused -> mapOf(
-                "claim" to "refused",
-                "reply" to "FAIL",
-                "detail" to outcome.detail,
-            )
-
-            is FastbootMutationOutcome.Unconfirmed -> mapOf(
-                "claim" to "unconfirmed",
-                "reply" to "OKAY",
-                "expected" to outcome.expected,
-                "observed" to outcome.observed,
-            )
-
-            is FastbootMutationOutcome.Departed -> mapOf(
-                "claim" to "departed",
-                "reply" to "none",
-                "waitedMillis" to outcome.waitedMillis.toString(),
-                "infoLines" to outcome.info.size.toString(),
-            )
-
-            is FastbootMutationOutcome.Unknown -> mapOf(
-                "claim" to "unknown",
-                "reply" to "none",
-                "detail" to outcome.detail,
-            )
-
-            is FastbootMutationOutcome.NotStarted -> mapOf(
-                "claim" to "not_started",
-                "reply" to "none",
-                "detail" to outcome.detail,
-            )
-        }
-    }
-
-    /**
-     * Значение ответа так, как оно попадёт в **выгрузку диагностики**.
-     *
-     * Токен разблокировки в журнал не пишется. Решение об этом было принято в
-     * §6.72 для `getvar:all` — там записываются имена и счётчики, но не
-     * значения, — и обходилось двумя путями, которые тогда не заметили:
-     * одиночное чтение переменной по имени и ответ произвольной команды. Оба
-     * закрыты здесь.
-     *
-     * **Оператор при этом не теряет ничего**: значение показывается на экране
-     * целиком, как он и просил. Скрыто оно только в архиве, который человек
-     * отдаёт кому-то ещё. Это решение о **нашем отчёте**, а не ограничение
-     * возможностей (`01` §3): команда уходит как набрана, ответ приходит
-     * целиком, прячется одна строка в файле, который мы же и составляем.
-     *
-     * Совпадение ищется по **вопросу**, а не по ответу: спросили про токен —
-     * значение не записываем. Это узкая заглушка на известный случай, а не
-     * общее правило. Общее — чьи ещё ответы нельзя выгружать — принадлежит
-     * `diagnostics privacy review` из Phase 11, и придумывать его на бегу
-     * значило бы дать ложную уверенность списком, который заведомо неполон.
-     */
-    private fun journalled(command: String, payload: String): String =
-        if (payload.isNotBlank() && SECRET_ANSWERS.any { command.contains(it, ignoreCase = true) }) {
-            "$HIDDEN, символов: ${payload.length}"
-        } else {
-            payload
-        }
 
     private fun probe(
         generation: SessionGeneration,
@@ -1135,9 +1141,5 @@ public class FastbootLinkController(
         const val REJOIN_POLL_MS = 250L
         const val DIAGNOSTIC_CATEGORY = "fastboot"
 
-        /** Вопросы, ответ на которые в выгрузку не идёт. Совпадение — по вопросу. */
-        val SECRET_ANSWERS = listOf("token")
-
-        const val HIDDEN = "не записано"
     }
 }
