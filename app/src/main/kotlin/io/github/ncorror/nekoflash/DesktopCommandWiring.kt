@@ -31,6 +31,7 @@ import io.github.ncorror.nekoflash.command.DesktopCommandArea
 import io.github.ncorror.nekoflash.command.DesktopCommandExecutor
 import io.github.ncorror.nekoflash.command.DesktopCommandStart
 import io.github.ncorror.nekoflash.command.PickedFile
+import io.github.ncorror.nekoflash.command.commandUnavailable
 import io.github.ncorror.nekoflash.fastboot.FastbootLinkController
 import io.github.ncorror.nekoflash.protocol.adb.AdbSideloadOutcome
 import io.github.ncorror.nekoflash.ui.DesktopCommandOutcomes
