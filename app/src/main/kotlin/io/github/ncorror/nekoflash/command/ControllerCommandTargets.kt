@@ -108,9 +108,12 @@ internal class ControllerCommandTargets(
     override fun adbReboot(target: String) = adb.requestReboot(target)
 
     override val adbForwarding: AdbForwardingTargets = object : AdbForwardingTargets {
-        override fun forwardAdd(localPort: Int, remote: String) = adb.forwards.add(localPort, remote)
+        override fun forwardAdd(localPort: Int, remote: String, noRebind: Boolean) =
+            adb.forwards.add(localPort, remote, noRebind)
 
         override fun forwardRemove(localPort: Int) = adb.forwards.remove(localPort)
+
+        override fun forwardRemoveAll() = adb.forwards.removeAll()
 
         override fun forwardList(): String {
             val serial = (adb.state.value as? AdbLinkState.Connected)?.generation
@@ -122,7 +125,10 @@ internal class ControllerCommandTargets(
             }
         }
 
-        override fun reverseAdd(remote: String, local: String) = adb.reverses.add(remote, local)
+        override fun reverseAdd(remote: String, local: String, noRebind: Boolean) =
+            adb.reverses.add(remote, local, noRebind)
+
+        override fun reverseRemove(remote: String) = adb.reverses.remove(remote)
 
         override fun reverseList() = adb.reverses.refresh()
 

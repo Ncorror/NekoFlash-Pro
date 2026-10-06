@@ -200,8 +200,13 @@ public class AdbLinkController(
     /** Действия над обратными пробросами. Собраны так же и по той же причине. */
     public inner class ReverseActions internal constructor() {
         /** Просит устройство слушать [onDevice] и приводить соединения к [onHost]. */
-        public fun add(onDevice: String, onHost: String) {
-            reverseController.add(onDevice, onHost)
+        public fun add(onDevice: String, onHost: String, noRebind: Boolean = false) {
+            reverseController.add(onDevice, onHost, noRebind)
+        }
+
+        /** Снимает один обратный проброс по адресу на устройстве. */
+        public fun remove(onDevice: String) {
+            reverseController.remove(onDevice)
         }
 
         /** Спрашивает устройство, что оно слушает. */
@@ -234,7 +239,7 @@ public class AdbLinkController(
          * Ни порт, ни адрес не проверяются: `0` означает «любой свободный», а
          * что бывает на той стороне, знает устройство (`01` §3).
          */
-        public fun add(localPort: Int, address: String) {
+        public fun add(localPort: Int, address: String, noRebind: Boolean = false) {
             val live = connection ?: return
             forwardController.add(
                 source = { channel ->
@@ -242,12 +247,18 @@ public class AdbLinkController(
                 },
                 localPort = localPort,
                 address = address,
+                noRebind = noRebind,
             )
         }
 
         /** Снимает проброс вместе с его живыми соединениями. */
         public fun remove(localPort: Int) {
             forwardController.remove(localPort)
+        }
+
+        /** Снимает все host-side пробросы разом. */
+        public fun removeAll() {
+            forwardController.removeAll()
         }
     }
 

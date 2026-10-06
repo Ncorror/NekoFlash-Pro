@@ -2,9 +2,11 @@ package io.github.ncorror.nekoflash.command
 
 import com.ncorror.nekoflash.pro.engine.AdbForwardAddStep
 import com.ncorror.nekoflash.pro.engine.AdbForwardListStep
+import com.ncorror.nekoflash.pro.engine.AdbForwardRemoveAllStep
 import com.ncorror.nekoflash.pro.engine.AdbForwardRemoveStep
 import com.ncorror.nekoflash.pro.engine.AdbReverseAddStep
 import com.ncorror.nekoflash.pro.engine.AdbReverseListStep
+import com.ncorror.nekoflash.pro.engine.AdbReverseRemoveStep
 import com.ncorror.nekoflash.pro.engine.AdbReverseRemoveAllStep
 import com.ncorror.nekoflash.pro.engine.LocalReportKind
 import com.ncorror.nekoflash.pro.engine.ShellMode
@@ -93,20 +95,24 @@ interface DesktopCommandTargets {
 
 /** Forward/reverse command surface formerly owned by the removed ADB workspace. */
 interface AdbForwardingTargets {
-    fun forwardAdd(localPort: Int, remote: String)
+    fun forwardAdd(localPort: Int, remote: String, noRebind: Boolean)
     fun forwardRemove(localPort: Int)
+    fun forwardRemoveAll()
     fun forwardList(): String
-    fun reverseAdd(remote: String, local: String)
+    fun reverseAdd(remote: String, local: String, noRebind: Boolean)
+    fun reverseRemove(remote: String)
     fun reverseList()
     fun reverseRemoveAll()
 }
 
 private object MissingAdbForwardingTargets : AdbForwardingTargets {
     private fun missing(): Nothing = error("adb forwarding target is not wired")
-    override fun forwardAdd(localPort: Int, remote: String): Unit = missing()
+    override fun forwardAdd(localPort: Int, remote: String, noRebind: Boolean): Unit = missing()
     override fun forwardRemove(localPort: Int): Unit = missing()
+    override fun forwardRemoveAll(): Unit = missing()
     override fun forwardList(): String = missing()
-    override fun reverseAdd(remote: String, local: String): Unit = missing()
+    override fun reverseAdd(remote: String, local: String, noRebind: Boolean): Unit = missing()
+    override fun reverseRemove(remote: String): Unit = missing()
     override fun reverseList(): Unit = missing()
     override fun reverseRemoveAll(): Unit = missing()
 }
@@ -256,8 +262,8 @@ class DesktopCommandExecutor(private val targets: DesktopCommandTargets) {
             DesktopCommandArea.ADB_TRANSFER
         is TerminalPlanStep.AdbSideload -> DesktopCommandArea.ADB_SIDELOAD
         is TerminalPlanStep.AdbInstall -> DesktopCommandArea.ADB_INSTALL
-        is AdbForwardAddStep, is AdbForwardRemoveStep -> DesktopCommandArea.ADB_FORWARD
-        is AdbReverseAddStep -> DesktopCommandArea.ADB_REVERSE
+        is AdbForwardAddStep, is AdbForwardRemoveStep, AdbForwardRemoveAllStep -> DesktopCommandArea.ADB_FORWARD
+        is AdbReverseAddStep, is AdbReverseRemoveStep -> DesktopCommandArea.ADB_REVERSE
         AdbReverseRemoveAllStep -> DesktopCommandArea.ADB_REVERSE
         AdbReverseListStep -> DesktopCommandArea.ADB_REVERSE_LIST
         else -> error("Fastboot step in an ADB plan: $step")
@@ -286,9 +292,11 @@ class DesktopCommandExecutor(private val targets: DesktopCommandTargets) {
                 val origins = (file as? PickedFile.OpenMany)?.origins ?: listOf(file.open())
                 targets.adbInstall(origins, step.options, step.several)
             }
-            is AdbForwardAddStep -> targets.adbForwarding.forwardAdd(step.localPort, step.remote)
+            is AdbForwardAddStep -> targets.adbForwarding.forwardAdd(step.localPort, step.remote, step.noRebind)
             is AdbForwardRemoveStep -> targets.adbForwarding.forwardRemove(step.localPort)
-            is AdbReverseAddStep -> targets.adbForwarding.reverseAdd(step.remote, step.local)
+            AdbForwardRemoveAllStep -> targets.adbForwarding.forwardRemoveAll()
+            is AdbReverseAddStep -> targets.adbForwarding.reverseAdd(step.remote, step.local, step.noRebind)
+            is AdbReverseRemoveStep -> targets.adbForwarding.reverseRemove(step.remote)
             AdbReverseListStep -> targets.adbForwarding.reverseList()
             AdbReverseRemoveAllStep -> targets.adbForwarding.reverseRemoveAll()
             else -> error("Fastboot step in an ADB plan: $step")

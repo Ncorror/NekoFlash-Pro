@@ -64,27 +64,20 @@ internal object AdbPlans {
 
     private fun forward(request: AdbForwardRequest): TerminalPlanResult = when (request) {
         AdbForwardRequest.List -> single(AdbForwardListStep)
-        AdbForwardRequest.RemoveAll -> notImplemented("adb forward --remove-all")
+        AdbForwardRequest.RemoveAll -> single(AdbForwardRemoveAllStep)
         is AdbForwardRequest.Remove -> hostTcpPort(request.local)?.let { port ->
             single(AdbForwardRemoveStep(port))
         } ?: notImplemented("adb forward --remove ${request.local}")
-        is AdbForwardRequest.Add -> when {
-            request.noRebind -> notImplemented("adb forward --no-rebind ${request.local} ${request.remote}")
-            else -> hostTcpPort(request.local)?.let { port ->
-                single(AdbForwardAddStep(port, request.remote))
-            } ?: notImplemented("adb forward ${request.local} ${request.remote}")
-        }
+        is AdbForwardRequest.Add -> hostTcpPort(request.local)?.let { port ->
+            single(AdbForwardAddStep(port, request.remote, request.noRebind))
+        } ?: notImplemented("adb forward ${request.local} ${request.remote}")
     }
 
     private fun reverse(request: AdbReverseRequest): TerminalPlanResult = when (request) {
         AdbReverseRequest.List -> single(AdbReverseListStep)
         AdbReverseRequest.RemoveAll -> single(AdbReverseRemoveAllStep)
-        is AdbReverseRequest.Remove -> notImplemented("adb reverse --remove ${request.remote}")
-        is AdbReverseRequest.Add -> if (request.noRebind) {
-            notImplemented("adb reverse --no-rebind ${request.remote} ${request.local}")
-        } else {
-            single(AdbReverseAddStep(request.remote, request.local))
-        }
+        is AdbReverseRequest.Remove -> single(AdbReverseRemoveStep(request.remote))
+        is AdbReverseRequest.Add -> single(AdbReverseAddStep(request.remote, request.local, request.noRebind))
     }
 
     /**

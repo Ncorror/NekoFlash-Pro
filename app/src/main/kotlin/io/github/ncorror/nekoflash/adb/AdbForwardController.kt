@@ -149,10 +149,10 @@ public class AdbForwardController(
      * Порт `0` означает «любой свободный»: какой достался, видно в состоянии.
      * Пустой адрес — не ошибка, а нечего делать.
      */
-    public fun add(source: AdbForwardSource, localPort: Int, address: String) {
+    public fun add(source: AdbForwardSource, localPort: Int, address: String, noRebind: Boolean = false) {
         val target = address.trim()
         if (target.isEmpty()) return
-        executor.execute { bind(source, localPort, target) }
+        executor.execute { bind(source, localPort, target, noRebind) }
     }
 
     /** Снимает проброс: слушатель закрывается, живые соединения обрываются. */
@@ -162,6 +162,11 @@ public class AdbForwardController(
             emit("forward_removed", mapOf("localPort" to localPort.toString()))
             publish()
         }
+    }
+
+    /** Снимает все пробросы по явной команде оператора. */
+    public fun removeAll() {
+        stopAll(REMOVED_BY_OPERATOR)
     }
 
     /**
@@ -181,7 +186,20 @@ public class AdbForwardController(
         publish()
     }
 
-    private fun bind(source: AdbForwardSource, requestedPort: Int, address: String) {
+    private fun bind(source: AdbForwardSource, requestedPort: Int, address: String, noRebind: Boolean) {
+        if (requestedPort != 0) {
+            val existing = forwards[requestedPort]
+            if (existing != null) {
+                if (noRebind) {
+                    fail("port $requestedPort is already forwarded")
+                    return
+                }
+                if (forwards.remove(requestedPort, existing)) {
+                    existing.shutdown(REBOUND_BY_OPERATOR)
+                    emit("forward_rebound", mapOf("localPort" to requestedPort.toString()))
+                }
+            }
+        }
         val server = try {
             listen(requestedPort)
         } catch (failure: IOException) {
@@ -377,6 +395,7 @@ public class AdbForwardController(
         private const val UNKNOWN_PERMISSION = "unknown"
 
         private const val REMOVED_BY_OPERATOR = "removed by operator"
+        private const val REBOUND_BY_OPERATOR = "rebound by operator"
 
         private fun closeQuietly(closeable: java.io.Closeable) {
             try {

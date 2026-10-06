@@ -23,16 +23,22 @@ data class AdbForwardCommand(val request: AdbForwardRequest) : AdbCommand
 data class AdbReverseCommand(val request: AdbReverseRequest) : AdbCommand
 
 /** Existing host listener implementation: loopback TCP port to an arbitrary device ADB service endpoint. */
-data class AdbForwardAddStep(val localPort: Int, val remote: String) : TerminalPlanStep
+data class AdbForwardAddStep(val localPort: Int, val remote: String, val noRebind: Boolean = false) : TerminalPlanStep
 
 /** Remove one existing host listener by the actual local TCP port. */
 data class AdbForwardRemoveStep(val localPort: Int) : TerminalPlanStep
+
+/** Remove every host listener owned by this app. */
+data object AdbForwardRemoveAllStep : TerminalPlanStep
 
 /** Report the listeners owned by this app without touching the device. */
 data object AdbForwardListStep : TerminalPlanStep
 
 /** Existing reverse implementation: device endpoint routes incoming streams to the named host endpoint. */
-data class AdbReverseAddStep(val remote: String, val local: String) : TerminalPlanStep
+data class AdbReverseAddStep(val remote: String, val local: String, val noRebind: Boolean = false) : TerminalPlanStep
+
+/** Remove one reverse mapping by its device-side endpoint. */
+data class AdbReverseRemoveStep(val remote: String) : TerminalPlanStep
 
 /** Ask the device for its reverse forwarding table. */
 data object AdbReverseListStep : TerminalPlanStep
