@@ -140,7 +140,7 @@ private fun RunningFlashStatus(state: FastbootConsoleState.Running) {
                 stringResource(
                     R.string.fast_flash_transferring,
                     target,
-                    (fraction * 100f).toInt(),
+                    (fraction * PERCENT_FLOAT).toInt(),
                     readableBytes(state.transferredBytes),
                     readableBytes(total),
                     readableRate(state.transferredBytes, state.startedAtMillis),
@@ -197,3 +197,4 @@ private const val KIB = 1024L
 private const val MIB = 1024L * KIB
 private const val GIB = 1024L * MIB
 private const val MILLIS_PER_SECOND = 1_000L
+private const val PERCENT_FLOAT = 100f

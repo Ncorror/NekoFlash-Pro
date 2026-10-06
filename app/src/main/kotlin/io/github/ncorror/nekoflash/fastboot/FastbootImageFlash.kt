@@ -24,20 +24,6 @@ import java.io.InputStream
  * `flash:РАЗДЕЛ`. Предел — `-S` или `max-download-size`; устройство, которое
  * его не назвало, получает файл целиком и само отвечает, примет ли.
  */
-internal sealed interface FastbootImageProgress {
-    data class Transferring(
-        val target: String,
-        val sentBytes: Long,
-        val totalBytes: Long,
-    ) : FastbootImageProgress
-
-    data class Writing(
-        val target: String,
-        val sentBytes: Long,
-        val totalBytes: Long,
-    ) : FastbootImageProgress
-}
-
 internal fun flashImage(
     lane: FastbootLane,
     source: ArtifactSource,
