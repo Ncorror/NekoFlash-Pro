@@ -14,6 +14,13 @@ import io.github.ncorror.nekoflash.protocol.fastboot.FastbootVariableSnapshot
  * полоса одна (ADR-0006 §1), и потеря рамки — липкая, поэтому скрыть её от
  * оператора значило бы дать ему нажимать кнопку, которая заведомо не сработает.
  */
+public enum class FastbootOperationStage {
+    WAITING,
+    PREPARING,
+    TRANSFERRING,
+    WRITING,
+}
+
 public sealed interface FastbootConsoleState {
     /**
      * Полоса на момент исхода, либо `null`, пока обмена не было.
@@ -39,6 +46,10 @@ public sealed interface FastbootConsoleState {
     public data class Running(
         val command: String,
         val startedAtMillis: Long,
+        val stage: FastbootOperationStage = FastbootOperationStage.WAITING,
+        val target: String? = null,
+        val transferredBytes: Long = 0L,
+        val totalBytes: Long? = null,
     ) : FastbootConsoleState
 
     /**

@@ -140,7 +140,12 @@ public class FastbootLinkController(
     private val lifecycleEpoch = AtomicLong(0L)
 
     /** Только собственный rejoin операции вправе перенести эту привязку на новую полосу. */
-    private class ConsoleOwnership(var lane: FastbootLane?, var epoch: Long)
+    private class ConsoleOwnership(
+        var lane: FastbootLane?,
+        var epoch: Long,
+        val command: String,
+        val startedAtMillis: Long,
+    )
 
     /** Вызывается под [lifecycleLock]. */
     private fun ownsConnection(owner: ConsoleOwnership): Boolean =
@@ -501,7 +506,7 @@ public class FastbootLinkController(
         origin: () -> ArtifactSource,
     ) {
         val label = (listOf("выбранный файл") + then).joinToString(" ; ")
-        busy("fastboot_download_file", label) { lane, _ ->
+        busyOwned("fastboot_download_file", label) { lane, _, owner ->
             // Имена уточняются до первого байта: грузить файл под команду,
             // которую не уточнить, незачем.
             val resolved = slotCommands(then, slot, lane)
@@ -516,7 +521,30 @@ public class FastbootLinkController(
                         "а download: обязан объявить его до первого байта",
                     lane = lane.state,
                 )
-                else -> flashImage(lane, source, size, sparseLimit, commands)
+                else -> {
+                    val target = commands.firstOrNull { it.startsWith(FLASH) }?.removePrefix(FLASH)
+                    if (target != null) {
+                        publishFlashProgress(owner, FastbootOperationStage.PREPARING, target, 0L, size)
+                    }
+                    flashImage(lane, source, size, sparseLimit, commands) { progress ->
+                        when (progress) {
+                            is FastbootImageProgress.Transferring -> publishFlashProgress(
+                                owner,
+                                FastbootOperationStage.TRANSFERRING,
+                                progress.target,
+                                progress.sentBytes,
+                                progress.totalBytes,
+                            )
+                            is FastbootImageProgress.Writing -> publishFlashProgress(
+                                owner,
+                                FastbootOperationStage.WRITING,
+                                progress.target,
+                                progress.sentBytes,
+                                progress.totalBytes,
+                            )
+                        }
+                    }
+                }
             }
         }
     }
@@ -729,8 +757,9 @@ public class FastbootLinkController(
                 mutableConsole.value is FastbootConsoleState.Running -> null
 
                 else -> {
-                    mutableConsole.value = FastbootConsoleState.Running(trimmed, clock().toEpochMilli())
-                    ConsoleOwnership(live, lifecycleEpoch.get())
+                    val startedAt = clock().toEpochMilli()
+                    mutableConsole.value = FastbootConsoleState.Running(trimmed, startedAt)
+                    ConsoleOwnership(live, lifecycleEpoch.get(), trimmed, startedAt)
                 }
             }
         } ?: return
@@ -748,6 +777,26 @@ public class FastbootLinkController(
             emit(event, mapOf("command" to trimmed))
             val outcome = runCatching { action(live, trimmed, operation) }
             completeConsoleOperation(event, trimmed, operation, scenario, outcome, live)
+        }
+    }
+
+    private fun publishFlashProgress(
+        owner: ConsoleOwnership,
+        stage: FastbootOperationStage,
+        target: String,
+        transferredBytes: Long,
+        totalBytes: Long,
+    ) {
+        synchronized(lifecycleLock) {
+            if (!ownsConnection(owner)) return
+            mutableConsole.value = FastbootConsoleState.Running(
+                command = owner.command,
+                startedAtMillis = owner.startedAtMillis,
+                stage = stage,
+                target = target,
+                transferredBytes = transferredBytes,
+                totalBytes = totalBytes,
+            )
         }
     }
 
@@ -1078,6 +1127,7 @@ public class FastbootLinkController(
         const val MAX_PRODUCT_LENGTH = 128
         const val FETCH = "fetch:"
         const val UPLOAD = "upload"
+        const val FLASH = "flash:"
 
         /** Сколько ждать возвращения цели после её перезагрузки посреди сценария. */
         const val REJOIN_BUDGET_MS = 180_000L

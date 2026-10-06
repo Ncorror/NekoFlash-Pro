@@ -24,18 +24,39 @@ import java.io.InputStream
  * `flash:РАЗДЕЛ`. Предел — `-S` или `max-download-size`; устройство, которое
  * его не назвало, получает файл целиком и само отвечает, примет ли.
  */
+internal sealed interface FastbootImageProgress {
+    data class Transferring(
+        val target: String,
+        val sentBytes: Long,
+        val totalBytes: Long,
+    ) : FastbootImageProgress
+
+    data class Writing(
+        val target: String,
+        val sentBytes: Long,
+        val totalBytes: Long,
+    ) : FastbootImageProgress
+}
+
 internal fun flashImage(
     lane: FastbootLane,
     source: ArtifactSource,
     size: Long,
     sparseLimit: Long?,
     commands: List<String>,
+    onProgress: (FastbootImageProgress) -> Unit = {},
 ): FastbootConsoleState {
     val flashes = commands.takeWhile { it.startsWith(FLASH) }
     return if (flashes.isEmpty()) {
         downloadWhole(lane, source, size, commands)
     } else {
-        flashEach(lane, ImageLoad(source, size, sparseLimit), flashes, commands.drop(flashes.size))
+        flashEach(
+            lane,
+            ImageLoad(source, size, sparseLimit),
+            flashes,
+            commands.drop(flashes.size),
+            onProgress,
+        )
     }
 }
 
@@ -73,8 +94,9 @@ internal fun downloadFile(
     source: ArtifactSource,
     size: Long,
     stream: InputStream,
+    progress: (Long) -> Unit = {},
 ): FastbootDownloadOutcome = (source as? ArtifactDescriptorSource)?.openReadDescriptor().use { descriptor ->
-    FastbootDownload(lane).send(stream, size, payloadFd = descriptor?.fd)
+    FastbootDownload(lane).send(stream, size, payloadFd = descriptor?.fd, progress = progress)
 }
 
 /** Что прошивается: файл, его размер и `-S`. */
@@ -95,6 +117,7 @@ private fun flashEach(
     load: ImageLoad,
     flashes: List<String>,
     rest: List<String>,
+    onProgress: (FastbootImageProgress) -> Unit,
 ): FastbootConsoleState {
     val limit = pieceLimit(lane, load.size, load.sparseLimit)
     val pieces: List<SparseImage?> = if (limit > 0) {
@@ -103,18 +126,28 @@ private fun flashEach(
         listOf(null)
     }
     val lengths = pieces.map { it?.sparseLength ?: load.size }
+    val totalWireBytes = lengths.sum() * flashes.size
     val steps = flashes.flatMap { flash -> lengths.flatMap { listOf(downloadStep(it), flash) } } + rest
+    var completedBytes = 0L
     val stopped = flashes.withIndex().firstNotNullOfOrNull { (target, flash) ->
+        val partition = flash.removePrefix(FLASH)
         load.source.open().use { input ->
             val reader = SparseDataReader(input)
             pieces.withIndex().firstNotNullOfOrNull { (index, piece) ->
                 val at = 2 * (target * pieces.size + index)
+                val base = completedBytes
+                onProgress(FastbootImageProgress.Transferring(partition, base, totalWireBytes))
+                val report: (Long) -> Unit = { sent ->
+                    onProgress(FastbootImageProgress.Transferring(partition, base + sent, totalWireBytes))
+                }
                 val outcome = if (piece == null) {
-                    downloadFile(lane, load.source, load.size, input)
+                    downloadFile(lane, load.source, load.size, input, report)
                 } else {
-                    FastbootDownload(lane).send(piece.stream(reader), lengths[index])
+                    FastbootDownload(lane).send(piece.stream(reader), lengths[index], progress = report)
                 }
                 if (accepted(outcome, lengths[index])) {
+                    completedBytes += lengths[index]
+                    onProgress(FastbootImageProgress.Writing(partition, completedBytes, totalWireBytes))
                     flashed(lane, flash)?.let { detail -> stoppedAt(steps, at + 1, detail, lane) }
                 } else {
                     stoppedAt(steps, at, describeDownload(outcome), lane)
