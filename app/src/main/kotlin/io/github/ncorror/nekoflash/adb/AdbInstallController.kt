@@ -65,13 +65,15 @@ public class AdbInstallController(
         if (origins.isEmpty()) return
         val request = slot.begin(connection, AdbInstallState.Running("open", 0, 0), retainOutcome = true) ?: return
         slot.submit(executor, request, failure = { AdbInstallState.Failed(it.javaClass.simpleName) }) {
-            val sources = origins.map { request.requireConnected(); it() }
-            val sizes = sources.map { it.identity.sizeBytes }
-            val outcome = if (sizes.any { it == null }) {
-                AdbInstallState.Failed(NO_SIZE)
-            } else {
-                Install(request, sources, sizes.map { it!! }, options).run(several)
-            }
+            val outcome = runCatching {
+                val sources = origins.map { request.requireConnected(); it() }
+                val sizes = sources.map { it.identity.sizeBytes }
+                if (sizes.any { it == null }) {
+                    AdbInstallState.Failed(NO_SIZE)
+                } else {
+                    Install(request, sources, sizes.map { it!! }, options).run(several)
+                }
+            }.getOrElse { AdbInstallState.Failed(it.javaClass.simpleName) }
             if (request.current) emit(outcome)
             outcome
         }
