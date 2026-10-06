@@ -48,6 +48,8 @@ data class FastbootConsolePanel(
     val onFetchToFile: (String) -> Unit,
     /** Загрузить в буфер устройства файл, который выберет пользователь. */
     val onDownloadFile: () -> Unit,
+    /** Выбрать образ и сразу прошить его в названный раздел тем же движком. */
+    val onFlashImage: (String) -> Unit = {},
     /**
      * Перезахват интерфейса — выход из потерянной рамки.
      *

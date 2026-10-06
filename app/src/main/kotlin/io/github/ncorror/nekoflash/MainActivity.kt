@@ -33,6 +33,7 @@ import io.github.ncorror.nekoflash.fastboot.FastbootLinkController
 import io.github.ncorror.nekoflash.fastboot.FastbootLinkState
 import io.github.ncorror.nekoflash.miunlock.MiLoginActivity
 import io.github.ncorror.nekoflash.protocol.adb.AdbPeerMode
+import io.github.ncorror.nekoflash.protocol.fastboot.FastbootCommands
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootMode
 import io.github.ncorror.nekoflash.ui.FastbootConsolePanel
 import io.github.ncorror.nekoflash.ui.FastbootPanel
@@ -283,6 +284,7 @@ private fun fastbootConsolePanel(
 ): FastbootConsolePanel {
     val resolver = LocalContext.current.contentResolver
     val pendingFetch = remember { mutableStateOf<String?>(null) }
+    val pendingFlash = remember { mutableStateOf<String?>(null) }
 
     val saveLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/octet-stream"),
@@ -300,6 +302,17 @@ private fun fastbootConsolePanel(
         }
     }
 
+    val flashLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { chosen ->
+        val partition = pendingFlash.value
+        pendingFlash.value = null
+        if (chosen != null && partition != null) {
+            link.downloadFrom(
+                then = listOf(FastbootCommands.flash(partition)),
+                origin = { SafArtifactSource(resolver, chosen) },
+            )
+        }
+    }
+
     return FastbootConsolePanel(
         state = state,
         onCommand = link::runCommand,
@@ -310,6 +323,10 @@ private fun fastbootConsolePanel(
             saveLauncher.launch(partition.ifBlank { "partition" } + ".img")
         },
         onDownloadFile = { openLauncher.launch(arrayOf("*/*")) },
+        onFlashImage = { partition ->
+            pendingFlash.value = partition.trim()
+            flashLauncher.launch(arrayOf("application/octet-stream", "*/*"))
+        },
         onReclaim = { reconnectFastboot(link, selected) },
         // Роль берётся из той же связи, что и в шапке, а не из отдельной
         // догадки: две строки о роли, способные разойтись, хуже одной.

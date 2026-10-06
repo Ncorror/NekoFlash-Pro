@@ -267,8 +267,8 @@ private fun FastbootWorkspace(fastboot: FastbootPanel, console: FastbootConsoleP
     }
     val link = fastboot.state
     if (link is FastbootLinkState.Connected) {
-        ToolCard(title = stringResource(R.string.fastboot_card_actions)) {
-            FastbootConsoleSection(console = console, lock = link.lock, onPlan = fastboot.onPlan)
+        ToolCard(title = stringResource(R.string.fast_flash_card_title)) {
+            FastbootQuickFlashSection(console = console, lock = link.lock)
         }
     }
 }

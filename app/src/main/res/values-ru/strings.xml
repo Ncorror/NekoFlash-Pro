@@ -198,4 +198,17 @@
     <string name="settings_language_note">NekoFlash поддерживает английский и русский. После смены языка текущий экран будет пересоздан.</string>
     <string name="settings_language_english">Английский</string>
     <string name="settings_language_russian">Русский</string>
+    <string name="fast_flash_card_title">Прошивка образа</string>
+    <string name="fast_flash_partition">Раздел</string>
+    <string name="fast_flash_choose_image">Выбрать образ и прошить…</string>
+    <string name="fast_flash_hint">Можно указать любое имя раздела. Образ передаётся на устройство и записывается тем же движком Fastboot, что и команда в терминале.</string>
+    <string name="fast_flash_lock">Замок загрузчика: %1$s</string>
+    <string name="fast_flash_ready">Готово. Выберите раздел и образ.</string>
+    <string name="fast_flash_preparing">Подготовка %1$s…</string>
+    <string name="fast_flash_transferring">Передача в %1$s: %2$d%% · %3$s / %4$s · %5$s</string>
+    <string name="fast_flash_writing">Передача завершена. Запись раздела %1$s…</string>
+    <string name="fast_flash_complete">Готово. Раздел %1$s успешно прошит.</string>
+    <string name="fast_flash_failed">Прошивка остановлена: %1$s</string>
+    <string name="fast_flash_reboot">Перезагрузить систему</string>
+    <string name="fast_flash_reboot_recovery">Перезагрузить в Recovery</string>
 </resources>

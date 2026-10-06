@@ -202,4 +202,17 @@
     <string name="settings_language_note">NekoFlash supports English and Russian. Changing the language recreates the current screen.</string>
     <string name="settings_language_english">English</string>
     <string name="settings_language_russian">Russian</string>
+    <string name="fast_flash_card_title">Flash image</string>
+    <string name="fast_flash_partition">Partition</string>
+    <string name="fast_flash_choose_image">Choose image and flash…</string>
+    <string name="fast_flash_hint">Enter any partition name. The image is streamed to the device and then written through the same Fastboot engine as the terminal command.</string>
+    <string name="fast_flash_lock">Bootloader lock: %1$s</string>
+    <string name="fast_flash_ready">Ready. Choose a partition and an image.</string>
+    <string name="fast_flash_preparing">Preparing %1$s…</string>
+    <string name="fast_flash_transferring">Sending to %1$s: %2$d%% · %3$s / %4$s · %5$s</string>
+    <string name="fast_flash_writing">Transfer complete. Writing %1$s…</string>
+    <string name="fast_flash_complete">Done. %1$s was flashed successfully.</string>
+    <string name="fast_flash_failed">Flashing stopped: %1$s</string>
+    <string name="fast_flash_reboot">Reboot system</string>
+    <string name="fast_flash_reboot_recovery">Reboot recovery</string>
 </resources>
