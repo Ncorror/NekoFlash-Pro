@@ -42,6 +42,7 @@ import io.github.ncorror.nekoflash.adb.AdbRebootState
 import io.github.ncorror.nekoflash.adb.AdbTerminalState
 import io.github.ncorror.nekoflash.fastboot.FastbootConsoleState
 import io.github.ncorror.nekoflash.fastboot.FastbootLinkState
+import io.github.ncorror.nekoflash.protocol.fastboot.FastbootMutationOutcome
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootReply
 
 private enum class TerminalPane { HOST, SHELL }
@@ -502,10 +503,7 @@ private fun fastbootStateLines(state: FastbootConsoleState): List<String> = when
         state.detail,
         "route=${state.route ?: "none"} lane=${state.lane}",
     )
-    is FastbootConsoleState.Mutated -> listOf(
-        state.outcome.toString(),
-        "lane=${state.lane}",
-    )
+    is FastbootConsoleState.Mutated -> fastbootMutationLines(state.outcome) + "lane=${state.lane}"
     is FastbootConsoleState.Fetched -> listOf(
         "fetch ${state.partition}: bytes=${state.bytes} complete=${state.complete} sha256=${state.sha256}",
         state.detail,
@@ -526,6 +524,25 @@ private fun fastbootStateLines(state: FastbootConsoleState): List<String> = when
         add("${state.snapshot.finalReply.name} ${state.snapshot.finalPayload}".trimEnd())
         add("complete=${state.snapshot.complete} lane=${state.lane}")
     }
+}
+
+private fun fastbootMutationLines(outcome: FastbootMutationOutcome): List<String> = when (outcome) {
+    is FastbootMutationOutcome.Applied -> buildList {
+        outcome.info.forEach { add("INFO $it") }
+        add("OKAY ${outcome.payload}".trimEnd())
+        outcome.confirmation?.let { add("confirmed: $it") }
+    }
+    is FastbootMutationOutcome.Refused -> listOf("FAIL ${outcome.detail}".trimEnd())
+    is FastbootMutationOutcome.Unconfirmed -> listOf(
+        "OKAY, but not confirmed: expected=${outcome.expected} observed=${outcome.observed}",
+        outcome.detail,
+    ).filter(String::isNotBlank)
+    is FastbootMutationOutcome.Departed -> buildList {
+        outcome.info.forEach { add("INFO $it") }
+        add("${outcome.command}: device departed after ${outcome.waitedMillis} ms")
+    }
+    is FastbootMutationOutcome.Unknown -> listOf("error: ${outcome.command}: ${outcome.detail}")
+    is FastbootMutationOutcome.NotStarted -> listOf("error: ${outcome.command}: ${outcome.detail}")
 }
 
 private val OUTPUT_PADDING = 4.dp

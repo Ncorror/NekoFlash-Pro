@@ -175,14 +175,15 @@ public class AdbForwardController(
         forwards.remove(localPort)?.let { forward ->
             forward.shutdown(REMOVED_BY_OPERATOR)
             emit("forward_removed", mapOf("localPort" to localPort.toString()))
-            publish()
         }
+        mutableState.value = snapshot(failure = null)
         commandEvents.trySend(mutableState.value)
     }
 
     /** Снимает все пробросы по явной команде оператора. */
     public fun removeAll() {
         stopAll(REMOVED_BY_OPERATOR)
+        mutableState.value = snapshot(failure = null)
         commandEvents.trySend(mutableState.value)
     }
 

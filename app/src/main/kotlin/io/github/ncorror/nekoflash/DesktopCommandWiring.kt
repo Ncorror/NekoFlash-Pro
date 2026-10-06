@@ -209,7 +209,7 @@ internal fun adbForwardTerminalText(state: AdbForwardState): String? = when {
 /** Final reverse action state. Device listing is handled separately. */
 internal fun adbReverseTerminalText(state: AdbReverseState): String? = when {
     state.failure != null -> "error: reverse: ${state.failure}"
-    state.reverses.isEmpty() -> "reverse: no active mappings"
+    state.reverses.isEmpty() -> "reverse: removed; no active mappings"
     else -> state.reverses.joinToString("\n") { entry ->
         buildString {
             append(entry.onDevice)
