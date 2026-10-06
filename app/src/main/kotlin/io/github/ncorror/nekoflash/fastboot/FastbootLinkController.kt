@@ -78,6 +78,22 @@ public sealed interface FastbootLinkState {
     public data class Failed(val generation: SessionGeneration, val detail: String) : FastbootLinkState
 }
 
+private fun runningFlashState(
+    command: String,
+    startedAtMillis: Long,
+    stage: FastbootOperationStage,
+    target: String,
+    transferredBytes: Long,
+    totalBytes: Long,
+): FastbootConsoleState.Running = FastbootConsoleState.Running(
+    command = command,
+    startedAtMillis = startedAtMillis,
+    stage = stage,
+    target = target,
+    transferredBytes = transferredBytes,
+    totalBytes = totalBytes,
+)
+
 /** Класс мутации исхода: у каждого варианта он свой, у отправленного заранее — по команде. */
 private fun mutationClassOf(outcome: FastbootMutationOutcome): FastbootMutationClass = when (outcome) {
     is FastbootMutationOutcome.Applied -> outcome.mutation
@@ -522,28 +538,13 @@ public class FastbootLinkController(
                     lane = lane.state,
                 )
                 else -> {
-                    val target = commands.firstOrNull { it.startsWith(FLASH) }?.removePrefix(FLASH)
-                    if (target != null) {
-                        publishFlashProgress(owner, FastbootOperationStage.PREPARING, target, 0L, size)
+                    val reporter = FastbootFlashProgressReporter { stage, target, sent, total ->
+                        publishFlashProgress(owner, stage, target, sent, total)
                     }
-                    flashImage(lane, source, size, sparseLimit, commands) { progress ->
-                        when (progress) {
-                            is FastbootImageProgress.Transferring -> publishFlashProgress(
-                                owner,
-                                FastbootOperationStage.TRANSFERRING,
-                                progress.target,
-                                progress.sentBytes,
-                                progress.totalBytes,
-                            )
-                            is FastbootImageProgress.Writing -> publishFlashProgress(
-                                owner,
-                                FastbootOperationStage.WRITING,
-                                progress.target,
-                                progress.sentBytes,
-                                progress.totalBytes,
-                            )
-                        }
-                    }
+                    commands.firstOrNull { it.startsWith(FLASH) }
+                        ?.removePrefix(FLASH)
+                        ?.let { target -> reporter.preparing(target, size) }
+                    flashImage(lane, source, size, sparseLimit, commands, reporter::report)
                 }
             }
         }
@@ -789,13 +790,13 @@ public class FastbootLinkController(
     ) {
         synchronized(lifecycleLock) {
             if (!ownsConnection(owner)) return
-            mutableConsole.value = FastbootConsoleState.Running(
-                command = owner.command,
-                startedAtMillis = owner.startedAtMillis,
-                stage = stage,
-                target = target,
-                transferredBytes = transferredBytes,
-                totalBytes = totalBytes,
+            mutableConsole.value = runningFlashState(
+                owner.command,
+                owner.startedAtMillis,
+                stage,
+                target,
+                transferredBytes,
+                totalBytes,
             )
         }
     }
