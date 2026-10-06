@@ -13,6 +13,8 @@ import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -260,6 +262,19 @@ class AdbForwardControllerTest {
             "журнал должен называть адрес привязки",
             sink.snapshot().any { event -> event.fields["bindAddress"] == "127.0.0.1" },
         )
+    }
+
+    @Test
+    fun identicalNoOpRemovalsStillProduceTwoCommandResults() {
+        val controller = controller()
+
+        controller.remove(54321)
+        val first = runBlocking { controller.commandResults.first() }
+        controller.remove(54321)
+        val second = runBlocking { controller.commandResults.first() }
+
+        assertEquals(first, second)
+        assertTrue(first.forwards.isEmpty())
     }
 
     /** Снятие видно в журнале так же, как заведение. */

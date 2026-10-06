@@ -12,6 +12,8 @@ import io.github.ncorror.nekoflash.protocol.adb.AdbStreamMailbox
 import java.io.IOException
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.Executors
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -200,6 +202,21 @@ class AdbReverseControllerTest {
 
         assertTrue(await { controller.state.value.reverses.isEmpty() })
         assertTrue(source.asked.contains("remove:tcp:7777"))
+    }
+
+    @Test
+    fun identicalListingsStillProduceTwoCommandResults() {
+        val source = FakeSource(AdbReverseOutcome.Accepted(SERVICE, "same\n"))
+        val controller = controller()
+        controller.bind(source)
+
+        controller.refresh()
+        val first = runBlocking { controller.commandResults.first() }
+        controller.refresh()
+        val second = runBlocking { controller.commandResults.first() }
+
+        assertEquals(first, second)
+        assertEquals("same\n", second.listing)
     }
 
     /** Список — ответ устройства, и пустой список отличается от «не спрашивали». */

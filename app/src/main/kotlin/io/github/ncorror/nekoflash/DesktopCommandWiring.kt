@@ -142,12 +142,12 @@ private fun ObserveAdbCommandOutcomes(adbLink: AdbLinkController, terminalEvents
             }
         }
         launch {
-            adbLink.forward.drop(1).collect { state ->
+            adbLink.forwardCommands.collect { state ->
                 adbForwardTerminalText(state)?.let { terminalEvents.emitFor(DesktopCommandArea.ADB_FORWARD, it) }
             }
         }
         launch {
-            adbLink.reverse.drop(1).collect { state ->
+            adbLink.reverseCommands.collect { state ->
                 adbReverseTerminalText(state)?.let { terminalEvents.emitFor(DesktopCommandArea.ADB_REVERSE, it) }
                 adbReverseListTerminalText(state)?.let {
                     terminalEvents.emitFor(DesktopCommandArea.ADB_REVERSE_LIST, it)

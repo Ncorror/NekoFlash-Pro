@@ -16,9 +16,12 @@ import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executor
 import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.receiveAsFlow
 
 /** Один обратный проброс в том виде, в каком его показывает экран. */
 public data class AdbReverseEntry(
@@ -93,6 +96,7 @@ public class AdbReverseController(
     },
 ) : AdbInboundStreams {
     private val mutableState = MutableStateFlow(AdbReverseState.None)
+    private val commandEvents = Channel<AdbReverseState>(Channel.UNLIMITED)
 
     /** Что мы просили слушать, по адресу на хосте: по нему приходят потоки. */
     private val expected = ConcurrentHashMap<String, Reverse>()
@@ -102,6 +106,9 @@ public class AdbReverseController(
 
     /** Состояние обратных пробросов. Экран подписывается и ничего не опрашивает. */
     public val state: StateFlow<AdbReverseState> = mutableState.asStateFlow()
+
+    /** Explicit reverse-command results; identical replies remain distinct events. */
+    public val commandResults: Flow<AdbReverseState> = commandEvents.receiveAsFlow()
 
     /** Привязывает контроллер к живому соединению; `null` — соединения больше нет. */
     public fun bind(live: AdbReverseSource?) {
@@ -119,7 +126,10 @@ public class AdbReverseController(
         val host = onHost.trim()
         if (device.isEmpty() || host.isEmpty()) return
         val live = source ?: return
-        executor.execute { ask(live, device, host, noRebind) }
+        executor.execute {
+            ask(live, device, host, noRebind)
+            commandEvents.trySend(mutableState.value)
+        }
     }
 
     /** Снимает один обратный проброс по адресу на устройстве. */
@@ -138,6 +148,7 @@ public class AdbReverseController(
             } else {
                 fail(describe(outcome))
             }
+            commandEvents.trySend(mutableState.value)
         }
     }
 
@@ -149,6 +160,7 @@ public class AdbReverseController(
                 is AdbReverseOutcome.Accepted -> publish(listing = outcome.body.ifEmpty { EMPTY_LISTING })
                 else -> fail(describe(outcome))
             }
+            commandEvents.trySend(mutableState.value)
         }
     }
 
@@ -160,6 +172,7 @@ public class AdbReverseController(
             expected.clear()
             emit("reverse_removed_all", mapOf("outcome" to describe(outcome)))
             if (outcome is AdbReverseOutcome.Accepted) publish(listing = null) else fail(describe(outcome))
+            commandEvents.trySend(mutableState.value)
         }
     }
 

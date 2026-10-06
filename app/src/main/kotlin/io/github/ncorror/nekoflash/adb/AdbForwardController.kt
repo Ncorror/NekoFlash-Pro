@@ -13,9 +13,12 @@ import java.time.Clock
 import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executor
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.receiveAsFlow
 
 /** Один живой проброс в том виде, в каком его показывает экран. */
 public data class AdbForwardEntry(
@@ -137,11 +140,20 @@ public class AdbForwardController(
     private val networkPermission: () -> String = { UNKNOWN_PERMISSION },
 ) {
     private val mutableState = MutableStateFlow(AdbForwardState.None)
+    private val commandEvents = Channel<AdbForwardState>(Channel.UNLIMITED)
 
     private val forwards = ConcurrentHashMap<Int, Forward>()
 
     /** Состояние пробросов. Экран подписывается и ничего не опрашивает. */
     public val state: StateFlow<AdbForwardState> = mutableState.asStateFlow()
+
+    /**
+     * One result per explicit host-terminal command.
+     *
+     * This is deliberately an event stream rather than StateFlow: two identical
+     * commands must both produce an answer even when their final snapshots are equal.
+     */
+    public val commandResults: Flow<AdbForwardState> = commandEvents.receiveAsFlow()
 
     /**
      * Заводит слушатель на [localPort] и направляет его на [address].
@@ -152,7 +164,10 @@ public class AdbForwardController(
     public fun add(source: AdbForwardSource, localPort: Int, address: String, noRebind: Boolean = false) {
         val target = address.trim()
         if (target.isEmpty()) return
-        executor.execute { bind(source, localPort, target, noRebind) }
+        executor.execute {
+            bind(source, localPort, target, noRebind)
+            commandEvents.trySend(mutableState.value)
+        }
     }
 
     /** Снимает проброс: слушатель закрывается, живые соединения обрываются. */
@@ -162,11 +177,13 @@ public class AdbForwardController(
             emit("forward_removed", mapOf("localPort" to localPort.toString()))
             publish()
         }
+        commandEvents.trySend(mutableState.value)
     }
 
     /** Снимает все пробросы по явной команде оператора. */
     public fun removeAll() {
         stopAll(REMOVED_BY_OPERATOR)
+        commandEvents.trySend(mutableState.value)
     }
 
     /**

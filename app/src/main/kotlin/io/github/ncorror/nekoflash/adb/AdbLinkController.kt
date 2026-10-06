@@ -14,6 +14,7 @@ import io.github.ncorror.nekoflash.protocol.adb.AdbShellMode
 import io.github.ncorror.nekoflash.usb.api.UsbSession
 import io.github.ncorror.nekoflash.usb.api.UsbSessionCoordinator
 import java.util.concurrent.Executor
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 
 /**
@@ -191,8 +192,14 @@ public class AdbLinkController(
     /** Состояние пробросов портов. */
     public val forward: StateFlow<AdbForwardState> = forwardController.state
 
+    /** One event for every explicit forward command, including duplicate final states. */
+    public val forwardCommands: Flow<AdbForwardState> = forwardController.commandResults
+
     /** Состояние обратных пробросов. */
     public val reverse: StateFlow<AdbReverseState> = reverseController.state
+
+    /** One event for every explicit reverse command, including duplicate device replies. */
+    public val reverseCommands: Flow<AdbReverseState> = reverseController.commandResults
 
     /** Что можно сделать с обратными пробросами. */
     public val reverses: ReverseActions = ReverseActions()
