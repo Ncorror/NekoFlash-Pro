@@ -7,6 +7,7 @@ import io.github.ncorror.nekoflash.protocol.adb.AdbForwardOutcome
 import io.github.ncorror.nekoflash.protocol.adb.AdbForwardStream
 import java.io.IOException
 import java.net.InetAddress
+import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
 import java.time.Clock
@@ -122,7 +123,10 @@ public class AdbForwardController(
     private val clock: () -> Instant = { Clock.systemUTC().instant() },
     /** Как завести слушатель. Подменяется в тестах — настоящий сокет там не нужен. */
     private val listen: (Int) -> ServerSocket = { port ->
-        ServerSocket(port, BACKLOG, LOOPBACK_V4)
+        ServerSocket().apply {
+            reuseAddress = true
+            bind(InetSocketAddress(LOOPBACK_V4, port), BACKLOG)
+        }
     },
     /**
      * Что платформа говорит о праве открыть сокет.
