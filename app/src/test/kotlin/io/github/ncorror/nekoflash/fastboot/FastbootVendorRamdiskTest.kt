@@ -7,6 +7,8 @@ import io.github.ncorror.nekoflash.core.artifact.ArtifactRandomAccess
 import io.github.ncorror.nekoflash.core.artifact.ArtifactSource
 import io.github.ncorror.nekoflash.core.artifact.ArtifactStamp
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootLane
+import java.io.IOException
+import java.io.InputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.file.Files
@@ -17,6 +19,83 @@ import org.junit.Test
 
 /** `flash vendor_boot:ИМЯ` — `repack_ramdisk`: прочитать раздел, заменить рамдиск, прошить обратно. */
 class FastbootVendorRamdiskTest {
+    @Test
+    fun unknownLengthRamdiskStreamsThroughZeroProgressAndIsCleanedUp() {
+        val device = ScriptedBootloader(
+            variables = mapOf(
+                "max-fetch-size" to "0x1000", "partition-size:vendor_boot" to "0x6000",
+                "max-download-size" to "0x100000",
+            ),
+            partitions = mapOf("vendor_boot" to vendorBoot()),
+        )
+        val bytes = ByteArray(20_000) { 7 }
+        val source = StreamingRamdisk(bytes)
+
+        val planned = flashVendorRamdisk(FastbootLane(device), source, "default", CURRENT_SLOT, null, staging)
+            as FastbootConsoleState.Planned
+
+        assertEquals(null, planned.stoppedAt)
+        assertEquals(1, source.opens)
+        assertTrue(source.closed)
+        assertArrayEquals(bytes, device.downloads.single().copyOfRange(page, page + bytes.size))
+        assertTrue(staging.listFiles().orEmpty().isEmpty())
+    }
+
+    @Test
+    fun failedCopyNeverReachesUsbAndRemovesThePartialFile() {
+        val device = ScriptedBootloader(emptyMap())
+        val source = StreamingRamdisk(ByteArray(20_000), fails = true)
+
+        val planned = flashVendorRamdisk(FastbootLane(device), source, "default", CURRENT_SLOT, null, staging)
+            as FastbootConsoleState.Planned
+
+        assertTrue(planned.detail.contains("ramdisk read failed"))
+        assertTrue(device.sent.isEmpty())
+        assertTrue(source.closed)
+        assertTrue(staging.listFiles().orEmpty().isEmpty())
+    }
+
+    @Test
+    fun sparseAndEmptyRamdisksStopBeforeUsbAndLeaveNoFiles() {
+        for (bytes in listOf(ByteArray(0), byteArrayOf(0x3A, 0xFF.toByte(), 0x26, 0xED.toByte()))) {
+            val device = ScriptedBootloader(emptyMap())
+            val planned = flashVendorRamdisk(FastbootLane(device), source(bytes), "default", CURRENT_SLOT, null, staging)
+                as FastbootConsoleState.Planned
+            assertEquals(0, planned.stoppedAt)
+            assertTrue(device.sent.isEmpty())
+            assertTrue(staging.listFiles().orEmpty().isEmpty())
+        }
+    }
+
+    private class StreamingRamdisk(private val bytes: ByteArray, private val fails: Boolean = false) : ArtifactSource {
+        var opens = 0
+        var closed = false
+        override val identity = ArtifactIdentity("ramdisk.img", null, ArtifactAccess.NON_SEEKABLE)
+        override val openedStamp = ArtifactStamp(0L)
+        override fun stamp() = openedStamp
+        override fun randomAccess(): ArtifactRandomAccess? = null
+        override fun open(): InputStream {
+            opens++
+            return object : InputStream() {
+                private var at = 0
+                private var stalled = false
+                override fun read(): Int = if (at < bytes.size) bytes[at++].toInt() and 0xFF else -1
+                override fun read(buffer: ByteArray, offset: Int, count: Int): Int {
+                    check(count <= 16 * 1024)
+                    if (fails && at > 0) throw IOException("ramdisk read failed")
+                    if (at >= bytes.size) return -1
+                    stalled = !stalled
+                    if (stalled) return 0
+                    val take = minOf(count, bytes.size - at)
+                    bytes.copyInto(buffer, offset, at, at + take)
+                    at += take
+                    return take
+                }
+                override fun close() { closed = true }
+            }
+        }
+    }
+
     private val page = 4096
     private val staging = Files.createTempDirectory("staging").toFile()
 

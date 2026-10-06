@@ -36,8 +36,11 @@ public class AdbReverse(private val services: AdbServiceCall) {
      * Ни один из адресов не проверяется: какие бывают, знает устройство, и его
      * отказ — это ответ, а не наша ошибка (`01` §3).
      */
-    public fun forward(onDevice: String, onHost: String): AdbReverseOutcome =
-        request(AdbReverseService.forward(onDevice, onHost))
+    public fun forward(onDevice: String, onHost: String, noRebind: Boolean = false): AdbReverseOutcome =
+        request(AdbReverseService.forward(onDevice, onHost, noRebind))
+
+    /** Снимает один обратный проброс по адресу на устройстве. */
+    public fun kill(onDevice: String): AdbReverseOutcome = request(AdbReverseService.kill(onDevice))
 
     /** Спрашивает, что устройство слушает сейчас. */
     public fun list(): AdbReverseOutcome = request(AdbReverseService.LIST)

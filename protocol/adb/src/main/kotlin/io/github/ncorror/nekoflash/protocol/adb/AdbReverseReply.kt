@@ -120,8 +120,13 @@ public object AdbReverseService {
      * наблюдение, а не соглашение: `reverse:forward:tcp:7777;tcp:8888` заставил
      * слушать **7777**, и его же устройство назвало в ответе (`07` §6.61).
      */
-    public fun forward(onDevice: String, onHost: String): String =
-        "$PREFIX:forward:${onDevice.trim()};${onHost.trim()}"
+    public fun forward(onDevice: String, onHost: String, noRebind: Boolean = false): String {
+        val action = if (noRebind) "forward:norebind" else "forward"
+        return "$PREFIX:$action:${onDevice.trim()};${onHost.trim()}"
+    }
+
+    /** Снимает один обратный проброс по адресу на устройстве. */
+    public fun kill(onDevice: String): String = "$PREFIX:killforward:${onDevice.trim()}"
 
     /** Спрашивает, что устройство слушает сейчас. */
     public const val LIST: String = "$PREFIX:list-forward"

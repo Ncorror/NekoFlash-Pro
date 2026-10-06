@@ -17,6 +17,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -39,14 +40,16 @@ import kotlinx.coroutines.delay
 
 /** Консоль Fastboot: произвольная команда, переменная по имени и весь список. */
 data class FastbootConsolePanel(
-    val state: FastbootConsoleState = FastbootConsoleState.Idle,
-    val onCommand: (String) -> Unit = {},
-    val onVariable: (String) -> Unit = {},
-    val onAllVariables: () -> Unit = {},
+    val state: FastbootConsoleState,
+    val onCommand: (String) -> Unit,
+    val onVariable: (String) -> Unit,
+    val onAllVariables: () -> Unit,
     /** Прочитать раздел в файл, который выберет пользователь. */
-    val onFetchToFile: (String) -> Unit = {},
+    val onFetchToFile: (String) -> Unit,
     /** Загрузить в буфер устройства файл, который выберет пользователь. */
-    val onDownloadFile: () -> Unit = {},
+    val onDownloadFile: () -> Unit,
+    /** Выбрать образ и сразу прошить его в названный раздел тем же движком. */
+    val onFlashImage: (String) -> Unit = {},
     /**
      * Перезахват интерфейса — выход из потерянной рамки.
      *
@@ -55,7 +58,7 @@ data class FastbootConsolePanel(
      * §6.89 выхода из `STALLED` на экране не было вовсе — слово печаталось,
      * а делать с ним было нечего.
      */
-    val onReclaim: () -> Unit = {},
+    val onReclaim: () -> Unit,
     /**
      * Роль устройства — **здесь**, а не только в шапке связи.
      *
@@ -64,7 +67,7 @@ data class FastbootConsolePanel(
      * момент не видит. Прогон `07` §6.88 прошёл целиком не в той роли, и
      * прочитать это по журналу удалось, а по экрану — нет.
      */
-    val mode: FastbootMode = FastbootMode.UNKNOWN,
+    val mode: FastbootMode,
 )
 
 /**
@@ -164,7 +167,7 @@ internal fun FastbootOutcomePane(state: FastbootConsoleState) {
  */
 @Composable
 private fun FastbootWaitingLine(state: FastbootConsoleState.Running) {
-    var seconds by remember(state.startedAtMillis) { mutableStateOf(0L) }
+    var seconds by remember(state.startedAtMillis) { mutableLongStateOf(0L) }
     LaunchedEffect(state.startedAtMillis) {
         while (true) {
             seconds = (System.currentTimeMillis() - state.startedAtMillis).coerceAtLeast(0L) / MILLIS_IN_SECOND

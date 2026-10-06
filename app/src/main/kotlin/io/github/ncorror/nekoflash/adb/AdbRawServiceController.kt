@@ -5,9 +5,7 @@ import io.github.ncorror.nekoflash.protocol.adb.AdbRebootOutcome
 import io.github.ncorror.nekoflash.protocol.adb.AdbServiceOutcome
 import io.github.ncorror.nekoflash.protocol.adb.AdbServicePolicy
 import java.util.concurrent.Executor
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 
 /**
  * Вызов произвольного сервиса ADB.
@@ -24,24 +22,25 @@ import kotlinx.coroutines.flow.asStateFlow
  * не к тому, откуда пришёл запрос.
  */
 public class AdbRawServiceController(private val executor: Executor) {
-    private val mutableState = MutableStateFlow<AdbRawServiceState>(AdbRawServiceState.None)
+    private val slot = AdbOperationSlot<AdbRawServiceState>(AdbRawServiceState.None)
 
     /** Состояние последнего вызова. */
-    public val state: StateFlow<AdbRawServiceState> = mutableState.asStateFlow()
+    public val state: StateFlow<AdbRawServiceState> = slot.state
 
     /** Идёт ли вызов прямо сейчас. */
     public val active: Boolean
-        get() = mutableState.value is AdbRawServiceState.Running
+        get() = slot.active
+
+    internal fun bind(connection: AdbConnection?, discard: Boolean = false) = slot.bind(connection, discard)
 
     /** Вызывает сервис. Пустое имя — не ошибка, а нечего делать. */
     public fun call(connection: AdbConnection, service: String) {
         val trimmed = service.trim()
-        if (trimmed.isEmpty() || active) return
-        mutableState.value = AdbRawServiceState.Running(trimmed)
-        executor.execute {
-            mutableState.value = runCatching { invoke(connection, trimmed) }
-                .getOrElse { failure -> crashed(trimmed, failure) }
-        }
+        if (trimmed.isEmpty()) return
+        val request = slot.begin(
+            connection, AdbRawServiceState.Running(trimmed), AdbServicePolicy.expectsOneWayDisconnect(trimmed),
+        ) ?: return
+        slot.submit(executor, request, failure = { crashed(trimmed, it) }) { invoke(connection, trimmed) }
     }
 
     private fun invoke(connection: AdbConnection, service: String): AdbRawServiceState =

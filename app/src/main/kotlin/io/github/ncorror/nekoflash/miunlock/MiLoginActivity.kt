@@ -5,7 +5,6 @@ import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Intent
 import android.content.res.ColorStateList
-import android.net.Uri
 import android.net.http.SslError
 import android.os.Bundle
 import android.os.Handler
@@ -26,6 +25,7 @@ import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
+import androidx.core.net.toUri
 import androidx.activity.addCallback
 import io.github.ncorror.nekoflash.R
 import io.github.ncorror.nekoflash.vendor.xiaomi.MiAccountSecurityPolicy
@@ -298,7 +298,7 @@ class MiLoginActivity : LocaleAwareActivity() {
         )
 
     private fun blockUnsafeNavigation(rawUrl: String) {
-        val host = runCatching { Uri.parse(rawUrl).host }.getOrNull().orEmpty()
+        val host = runCatching { rawUrl.toUri().host }.getOrNull().orEmpty()
         failLogin(getString(R.string.mi_login_blocked_host, host.ifBlank { "?" }))
     }
 

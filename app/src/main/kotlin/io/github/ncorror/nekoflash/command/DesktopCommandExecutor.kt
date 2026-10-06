@@ -1,5 +1,13 @@
 package io.github.ncorror.nekoflash.command
 
+import com.ncorror.nekoflash.pro.engine.AdbForwardAddStep
+import com.ncorror.nekoflash.pro.engine.AdbForwardListStep
+import com.ncorror.nekoflash.pro.engine.AdbForwardRemoveAllStep
+import com.ncorror.nekoflash.pro.engine.AdbForwardRemoveStep
+import com.ncorror.nekoflash.pro.engine.AdbReverseAddStep
+import com.ncorror.nekoflash.pro.engine.AdbReverseListStep
+import com.ncorror.nekoflash.pro.engine.AdbReverseRemoveStep
+import com.ncorror.nekoflash.pro.engine.AdbReverseRemoveAllStep
 import com.ncorror.nekoflash.pro.engine.LocalReportKind
 import com.ncorror.nekoflash.pro.engine.ShellMode
 import com.ncorror.nekoflash.pro.engine.TerminalFileNeed
@@ -50,6 +58,11 @@ interface DesktopCommandTargets {
     fun adbInteractiveShell(firstLine: String?, mode: ShellMode)
     fun adbService(service: String)
     fun adbReboot(target: String)
+
+/** Long-lived forwarding operations are one capability surface, not six unrelated target functions. */
+    val adbForwarding: AdbForwardingTargets
+        get() = MissingAdbForwardingTargets
+
     /** `adb pull`; [keepAttributes] — `-a`; [compression] — имя из `-z` (`none` — без сжатия). */
     fun adbPull(
         remotePaths: List<String>,
@@ -80,6 +93,30 @@ interface DesktopCommandTargets {
     fun localReport(tool: TerminalParser.Tool, kind: LocalReportKind): String
 }
 
+/** Forward/reverse command surface formerly owned by the removed ADB workspace. */
+interface AdbForwardingTargets {
+    fun forwardAdd(localPort: Int, remote: String, noRebind: Boolean)
+    fun forwardRemove(localPort: Int)
+    fun forwardRemoveAll()
+    fun forwardList(): String
+    fun reverseAdd(remote: String, local: String, noRebind: Boolean)
+    fun reverseRemove(remote: String)
+    fun reverseList()
+    fun reverseRemoveAll()
+}
+
+private object MissingAdbForwardingTargets : AdbForwardingTargets {
+    private fun missing(): Nothing = error("adb forwarding target is not wired")
+    override fun forwardAdd(localPort: Int, remote: String, noRebind: Boolean): Unit = missing()
+    override fun forwardRemove(localPort: Int): Unit = missing()
+    override fun forwardRemoveAll(): Unit = missing()
+    override fun forwardList(): String = missing()
+    override fun reverseAdd(remote: String, local: String, noRebind: Boolean): Unit = missing()
+    override fun reverseRemove(remote: String): Unit = missing()
+    override fun reverseList(): Unit = missing()
+    override fun reverseRemoveAll(): Unit = missing()
+}
+
 /** Файл, выбранный через Android для шага плана. */
 sealed interface PickedFile {
     data class Open(val origin: () -> ArtifactSource) : PickedFile
@@ -90,7 +127,17 @@ sealed interface PickedFile {
 
 /** Где искать исход: у Fastboot-консоли или у соответствующей части ADB. */
 enum class DesktopCommandArea {
-    FASTBOOT, ADB_SHELL, ADB_TERMINAL, ADB_SERVICE, ADB_REBOOT, ADB_TRANSFER, ADB_SIDELOAD, ADB_INSTALL,
+    FASTBOOT,
+    ADB_SHELL,
+    ADB_TERMINAL,
+    ADB_SERVICE,
+    ADB_REBOOT,
+    ADB_TRANSFER,
+    ADB_SIDELOAD,
+    ADB_INSTALL,
+    ADB_FORWARD,
+    ADB_REVERSE,
+    ADB_REVERSE_LIST,
 }
 
 /** Чем кончилась попытка отдать план движкам. */
@@ -110,20 +157,49 @@ sealed interface DesktopCommandStart {
 /**
  * Отдаёт план движкам.
  *
- * Шаги Fastboot, идущие подряд, уходят одним планом полосы: он останавливается
- * на первом непринятом шаге и не складывает неизвестность с неизвестностью.
- * Загрузка выбранного файла и команды после неё — одна операция
- * `downloadFrom`: из недогруженного буфера не прошивают.
+ * [onStarting] вызывается **до** входа в контроллер. Терминал использует это,
+ * чтобы подписать ожидаемый асинхронный ответ до синхронного `remove` или
+ * быстрого ответа устройства и не потерять его из-за гонки.
  */
-class DesktopCommandExecutor(private val targets: DesktopCommandTargets) {
-    fun execute(plan: TerminalPlan, file: PickedFile?): DesktopCommandStart {
+class DesktopCommandExecutor(
+    private val targets: DesktopCommandTargets,
+    /** Non-null means answer immediately without a picker or a device call. */
+    private val unavailable: (TerminalPlanStep) -> String? = { null },
+) {
+    fun execute(
+        plan: TerminalPlan,
+        file: PickedFile?,
+        onStarting: (DesktopCommandArea) -> Unit = {},
+    ): DesktopCommandStart {
         val first = plan.steps.first()
-        if (first is TerminalPlanStep.LocalReport) {
-            return DesktopCommandStart.Answered(targets.localReport(first.tool, first.kind))
+        return immediate(first, plan, file) ?: start(first, plan, file, onStarting)
+    }
+
+    private fun immediate(
+        first: TerminalPlanStep,
+        plan: TerminalPlan,
+        file: PickedFile?,
+    ): DesktopCommandStart? {
+        val unavailable = unavailable(first)
+        return when {
+        first is TerminalPlanStep.LocalReport ->
+            DesktopCommandStart.Answered(targets.localReport(first.tool, first.kind))
+        first is AdbForwardListStep -> DesktopCommandStart.Answered(targets.adbForwarding.forwardList())
+        unavailable != null -> DesktopCommandStart.Answered(unavailable)
+        else -> fileProblem(plan, file)
         }
-        return fileProblem(plan, file) ?: DesktopCommandStart.Started(
-            if (first.isFastboot()) fastboot(plan.steps, file) else adb(first, file),
-        )
+    }
+
+    private fun start(
+        first: TerminalPlanStep,
+        plan: TerminalPlan,
+        file: PickedFile?,
+        onStarting: (DesktopCommandArea) -> Unit,
+    ): DesktopCommandStart {
+        val area = if (first.isFastboot()) DesktopCommandArea.FASTBOOT else adbArea(first)
+        onStarting(area)
+        if (first.isFastboot()) fastboot(plan.steps, file) else adb(first, file)
+        return DesktopCommandStart.Started(area)
     }
 
     /** Подходит ли выбор плану; `null` — подходит. */
@@ -149,7 +225,7 @@ class DesktopCommandExecutor(private val targets: DesktopCommandTargets) {
         }
     }
 
-    private fun fastboot(steps: List<TerminalPlanStep>, file: PickedFile?): DesktopCommandArea {
+    private fun fastboot(steps: List<TerminalPlanStep>, file: PickedFile?) {
         val wires = steps.filterIsInstance<TerminalPlanStep.FastbootWire>().map { it.command }
         // `--slot` уточняется на устройстве, одним планом с командами.
         val slot = steps.firstNotNullOfOrNull { step ->
@@ -183,33 +259,56 @@ class DesktopCommandExecutor(private val targets: DesktopCommandTargets) {
                 targets.fastbootPlan(wires, slot)
             }
         }
-        return DesktopCommandArea.FASTBOOT
     }
 
-    private fun adb(step: TerminalPlanStep, file: PickedFile?): DesktopCommandArea = when (step) {
-        is TerminalPlanStep.AdbShellCommand -> DesktopCommandArea.ADB_SHELL.also { targets.adbShell(step.command) }
-        is TerminalPlanStep.AdbInteractiveShell ->
-            DesktopCommandArea.ADB_TERMINAL.also { targets.adbInteractiveShell(step.firstLine, step.mode) }
-        is TerminalPlanStep.AdbService -> DesktopCommandArea.ADB_SERVICE.also { targets.adbService(step.service) }
-        is TerminalPlanStep.AdbReboot -> DesktopCommandArea.ADB_REBOOT.also { targets.adbReboot(step.target) }
-        is TerminalPlanStep.AdbPull -> DesktopCommandArea.ADB_TRANSFER.also {
-            val folder = (file as PickedFile.Folder).folder
-            targets.adbPull(step.remotePaths, step.localName, step.preserveAttributes, step.compression, folder)
-        }
-        is TerminalPlanStep.AdbSync -> DesktopCommandArea.ADB_TRANSFER.also {
-            val folder = (file as PickedFile.Folder).folder
-            targets.adbSync(step.partition, step.listOnly, step.dryRun, step.compression, folder)
-        }
-        is TerminalPlanStep.AdbPush -> DesktopCommandArea.ADB_TRANSFER.also {
-            val picked = checkNotNull(file)
-            targets.adbPush(step.localNames, picked, step.remotePath, step.sync, step.dryRun, step.compression)
-        }
-        is TerminalPlanStep.AdbSideload -> DesktopCommandArea.ADB_SIDELOAD.also { targets.adbSideload(file.open()) }
-        is TerminalPlanStep.AdbInstall -> DesktopCommandArea.ADB_INSTALL.also {
-            val origins = (file as? PickedFile.OpenMany)?.origins ?: listOf(file.open())
-            targets.adbInstall(origins, step.options, step.several)
-        }
+    private fun adbArea(step: TerminalPlanStep): DesktopCommandArea = when (step) {
+        is TerminalPlanStep.AdbShellCommand -> DesktopCommandArea.ADB_SHELL
+        is TerminalPlanStep.AdbInteractiveShell -> DesktopCommandArea.ADB_TERMINAL
+        is TerminalPlanStep.AdbService -> DesktopCommandArea.ADB_SERVICE
+        is TerminalPlanStep.AdbReboot -> DesktopCommandArea.ADB_REBOOT
+        is TerminalPlanStep.AdbPull, is TerminalPlanStep.AdbSync, is TerminalPlanStep.AdbPush ->
+            DesktopCommandArea.ADB_TRANSFER
+        is TerminalPlanStep.AdbSideload -> DesktopCommandArea.ADB_SIDELOAD
+        is TerminalPlanStep.AdbInstall -> DesktopCommandArea.ADB_INSTALL
+        is AdbForwardAddStep, is AdbForwardRemoveStep, AdbForwardRemoveAllStep -> DesktopCommandArea.ADB_FORWARD
+        is AdbReverseAddStep, is AdbReverseRemoveStep -> DesktopCommandArea.ADB_REVERSE
+        AdbReverseRemoveAllStep -> DesktopCommandArea.ADB_REVERSE
+        AdbReverseListStep -> DesktopCommandArea.ADB_REVERSE_LIST
         else -> error("Fastboot step in an ADB plan: $step")
+    }
+
+    private fun adb(step: TerminalPlanStep, file: PickedFile?) {
+        when (step) {
+            is TerminalPlanStep.AdbShellCommand -> targets.adbShell(step.command)
+            is TerminalPlanStep.AdbInteractiveShell -> targets.adbInteractiveShell(step.firstLine, step.mode)
+            is TerminalPlanStep.AdbService -> targets.adbService(step.service)
+            is TerminalPlanStep.AdbReboot -> targets.adbReboot(step.target)
+            is TerminalPlanStep.AdbPull -> {
+                val folder = (file as PickedFile.Folder).folder
+                targets.adbPull(step.remotePaths, step.localName, step.preserveAttributes, step.compression, folder)
+            }
+            is TerminalPlanStep.AdbSync -> {
+                val folder = (file as PickedFile.Folder).folder
+                targets.adbSync(step.partition, step.listOnly, step.dryRun, step.compression, folder)
+            }
+            is TerminalPlanStep.AdbPush -> {
+                val picked = checkNotNull(file)
+                targets.adbPush(step.localNames, picked, step.remotePath, step.sync, step.dryRun, step.compression)
+            }
+            is TerminalPlanStep.AdbSideload -> targets.adbSideload(file.open())
+            is TerminalPlanStep.AdbInstall -> {
+                val origins = (file as? PickedFile.OpenMany)?.origins ?: listOf(file.open())
+                targets.adbInstall(origins, step.options, step.several)
+            }
+            is AdbForwardAddStep -> targets.adbForwarding.forwardAdd(step.localPort, step.remote, step.noRebind)
+            is AdbForwardRemoveStep -> targets.adbForwarding.forwardRemove(step.localPort)
+            AdbForwardRemoveAllStep -> targets.adbForwarding.forwardRemoveAll()
+            is AdbReverseAddStep -> targets.adbForwarding.reverseAdd(step.remote, step.local, step.noRebind)
+            is AdbReverseRemoveStep -> targets.adbForwarding.reverseRemove(step.remote)
+            AdbReverseListStep -> targets.adbForwarding.reverseList()
+            AdbReverseRemoveAllStep -> targets.adbForwarding.reverseRemoveAll()
+            else -> error("Fastboot step in an ADB plan: $step")
+        }
     }
 }
 

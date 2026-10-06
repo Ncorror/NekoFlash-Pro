@@ -37,22 +37,6 @@ interface OperationJournal {
     fun forget(id: OperationId)
 }
 
-/** Хранилище в памяти: для тестов и для случая, когда каталог недоступен. */
-open class InMemoryOperationJournal : OperationJournal {
-    private val records = LinkedHashMap<OperationId, OperationRecord>()
-
-    override fun save(record: OperationRecord) {
-        records[record.id] = record
-    }
-
-    override fun history(): OperationHistory =
-        OperationHistory(records.values.sortedByDescending { it.createdAt })
-
-    override fun forget(id: OperationId) {
-        records.remove(id)
-    }
-}
-
 /**
  * Хранилище в каталоге: одна запись — один файл.
  *

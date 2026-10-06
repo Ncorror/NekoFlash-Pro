@@ -17,9 +17,7 @@ import io.github.ncorror.nekoflash.protocol.adb.AdbSyncSession
 import io.github.ncorror.nekoflash.protocol.adb.AdbSyncStat
 import io.github.ncorror.nekoflash.protocol.adb.SyncCompression
 import java.util.concurrent.Executor
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 
 /** Что происходит с последним `adb push`/`pull`. */
 public sealed interface AdbTransferState {
@@ -46,12 +44,14 @@ public class AdbTransferController(
     private val executor: Executor,
     private val diagnostics: DiagnosticSink,
 ) {
-    private val mutableState = MutableStateFlow<AdbTransferState>(AdbTransferState.None)
+    private val slot = AdbOperationSlot<AdbTransferState>(AdbTransferState.None)
 
-    public val state: StateFlow<AdbTransferState> = mutableState.asStateFlow()
+    public val state: StateFlow<AdbTransferState> = slot.state
 
     public val active: Boolean
-        get() = mutableState.value is AdbTransferState.Running
+        get() = slot.active
+
+    internal fun bind(connection: AdbConnection?, discard: Boolean = false) = slot.bind(connection, discard)
 
     internal fun push(
         connection: AdbConnection,
@@ -89,18 +89,20 @@ public class AdbTransferController(
         compression: String,
         work: (AdbTransferPort) -> AdbTransferReport,
     ) {
-        if (active) return
-        mutableState.value = AdbTransferState.Running(what)
-        executor.execute {
+        val request = slot.begin(connection, AdbTransferState.Running(what)) ?: return
+        slot.submit(executor, request, failure = { AdbTransferState.Failed(what, it.javaClass.simpleName) }) {
             val session = connection.syncSession(diagnostics)
-            mutableState.value = when (val opened = session.open()) {
-                is AdbSyncOutcome.Failed -> AdbTransferState.Failed(what, "${opened.reason.name}: ${opened.detail}")
-                is AdbSyncOutcome.Done -> runCatching { work(SessionPort(session, connection, compression)) }.fold(
-                    onSuccess = { AdbTransferState.Finished(what, it) },
-                    onFailure = { AdbTransferState.Failed(what, it.message ?: it.javaClass.simpleName) },
-                )
+            try {
+                when (val opened = session.open()) {
+                    is AdbSyncOutcome.Failed -> AdbTransferState.Failed(what, "${opened.reason.name}: ${opened.detail}")
+                    is AdbSyncOutcome.Done -> {
+                        request.requireConnected()
+                        AdbTransferState.Finished(what, work(SessionPort(session, request, compression)))
+                    }
+                }
+            } finally {
+                session.close()
             }
-            session.close()
         }
     }
 
@@ -115,15 +117,22 @@ public class AdbTransferController(
      */
     private class SessionPort(
         private val session: AdbSyncSession,
-        private val connection: AdbConnection,
+        private val request: AdbOperationSlot.Request<AdbTransferState>,
         compressionName: String,
     ) : AdbTransferPort {
+        private val connection = request.connection
         private val v2 = SEND_RECV_V2 in connection.peerFeatures
         private val compression = SyncCompression.named(compressionName, connection.peerFeatures)
 
-        override fun stat(path: String): AdbSyncOutcome<AdbSyncStat> = session.stat(path)
+        override fun stat(path: String): AdbSyncOutcome<AdbSyncStat> {
+            request.requireConnected()
+            return session.stat(path)
+        }
 
-        override fun list(path: String): AdbSyncOutcome<List<AdbSyncEntry>> = session.list(path)
+        override fun list(path: String): AdbSyncOutcome<List<AdbSyncEntry>> {
+            request.requireConnected()
+            return session.list(path)
+        }
 
         override fun send(path: String, modifiedAtSeconds: Int, source: ArtifactSource, dryRun: Boolean): Moved =
             if (dryRun && DRY_RUN_SEND !in connection.peerFeatures) {
@@ -131,9 +140,11 @@ public class AdbTransferController(
                 // устройства проба не отправляется вовсе.
                 Moved.Failed("dry-run not supported by the device")
             } else {
+                request.requireConnected()
                 val small = (source.identity.sizeBytes ?: Long.MAX_VALUE) < AdbSyncProtocol.DATA_CHUNK_BYTES
                 val large = v2 && !small
                 source.open().use { input ->
+                    request.requireConnected()
                     sent(path, modifiedAtSeconds, dryRun, input, large)
                 }
             }
@@ -158,8 +169,16 @@ public class AdbTransferController(
 
         override fun receive(path: String, sink: ArtifactSink): Moved {
             val writer = ArtifactWriter(sink)
-            val received = session.receive(path, v2 = v2, compression = compression.takeIf { v2 }) { chunk ->
-                writer.accept(chunk)
+            val received = runCatching {
+                request.requireConnected()
+                session.receive(path, v2 = v2, compression = compression.takeIf { v2 }) { chunk ->
+                    request.requireConnected()
+                    writer.accept(chunk)
+                }.also { request.requireConnected() }
+            }.getOrElse { error ->
+                writer.interrupted(error.javaClass.simpleName)
+                (sink as? SafArtifactSink)?.removed()
+                return Moved.Failed(error.javaClass.simpleName)
             }
             return when (received) {
                 is AdbSyncOutcome.Failed -> {
@@ -178,7 +197,7 @@ public class AdbTransferController(
             get() = FIXED_PUSH_MKDIR !in connection.peerFeatures && connection.supportsShellV2
 
         override fun mkdir(paths: List<String>) {
-            mkdirCommands(paths).forEach { command -> connection.shell(command) }
+            mkdirCommands(paths).forEach { command -> request.requireConnected(); connection.shell(command) }
         }
     }
 

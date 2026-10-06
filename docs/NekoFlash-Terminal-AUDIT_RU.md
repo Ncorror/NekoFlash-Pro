@@ -45,45 +45,38 @@
 - alternate screen теперь начинает работу с `(0,0)`;
 - добавлен monotonic revision, чтобы UI не собирал одинаковый snapshot повторно.
 
-### Starship
+### Удаление неиспользуемого локального shell staging
 
-Добавлен `app/.../terminal/StarshipInstaller.kt`:
+Ранее в проекте существовал `StarshipInstaller`, рассчитанный на будущий
+локальный Android shell. В текущем продукте такого локального PTY нет: терминал
+NekoFlash Pro работает через удалённый `adb shell,v2,pty`.
 
-- ищет `assets/starship/aarch64/starship`, `assets/starship/arm64-v8a/starship`
-  или `assets/starship`;
-- копирует ELF атомарно, проверяет `ELFCLASS64` и `EM_AARCH64`, выставляет `0755`;
-- создаёт приватный `terminal/home/.bashrc` с `HOME`, `PATH` и
-  `eval "$(starship init bash)"`;
-- выполняется по умолчанию в `Application.onCreate` на `Dispatchers.IO`, но
-  отсутствие optional asset не ломает запуск.
+После удаления `assets/starship` установщик стал недостижимой продуктовой
+концепцией и на каждом запуске приложения выполнял только бесполезный поиск
+отсутствующего asset. Поэтому из production-кода удалены:
 
-В удалённом ADB-профиле Starship включается только если на самом target есть
-совместимый `bash` и `starship`; штатный Android `mksh` получает безопасный
-fallback. Бинарник из APK нельзя автоматически считать бинарником удалённого
-устройства: ABI, libc и права доступа разные.
+- `app/.../terminal/StarshipInstaller.kt`;
+- startup-hook `starshipInstaller.install()` из `NekoFlashApplication`;
+- сам объект `starshipInstaller` и его импорт.
+
+Это не ограничивает ADB-терминал и не меняет shell-v2 протокол: на удалённое
+устройство Starship из APK никогда не отправлялся и рабочему терминалу не был
+нужен.
 
 `TerminalFont.kt` загружает `fonts/NerdFontMono-Regular.ttf` через Compose
 `Font(path, assetManager, ...)` и применяет его к VT-экрану и EditText. При
-отсутствии файла используется `FontFamily.Monospace`. В архиве оставлены
-`app/src/main/assets/fonts/README.md` и `app/src/main/assets/starship/README.md`;
-сторонние бинарные/шрифтовые файлы намеренно не подменялись заглушками.
-
-## Ограничение Android
-
-На Android 10+ `execve()` из writable app home запрещён платформой. Поэтому
-`StarshipInstaller` сохраняет бинарник и профиль как staging-артефакты, но
-`localBashCommand()` отказывается запускать их на API 29+. Для настоящего
-локального PTY Starship нужно паковать как executable code в ABI-specific APK
-payload либо устанавливать его на target device через ADB Sync и отдельно
-проверять ABI/libc. Текущий архив реализует только безопасную часть, не создавая
-ложно работающий локальный shell.
+отсутствии файла используется `FontFamily.Monospace`. В репозитории остаётся
+`app/src/main/assets/fonts/README.md`; сторонний шрифт намеренно не подменяется
+заглушкой.
 
 ## Проверки
 
 - `rg` по исходнику: native terminal symbols (`forkpty`, `openpty`, `SIGWINCH`,
-  JNI terminal methods) отсутствуют; упоминание resize-сигнала осталось только
-  в поясняющем Kotlin-комментарии. Starship binary/font до добавления обвязки
-  также отсутствовали.
-- Добавлены unit checks для colon-TrueColor, invalid resize и Starship fallback.
-- Gradle unit tests не запустились в среде упаковки: wrapper требует скачать
-  Gradle 9.5.0, а сетевой доступ к `services.gradle.org` недоступен.
+  JNI terminal methods) отсутствуют; resize остаётся shell-v2 операцией;
+- старый remote-shell profile и его тесты удалены как недостижимые;
+- Starship staging удалён после удаления соответствующих assets и отсутствия
+  локального PTY-пути;
+- unit tests покрывают VT resize/scrollback, input routing и shell-v2 поведение;
+- CI выполняет repository hygiene, localization contract, Kotlin style,
+  complexity/module-boundary checks, Compose wiring, unit tests, lint и сборку
+  debug/release APK.

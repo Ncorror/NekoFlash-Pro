@@ -118,12 +118,13 @@ public class FastbootDownload(private val lane: FastbootLane) {
         sizeBytes: Long,
         inactivityMillis: Long = FastbootLane.DEFAULT_INACTIVITY_MS,
         payloadFd: Int? = null,
+        progress: (Long) -> Unit = {},
     ): FastbootDownloadOutcome {
         require(sizeBytes >= 0L) { "объём не может быть отрицательным" }
         val route = route(payloadFd, sizeBytes)
         return when (val opened = lane.run(command(sizeBytes), inactivityMillis)) {
             is FastbootExchange.DataPhase ->
-                transfer(Payload(source, payloadFd, sizeBytes, route), opened, inactivityMillis)
+                transfer(Payload(source, payloadFd, sizeBytes, route), opened, inactivityMillis, progress)
 
             // Терминальный ответ вместо `DATA`: устройство отказалось принимать.
             // Ни одного байта не отправлено — единственный исход, про который
@@ -164,6 +165,7 @@ public class FastbootDownload(private val lane: FastbootLane) {
         payload: Payload,
         opened: FastbootExchange.DataPhase,
         inactivityMillis: Long,
+        progress: (Long) -> Unit,
     ): FastbootDownloadOutcome {
         // Устройство назвало свой объём — сверяем. Расхождение означает, что мы
         // договорились о разном, и передавать в такой обмен нельзя.
@@ -179,9 +181,9 @@ public class FastbootDownload(private val lane: FastbootLane) {
             )
         } else {
             val data = if (payload.route.path == FastbootDataPath.NATIVE_USBFS && payload.fd != null) {
-                lane.sendFile(payload.fd, sizeBytes, inactivityMillis)
+                lane.sendFile(payload.fd, sizeBytes, inactivityMillis, progress)
             } else {
-                lane.sendData(payload.stream, sizeBytes, inactivityMillis)
+                lane.sendData(payload.stream, sizeBytes, inactivityMillis, progress = progress)
             }
             outcomeOf(data, payload.route)
         }

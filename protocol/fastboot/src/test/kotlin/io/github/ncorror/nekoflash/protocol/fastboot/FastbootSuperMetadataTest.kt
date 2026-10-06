@@ -1,5 +1,6 @@
 package io.github.ncorror.nekoflash.protocol.fastboot
 
+import java.io.InputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.security.MessageDigest
@@ -10,6 +11,79 @@ import org.junit.Test
 
 /** `super_empty.img` — как его пишет и читает `liblp`. */
 class FastbootSuperMetadataTest {
+    @Test
+    fun expandedHeaderAndItsTruncationAreReadWithoutTouchingImageData() {
+        val original = superEmpty()
+        val header = original.copyOfRange(4096, 4224).copyOf(256)
+        ByteBuffer.wrap(header).order(ByteOrder.LITTLE_ENDIAN)
+            .putShort(6, 2).putInt(8, 256).putInt(128, 1)
+        header.fill(0, 12, 44)
+        sha256(header).copyInto(header, 12)
+        val prefix = original.copyOf(4096) + header
+        val image = prefix + original.copyOfRange(4224, original.size)
+
+        val parsed = FastbootSuperMetadata.fromImageStream(image.inputStream()) as LpMetadataRead.Parsed
+        assertEquals(2, parsed.metadata.minorVersion)
+        assertEquals(1, parsed.metadata.headerFlags)
+        assertEquals(LpMetadataRead.Invalid("ReadMetadataHeader read failed"),
+            FastbootSuperMetadata.fromImageStream(prefix.copyOf(prefix.size - 1).inputStream()))
+    }
+
+    @Test
+    fun largeImageTailIsNotReadAndShortReadsWork() {
+        val image = superEmpty()
+        var at = 0
+        val stream = object : InputStream() {
+            override fun read(): Int = error("unexpected read of the image tail")
+            override fun read(bytes: ByteArray, offset: Int, count: Int): Int {
+                check(at < image.size) { "metadata parser read the multi-gigabyte image tail" }
+                check(count <= 16 * 1024)
+                val take = minOf(count, 7, image.size - at)
+                image.copyInto(bytes, offset, at, at + take)
+                at += take
+                return take
+            }
+        }
+
+        assertEquals(FastbootSuperMetadata.fromImageBlob(image), FastbootSuperMetadata.fromImageStream(stream))
+        assertEquals(image.size, at)
+    }
+
+    @Test
+    fun zeroProgressAndTruncatedTablesAreHandled() {
+        val image = superEmpty()
+        var at = 0
+        val stream = object : InputStream() {
+            override fun read(): Int = if (at < image.size) image[at++].toInt() and 0xFF else -1
+            override fun read(bytes: ByteArray, offset: Int, count: Int): Int = 0
+        }
+        assertEquals(FastbootSuperMetadata.fromImageBlob(image), FastbootSuperMetadata.fromImageStream(stream))
+        val truncated = image.copyOf(image.size - 1)
+        assertEquals(
+            LpMetadataRead.Invalid("read ${image.size - 4096 - 128} bytes failed"),
+            FastbootSuperMetadata.fromImageStream(truncated.inputStream()),
+        )
+    }
+
+    @Test
+    fun tablesCanBeReordered() {
+        val original = superEmpty()
+        val tables = original.copyOfRange(4224, original.size)
+        val reordered = tables.copyOfRange(252, 316) + tables.copyOfRange(156, 252) + tables.copyOfRange(0, 156)
+        val header = original.copyOfRange(4096, 4224)
+        val out = ByteBuffer.wrap(header).order(ByteOrder.LITTLE_ENDIAN)
+        out.putInt(80, 160)
+        out.putInt(92, 316)
+        out.putInt(104, 64)
+        out.putInt(116, 0)
+        sha256(reordered).copyInto(header, 48)
+        header.fill(0, 12, 44)
+        sha256(header).copyInto(header, 12)
+        val image = original.copyOf(4096) + header + reordered
+
+        assertEquals(FastbootSuperMetadata.fromImageBlob(original), FastbootSuperMetadata.fromImageBlob(image))
+    }
+
     @Test
     fun partitionsGroupsAndTheSuperDeviceAreRead() {
         val parsed = FastbootSuperMetadata.fromImageBlob(superEmpty()) as LpMetadataRead.Parsed

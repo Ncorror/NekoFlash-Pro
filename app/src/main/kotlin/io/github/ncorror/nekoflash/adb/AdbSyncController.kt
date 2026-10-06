@@ -8,9 +8,9 @@ import io.github.ncorror.nekoflash.core.artifact.ArtifactStamps
 import io.github.ncorror.nekoflash.core.artifact.ArtifactWriteOutcome
 import io.github.ncorror.nekoflash.core.artifact.ArtifactWriter
 import io.github.ncorror.nekoflash.core.diagnostics.DiagnosticSink
+import io.github.ncorror.nekoflash.core.model.TargetId
 import io.github.ncorror.nekoflash.protocol.adb.AdbConnection
 import io.github.ncorror.nekoflash.protocol.adb.AdbSyncDestination
-import io.github.ncorror.nekoflash.protocol.adb.AdbSyncFailure
 import io.github.ncorror.nekoflash.protocol.adb.AdbSyncOutcome
 import io.github.ncorror.nekoflash.protocol.adb.AdbSyncSendOutcome
 import io.github.ncorror.nekoflash.protocol.adb.AdbSyncSession
@@ -22,9 +22,7 @@ import io.github.ncorror.nekoflash.protocol.adb.AdbRecoveryResult
 import io.github.ncorror.nekoflash.protocol.adb.AdbRecoveryVerdict
 import io.github.ncorror.nekoflash.protocol.adb.AdbSyncStat
 import java.util.concurrent.Executor
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 
 /** Что известно про путь на устройстве. */
 public sealed interface AdbFileState {
@@ -130,13 +128,11 @@ public class AdbSyncController(
     private val executor: Executor,
     private val diagnostics: DiagnosticSink = DiagnosticSink { },
 ) {
-    private val mutableState = MutableStateFlow<AdbFileState>(AdbFileState.None)
-
-    @Volatile
-    private var running = false
+    private val slot = AdbOperationSlot<AdbFileState>(AdbFileState.None)
+    private var baselineTarget: TargetId? = null
 
     /**
-     * База журнала Recovery этой сессии.
+     * База журнала Recovery этой цели; сохраняется при её повторном подключении.
      *
      * Живёт в памяти владельца и переживанию перезапуска не подлежит: `03` §6
      * требует persistent evidence, и это работа хранилища из Phase 8, а не
@@ -145,15 +141,24 @@ public class AdbSyncController(
     private var baseline: AdbRecoveryBaseline? = null
 
     /** Состояние последней операции. */
-    public val state: StateFlow<AdbFileState> = mutableState.asStateFlow()
+    public val state: StateFlow<AdbFileState> = slot.state
 
     /** Идёт ли операция прямо сейчас. */
     public val active: Boolean
-        get() = running
+        get() = slot.active
+
+    internal fun bind(connection: AdbConnection?, target: TargetId?, discard: Boolean = false) {
+        slot.bind(connection, discard) {
+            if (target != null && baselineTarget != target) {
+                baselineTarget = target
+                baseline = null
+            }
+        }
+    }
 
     /** Спрашивает сведения о пути. */
     public fun describe(connection: AdbConnection, path: String) {
-        start(connection, path) { session, target ->
+        start(connection, path) { session, target, _ ->
             when (val outcome = session.stat(target)) {
                 is AdbSyncOutcome.Done -> AdbFileState.Described(target, outcome.value)
                 is AdbSyncOutcome.Failed -> failed(target, outcome)
@@ -172,16 +177,22 @@ public class AdbSyncController(
      * оператор.
      */
     public fun readTo(connection: AdbConnection, path: String, destination: () -> ArtifactSink) {
-        start(connection, path) { session, target ->
+        start(connection, path) { session, target, request ->
             // Приёмник заводится **здесь**, а не в обработчике системного
             // диалога: открытие документа у чужого провайдера — это ввод-вывод,
             // и делать его на главном потоке значит подвесить экран.
             val sink = destination()
             val writer = ArtifactWriter(sink)
-            when (val outcome = session.receive(target) { chunk -> writer.accept(chunk) }) {
+            val received = runCatching {
+                request.requireConnected()
+                session.receive(target) { chunk -> request.requireConnected(); writer.accept(chunk) }
+                    .also { request.requireConnected() }
+            }
+            when (val outcome = received.getOrNull()) {
                 is AdbSyncOutcome.Done -> saved(target, writer.finish(), sink)
                 is AdbSyncOutcome.Failed ->
                     saveFailed(target, writer, sink, "${outcome.reason.name}: ${outcome.detail}")
+                null -> saveFailed(target, writer, sink, received.exceptionOrNull()?.javaClass?.simpleName ?: "unknown")
             }
         }
     }
@@ -248,7 +259,7 @@ public class AdbSyncController(
      * только незнание.
      */
     public fun writeFrom(connection: AdbConnection, path: String, origin: () -> ArtifactSource) {
-        start(connection, path) { session, target ->
+        start(connection, path) { session, target, request ->
             // Источник открывается здесь по той же причине, что и приёмник:
             // разговор с чужим провайдером — это ввод-вывод.
             val source = origin()
@@ -256,13 +267,19 @@ public class AdbSyncController(
             if (stability is ArtifactStability.Changed) {
                 AdbFileState.SourceChanged(target, stability.detail)
             } else {
-                sendFrom(session, target, source)
+                sendFrom(session, target, source, request)
             }
         }
     }
 
-    private fun sendFrom(session: AdbSyncSession, path: String, source: ArtifactSource): AdbFileState =
+    private fun sendFrom(
+        session: AdbSyncSession,
+        path: String,
+        source: ArtifactSource,
+        request: AdbOperationSlot.Request<AdbFileState>,
+    ): AdbFileState =
         source.open().use { input ->
+            request.requireConnected()
             val outcome = session.send(
                 path = path,
                 modifiedAtSeconds = (System.currentTimeMillis() / MILLIS_PER_SECOND).toInt(),
@@ -288,13 +305,14 @@ public class AdbSyncController(
      * 10).
      */
     public fun captureRecoveryBaseline(connection: AdbConnection) {
-        start(connection, AdbRecoveryInstall.PRIMARY_PATH) { session, target ->
+        start(connection, AdbRecoveryInstall.PRIMARY_PATH) { session, target, request ->
             when (val outcome = readText(session, target)) {
                 is TextOutcome.Read -> {
-                    baseline = AdbRecoveryCorrelator.capture(AdbRecoveryLog(target, outcome.text))
+                    val captured = AdbRecoveryCorrelator.capture(AdbRecoveryLog(target, outcome.text))
+                    request.update { baseline = captured }
                     AdbFileState.Verdict(
                         verdict = AdbRecoveryVerdict.UNKNOWN,
-                        detail = "база снята: символов ${baseline?.prefixLength ?: 0}",
+                        detail = "база снята: символов ${captured.prefixLength}",
                         evidence = null,
                         baselineTaken = true,
                     )
@@ -313,15 +331,19 @@ public class AdbSyncController(
      * файл целиком, и выгружать его в отчёт по умолчанию незачем.
      */
     public fun readRecoveryVerdict(connection: AdbConnection) {
-        start(connection, AdbRecoveryInstall.PRIMARY_PATH) { session, target ->
+        start(connection, AdbRecoveryInstall.PRIMARY_PATH) { session, target, request ->
             when (val outcome = readText(session, target)) {
-                is TextOutcome.Read -> verdictOf(AdbRecoveryLog(target, outcome.text))
+                is TextOutcome.Read -> {
+                    var ownedBaseline: AdbRecoveryBaseline? = null
+                    request.update { ownedBaseline = baseline }
+                    verdictOf(AdbRecoveryLog(target, outcome.text), ownedBaseline)
+                }
                 is TextOutcome.Failed -> failed(target, outcome.outcome)
             }
         }
     }
 
-    private fun verdictOf(log: AdbRecoveryLog): AdbFileState {
+    private fun verdictOf(log: AdbRecoveryLog, baseline: AdbRecoveryBaseline?): AdbFileState {
         val result: AdbRecoveryResult = AdbRecoveryCorrelator.verdict(listOf(log), baseline)
         // Значение вердикта и одна строка доказательства — всё, что уходит
         // наружу. Текст журнала остаётся на устройстве.
@@ -353,32 +375,29 @@ public class AdbSyncController(
     private fun start(
         connection: AdbConnection,
         path: String,
-        work: (AdbSyncSession, String) -> AdbFileState,
+        work: (AdbSyncSession, String, AdbOperationSlot.Request<AdbFileState>) -> AdbFileState,
     ) {
         val trimmed = path.trim()
-        if (trimmed.isEmpty() || running) return
-
-        running = true
-        mutableState.value = AdbFileState.Busy(trimmed)
-        executor.execute {
+        if (trimmed.isEmpty()) return
+        val request = slot.begin(connection, AdbFileState.Busy(trimmed)) ?: return
+        slot.submit(executor, request, failure = { AdbFileState.Failed(trimmed, it.javaClass.simpleName) }) {
             val session = connection.syncSession(diagnostics)
-            mutableState.value = when (val opened = session.open()) {
-                is AdbSyncOutcome.Done -> runCatching { work(session, trimmed) }.getOrElse { error ->
-                    AdbFileState.Failed(trimmed, error.message ?: error.javaClass.simpleName)
+            try {
+                when (val opened = session.open()) {
+                    is AdbSyncOutcome.Done -> {
+                        request.requireConnected()
+                        work(session, trimmed, request)
+                    }
+                    is AdbSyncOutcome.Failed -> failed(trimmed, opened)
                 }
-
-                is AdbSyncOutcome.Failed -> failed(trimmed, opened)
+            } finally {
+                session.close()
             }
-            session.close()
-            running = false
         }
     }
 
     private fun failed(path: String, outcome: AdbSyncOutcome.Failed): AdbFileState.Failed =
         AdbFileState.Failed(path, "${outcome.reason.name}: ${outcome.detail}")
-
-    private fun failed(path: String, reason: AdbSyncFailure): AdbFileState.Failed =
-        AdbFileState.Failed(path, reason.name)
 
     private companion object {
         const val MILLIS_PER_SECOND = 1_000L

@@ -4,9 +4,7 @@ import io.github.ncorror.nekoflash.protocol.adb.AdbConnection
 import io.github.ncorror.nekoflash.protocol.adb.AdbRebootDevice
 import io.github.ncorror.nekoflash.protocol.adb.AdbRebootOutcome
 import java.util.concurrent.Executor
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 
 /**
  * Владелец запросов перезагрузки.
@@ -20,14 +18,16 @@ import kotlinx.coroutines.flow.asStateFlow
  * `AdbReboot`, а сюда приходит уже готовый исход.
  */
 public class AdbRebootController(private val executor: Executor) {
-    private val mutableState = MutableStateFlow<AdbRebootState>(AdbRebootState.None)
+    private val slot = AdbOperationSlot<AdbRebootState>(AdbRebootState.None)
 
     /** Состояние последнего запроса. */
-    public val state: StateFlow<AdbRebootState> = mutableState.asStateFlow()
+    public val state: StateFlow<AdbRebootState> = slot.state
 
     /** Идёт ли запрос прямо сейчас. */
     public val active: Boolean
-        get() = mutableState.value is AdbRebootState.Running
+        get() = slot.active
+
+    internal fun bind(connection: AdbConnection?, discard: Boolean = false) = slot.bind(connection, discard)
 
     /**
      * Просит устройство перезагрузиться.
@@ -36,14 +36,18 @@ public class AdbRebootController(private val executor: Executor) {
      * существуют, знает устройство, и его отказ — это ответ, а не наша ошибка.
      */
     public fun request(connection: AdbConnection, target: String) {
-        if (active) return
         val trimmed = target.trim()
-        mutableState.value = AdbRebootState.Running(trimmed)
-        executor.execute {
+        val request = slot.begin(connection, AdbRebootState.Running(trimmed), retainOutcome = true) ?: return
+        slot.submit(
+            executor, request,
+            failure = { finished(trimmed, Result.failure(it)) },
+            rejected = { AdbRebootState.Failed(trimmed, it.javaClass.simpleName, AdbRebootDevice.UNTOUCHED) },
+            notStarted = { AdbRebootState.Failed(trimmed, it.javaClass.simpleName, AdbRebootDevice.UNTOUCHED) },
+        ) {
             // Журналом заведует само соединение: `reboot_requested`,
             // `reboot_accepted` и `reboot_failed` пишет `AdbReboot`.
             val attempt = runCatching { connection.reboot(trimmed) }
-            mutableState.value = finished(trimmed, attempt)
+            finished(trimmed, attempt)
         }
     }
 

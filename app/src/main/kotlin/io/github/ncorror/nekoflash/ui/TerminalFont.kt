@@ -1,7 +1,5 @@
 package io.github.ncorror.nekoflash.ui
 
-import android.content.res.AssetManager
-import android.graphics.Typeface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.text.ExperimentalTextApi
@@ -11,7 +9,7 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.platform.LocalContext
 
-/** One asset name shared by Compose and the Android EditText bridge. */
+/** Optional terminal font asset. */
 internal const val NERD_FONT_ASSET = "fonts/NerdFontMono-Regular.ttf"
 
 /**
@@ -28,7 +26,3 @@ internal fun rememberTerminalFontFamily(): FontFamily {
             .getOrDefault(FontFamily.Monospace)
     }
 }
-
-internal fun nerdTypefaceOrMonospace(assets: AssetManager): Typeface =
-    runCatching { Typeface.createFromAsset(assets, NERD_FONT_ASSET) }
-        .getOrDefault(Typeface.MONOSPACE)

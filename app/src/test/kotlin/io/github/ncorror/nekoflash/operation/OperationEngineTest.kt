@@ -2,11 +2,14 @@ package io.github.ncorror.nekoflash.operation
 
 import io.github.ncorror.nekoflash.core.model.SessionGeneration
 import io.github.ncorror.nekoflash.core.model.TargetId
-import io.github.ncorror.nekoflash.core.operation.InMemoryOperationJournal
 import io.github.ncorror.nekoflash.core.operation.MutationBoundary
+import io.github.ncorror.nekoflash.core.operation.OperationHistory
+import io.github.ncorror.nekoflash.core.operation.OperationId
 import io.github.ncorror.nekoflash.core.operation.OperationIntent
+import io.github.ncorror.nekoflash.core.operation.OperationJournal
 import io.github.ncorror.nekoflash.core.operation.OperationKind
 import io.github.ncorror.nekoflash.core.operation.OperationOutcome
+import io.github.ncorror.nekoflash.core.operation.OperationRecord
 import io.github.ncorror.nekoflash.core.operation.OperationRestoration
 import java.time.Instant
 import org.junit.Assert.assertEquals
@@ -25,7 +28,7 @@ import org.junit.Test
 class OperationEngineTest {
     @Test
     fun aStartedOperationIsLiveAndAlreadyRecorded() {
-        val journal = InMemoryOperationJournal()
+        val journal = MemoryOperationJournal()
         val engine = OperationEngine(journal, clock = { NOW })
 
         engine.begin(intent(), TARGET, GENERATION, totalBytes = 100L)
@@ -73,7 +76,7 @@ class OperationEngineTest {
     /** Законченная операция уходит из живых в историю. */
     @Test
     fun afinishedOperationLeavesTheLiveList() {
-        val engine = OperationEngine(InMemoryOperationJournal(), clock = { NOW })
+        val engine = OperationEngine(MemoryOperationJournal(), clock = { NOW })
         val handle = engine.begin(intent(), TARGET, GENERATION)
 
         handle.finish(OperationOutcome.SUCCEEDED, "DONE", NOW)
@@ -90,7 +93,7 @@ class OperationEngineTest {
      */
     @Test
     fun anInterruptedOperationIsClosedRatherThanLeftRunning() {
-        val journal = InMemoryOperationJournal()
+        val journal = MemoryOperationJournal()
         OperationEngine(journal, clock = { NOW }).begin(intent(), TARGET, GENERATION)
 
         val restored = OperationEngine(journal, clock = { NOW }).restoreAll(GENERATION)
@@ -108,7 +111,7 @@ class OperationEngineTest {
      */
     @Test
     fun anInterruptionAfterTheBoundaryIsUnknownAndNotAFailure() {
-        val journal = InMemoryOperationJournal()
+        val journal = MemoryOperationJournal()
         OperationEngine(journal, clock = { NOW })
             .begin(intent(), TARGET, GENERATION)
             .crossedMutationBoundary("первый блок ушёл", NOW)
@@ -122,7 +125,7 @@ class OperationEngineTest {
     /** Скорость меряется от начала операции, а не назначается. */
     @Test
     fun theRateIsMeasuredFromTheStart() {
-        val engine = OperationEngine(InMemoryOperationJournal(), clock = { NOW }, elapsedMillis = { 1_000L })
+        val engine = OperationEngine(MemoryOperationJournal(), clock = { NOW }, elapsedMillis = { 1_000L })
         val handle = engine.begin(intent(), TARGET, GENERATION, totalBytes = 4_000L)
 
         handle.progress(servedBytes = 2_000L, uniqueBytes = 2_000L, nowMillis = 3_000L)
@@ -135,12 +138,28 @@ class OperationEngineTest {
 
     private fun intent() = OperationIntent(OperationKind.ADB_SIDELOAD, "отдать пакет")
 
+    /** Minimal journal fake kept in tests rather than production code. */
+    private open class MemoryOperationJournal : OperationJournal {
+        private val records = LinkedHashMap<OperationId, OperationRecord>()
+
+        override fun save(record: OperationRecord) {
+            records[record.id] = record
+        }
+
+        override fun history(): OperationHistory =
+            OperationHistory(records.values.sortedByDescending { it.createdAt })
+
+        override fun forget(id: OperationId) {
+            records.remove(id)
+        }
+    }
+
     /** Хранилище, которое считает, сколько раз его попросили писать. */
-    private class CountingJournal : InMemoryOperationJournal() {
+    private class CountingJournal : MemoryOperationJournal() {
         var saves = 0
             private set
 
-        override fun save(record: io.github.ncorror.nekoflash.core.operation.OperationRecord) {
+        override fun save(record: OperationRecord) {
             saves += 1
             super.save(record)
         }

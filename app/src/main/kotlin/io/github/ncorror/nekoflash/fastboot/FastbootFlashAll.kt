@@ -3,6 +3,7 @@ package io.github.ncorror.nekoflash.fastboot
 import com.ncorror.nekoflash.pro.engine.CURRENT_SLOT
 import com.ncorror.nekoflash.pro.engine.SET_ACTIVE_DEFAULT
 import io.github.ncorror.nekoflash.artifact.VbmetaFlagsSource
+import io.github.ncorror.nekoflash.artifact.measuredArtifactSize
 import io.github.ncorror.nekoflash.core.artifact.ArtifactSource
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootAndroidInfo
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootDownloadOutcome
@@ -70,7 +71,9 @@ internal class FastbootFlashAll(
 
     private val preflight = FlashAllPreflight({ variables }, report)
     private val superMetadata: LpMetadata? by lazy {
-        images.bytes(SUPER_EMPTY)?.let { (FastbootSuperMetadata.fromImageBlob(it) as? LpMetadataRead.Parsed)?.metadata }
+        images.source(SUPER_EMPTY)?.open()?.use {
+            (FastbootSuperMetadata.fromImageStream(it) as? LpMetadataRead.Parsed)?.metadata
+        }
     }
 
     fun run(): FastbootConsoleState {
@@ -97,7 +100,8 @@ internal class FastbootFlashAll(
         }
         val slot = preflight.verifiedSlot(request.slot)
         preflight.dumpInfo()
-        preflight.checkRequirements(images.bytes(ANDROID_INFO), request.force)
+        val info = images.source(ANDROID_INFO) ?: throw FlashAllStop("could not read android-info.txt")
+        info.open().bufferedReader().use { preflight.checkRequirements(it.lineSequence(), request.force) }
         val secondary = secondarySlot(slot)
         // Задачи собираются до первой команды, а не после `set_active`, как у
         // настольного клиента: недостающий образ и переход в fastbootd, которым
@@ -159,10 +163,12 @@ internal class FastbootFlashAll(
      * как `AddFlashTasks`.
      */
     private fun collect(slot: String, secondary: String): List<FlashAllTask> {
-        val info = images.bytes(FASTBOOT_INFO)
+        val info = images.source(FASTBOOT_INFO)
         if (info != null) {
-            val text = String(info, Charsets.UTF_8)
-            return when (val read = FastbootInfoFile.parse(text, slot, secondary, request.wipe)) {
+            val read = info.open().bufferedReader().use {
+                FastbootInfoFile.parse(it.lineSequence(), slot, secondary, request.wipe)
+            }
+            return when (read) {
                 is FastbootInfoRead.Tasks -> read.tasks
                 is FastbootInfoRead.Invalid -> throw FlashAllStop(read.reason)
             }
@@ -245,8 +251,8 @@ internal class FastbootFlashAll(
     private fun doFlash(partition: String, imageName: String, applyVbmeta: Boolean) {
         val source = images.source(imageName)
             ?: throw FlashAllStop("could not load '$imageName': No such file or directory")
-        images.bytes(imageName.substringBefore('.') + ".sig")?.let { signature ->
-            download(BytesSource(signature, "signature"))
+        images.source(imageName.substringBefore('.') + ".sig")?.let { signature ->
+            download(signature)
             command("signature")
         }
         if (value(IS_LOGICAL + partition) == YES) {
@@ -282,7 +288,7 @@ internal class FastbootFlashAll(
 
     /** `Download`: весь объём с `OKAY`, иначе дальше не идём. */
     private fun download(source: ArtifactSource) {
-        val size = source.identity.sizeBytes ?: throw FlashAllStop("${source.identity.name}: size unknown")
+        val size = source.identity.sizeBytes ?: measuredArtifactSize(source)
         commands += downloadStep(size)
         val outcome = source.open().use { input -> downloadFile(lane, source, size, input) }
         val accepted = outcome is FastbootDownloadOutcome.Answered &&

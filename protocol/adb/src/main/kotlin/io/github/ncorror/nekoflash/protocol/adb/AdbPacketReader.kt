@@ -42,6 +42,9 @@ public enum class AdbReadFailure {
     /** Приём payload не состоялся вовсе: платформа не выполнила передачу. */
     PAYLOAD_TRANSFER_FAILED,
 
+    /** The receive operation threw; the position of the transport is unknown. */
+    TRANSFER_EXCEPTION,
+
     /** Содержимое payload не сходится с объявленной контрольной суммой. */
     CHECKSUM_MISMATCH,
 }
@@ -61,7 +64,7 @@ public sealed interface AdbReadOutcome {
      */
     public data object Idle : AdbReadOutcome
 
-    /** Интерфейс больше не удерживается: читать нечего и незачем. */
+    /** Читатель остановлен или интерфейс больше не удерживается: читать нечего и незачем. */
     public data object Closed : AdbReadOutcome
 
     /** Кадр потерян. Поколение транспорта после этого недостоверно. */
@@ -97,6 +100,13 @@ public class AdbPacketReader(
 ) {
     private val headerBuffer = ByteArray(AdbPacketHeader.SIZE_BYTES)
 
+    @Volatile
+    private var stopped = false
+
+    internal fun stop() {
+        stopped = true
+    }
+
     /**
      * Версия протокола peer'а.
      *
@@ -120,13 +130,29 @@ public class AdbPacketReader(
      * целиком: читающий цикл работает короткими отрезками, чтобы остановка
      * была наблюдаемой.
      */
-    public fun read(timeoutMillis: Int = DEFAULT_RECEIVE_TIMEOUT_MS): AdbReadOutcome =
+    // The receive boundary must report loss to the owner even when the platform throws.
+    @Suppress("TooGenericExceptionCaught")
+    public fun read(timeoutMillis: Int = DEFAULT_RECEIVE_TIMEOUT_MS): AdbReadOutcome {
+        require(timeoutMillis >= 0) { "ADB receive timeout must not be negative: $timeoutMillis" }
+        if (stopped) return AdbReadOutcome.Closed
+        return try {
+            readFrame(timeoutMillis)
+        } catch (error: RuntimeException) {
+            AdbReadOutcome.Failed(
+                AdbReadFailure.TRANSFER_EXCEPTION,
+                "receive threw ${error.javaClass.simpleName} ${transportContext()}",
+            )
+        }
+    }
+
+    private fun readFrame(timeoutMillis: Int): AdbReadOutcome =
         when (val outcome = readHeader(timeoutMillis)) {
             is HeaderOutcome.Ready -> readPacket(outcome.header, timeoutMillis)
             is HeaderOutcome.Other -> outcome.result
         }
 
     private fun readPacket(header: AdbPacketHeader, timeoutMillis: Int): AdbReadOutcome {
+        if (stopped) return AdbReadOutcome.Closed
         val payload = if (header.payloadLength == 0) {
             PayloadOutcome.Ready(EMPTY_PAYLOAD)
         } else {
@@ -156,14 +182,15 @@ public class AdbPacketReader(
         } else {
             AdbReadOutcome.Failed(
                 AdbReadFailure.CHECKSUM_MISMATCH,
-                "command=0x${header.command.toString(16)} bytes=${payload.size} declared=${header.checksum}",
+                "command=0x${header.command.toString(16)} bytes=${payload.size} declared=${header.checksum} " +
+                    transportContext(),
             )
         }
 
     private fun readHeader(timeoutMillis: Int): HeaderOutcome {
         var received = 0
         var terminal: HeaderOutcome? = null
-        while (received < AdbPacketHeader.SIZE_BYTES && terminal == null) {
+        while (received < AdbPacketHeader.SIZE_BYTES && terminal == null && !stopped) {
             when (
                 val result = handle.receive(
                     destination = headerBuffer,
@@ -178,7 +205,7 @@ public class AdbPacketReader(
                         terminal = HeaderOutcome.Other(
                             AdbReadOutcome.Failed(
                                 AdbReadFailure.INVALID_TRANSFER_LENGTH,
-                                "header requested=$requested actual=${result.bytes}",
+                                "header requested=$requested actual=${result.bytes} ${transportContext()}",
                             ),
                         )
                     } else if (result.bytes == 0) {
@@ -197,7 +224,7 @@ public class AdbPacketReader(
             }
         }
 
-        return terminal ?: decodeHeader()
+        return if (stopped) HeaderOutcome.Other(AdbReadOutcome.Closed) else terminal ?: decodeHeader()
     }
 
     private fun decodeHeader(): HeaderOutcome =
@@ -206,7 +233,7 @@ public class AdbPacketReader(
             is AdbHeaderDecoding.Rejected -> HeaderOutcome.Other(
                 AdbReadOutcome.Failed(
                     AdbReadFailure.INVALID_HEADER,
-                    "${decoding.reason.name}: ${decoding.detail}",
+                    "${decoding.reason.name}: ${decoding.detail} ${transportContext()}",
                 ),
             )
         }
@@ -221,7 +248,7 @@ public class AdbPacketReader(
         } else {
             AdbReadOutcome.Failed(
                 AdbReadFailure.PARTIAL_HEADER,
-                "received=$received/${AdbPacketHeader.SIZE_BYTES}",
+                "received=$received/${AdbPacketHeader.SIZE_BYTES} ${transportContext()}",
             )
         }
 
@@ -234,13 +261,15 @@ public class AdbPacketReader(
             length = length,
             timeoutMillis = timeoutMillis,
         )
+        val waitedMillis = (nanoTime() - startedAt) / NANOS_IN_MILLI
         return when (result) {
             is UsbTransferResult.Completed ->
                 if (result.bytes !in 0..length) {
                     PayloadOutcome.Other(
                         AdbReadOutcome.Failed(
                             AdbReadFailure.INVALID_TRANSFER_LENGTH,
-                            "payload requested=$length actual=${result.bytes}",
+                            "payload requested=$length actual=${result.bytes} waitedMs=$waitedMillis " +
+                                transportContext(),
                         ),
                     )
                 } else if (AdbInboundFraming.payloadReadIsComplete(length, result.bytes)) {
@@ -249,7 +278,7 @@ public class AdbPacketReader(
                     PayloadOutcome.Other(
                         AdbReadOutcome.Failed(
                             AdbReadFailure.SHORT_PAYLOAD,
-                            "expected=$length actual=${result.bytes}",
+                            "expected=$length actual=${result.bytes} waitedMs=$waitedMillis ${transportContext()}",
                         ),
                     )
                 }
@@ -259,14 +288,26 @@ public class AdbPacketReader(
                     UsbTransferFailure.NOT_HELD -> AdbReadOutcome.Closed
                     UsbTransferFailure.NOT_COMPLETED -> AdbReadOutcome.Failed(
                         AdbReadFailure.PAYLOAD_TRANSFER_FAILED,
-                        // Прогон этапа 2 на 0.25.0: отказ повторился и с 5 с терпения.
-                        // Платформа отдаёт -1 и на тайм-аут, и на ошибку передачи;
-                        // различить их можно только по тому, сколько ждали.
-                        "expected=$length timeoutMs=$timeoutMillis " +
-                            "waitedMs=${(nanoTime() - startedAt) / NANOS_IN_MILLI}",
+                        // Android отдаёт один отрицательный исход и для тайм-аута,
+                        // и для I/O-ошибки. Время плюс состояние конкретного
+                        // интерфейса позволяют отличить мгновенный отказ от
+                        // реального ожидания, не придумывая причину за платформу.
+                        "expected=$length timeoutMs=$timeoutMillis waitedMs=$waitedMillis ${transportContext()}",
                     )
                 },
             )
+        }
+    }
+
+    /** Контекст физического IN endpoint без содержимого пакета или идентификаторов пользователя. */
+    private fun transportContext(): String {
+        val candidate = handle.candidate
+        return buildString {
+            append("held=").append(handle.held)
+            append(" vid=0x").append(candidate.device.vendorId.toString(16))
+            append(" pid=0x").append(candidate.device.productId.toString(16))
+            append(" if=").append(candidate.interfaceIndex)
+            append(" epIn=0x").append(candidate.endpointIn.address.toString(16))
         }
     }
 

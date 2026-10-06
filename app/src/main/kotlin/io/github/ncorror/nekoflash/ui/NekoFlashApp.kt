@@ -36,28 +36,31 @@ import kotlinx.coroutines.launch
 /**
  * Production shell: Terminal first, every secondary tool in a navigation drawer.
  *
- * The top bar contains only OTG state. There is deliberately no bottom bar,
- * tool picker, home dashboard, mock panel or duplicate ADB/Fastboot navigation.
+ * The compact top bar contains OTG state and the selected target. There is
+ * deliberately no bottom bar, home dashboard, mock panel or duplicate
+ * ADB/Fastboot navigation.
  */
 @Suppress("LongParameterList")
 @Composable
 fun NekoFlashApp(
-    sessions: List<UsbSession> = emptyList(),
-    scan: UsbScanSummary = UsbScanSummary.NEVER_SCANNED,
-    usbHostSupported: Boolean = true,
-    adbLink: AdbLinkState = AdbLinkState.Idle,
-    terminal: TerminalPanel = TerminalPanel(),
-    sideload: SideloadPanel = SideloadPanel(),
-    recentEvents: RecentEvents = RecentEvents { emptyList() },
-    fastboot: FastbootPanel = FastbootPanel(),
-    miUnlock: MiUnlockPanel = MiUnlockPanel(),
-    fastbootConsole: FastbootConsolePanel = FastbootConsolePanel(),
-    terminalActions: TerminalActions = TerminalActions(),
-    desktopCommand: DesktopCommandPanel = DesktopCommandPanel(),
-    onExportDiagnostics: () -> Unit = {},
+    sessions: List<UsbSession>,
+    selected: UsbSession?,
+    onSelectTarget: (UsbSession) -> Unit,
+    scan: UsbScanSummary,
+    usbHostSupported: Boolean,
+    adbLink: AdbLinkState,
+    terminal: TerminalPanel,
+    sideload: SideloadPanel,
+    recentEvents: RecentEvents,
+    fastboot: FastbootPanel,
+    miUnlock: MiUnlockPanel,
+    fastbootConsole: FastbootConsolePanel,
+    terminalActions: TerminalActions,
+    desktopCommand: DesktopCommandPanel,
+    onExportDiagnostics: () -> Unit,
 ) {
     var destination by rememberSaveable { mutableStateOf(SidebarDestination.TERMINAL) }
-    AutoConnectFastboot(sessions, fastboot)
+    AutoConnectFastboot(selected, fastboot)
     NekoFlashDrawer(
         destination = destination,
         onSelect = { destination = it },
@@ -65,6 +68,8 @@ fun NekoFlashApp(
         NekoFlashBody(
             destination = destination,
             sessions = sessions,
+            selected = selected,
+            onSelectTarget = onSelectTarget,
             scan = scan,
             usbHostSupported = usbHostSupported,
             adbLink = adbLink,
@@ -115,6 +120,8 @@ private fun NekoFlashDrawer(
 private fun NekoFlashBody(
     destination: SidebarDestination,
     sessions: List<UsbSession>,
+    selected: UsbSession?,
+    onSelectTarget: (UsbSession) -> Unit,
     scan: UsbScanSummary,
     usbHostSupported: Boolean,
     adbLink: AdbLinkState,
@@ -128,14 +135,19 @@ private fun NekoFlashBody(
     desktopCommand: DesktopCommandPanel,
     onExportDiagnostics: () -> Unit,
 ) {
-    val selected = sessions.firstOrNull()
     Column(
         modifier = Modifier
             .fillMaxSize()
             .statusBarsPadding()
             .navigationBarsPadding(),
     ) {
-        ConnectionStatusBar(adb = adbLink, fastboot = fastboot.state)
+        ConnectionStatusBar(
+            adb = adbLink,
+            fastboot = fastboot.state,
+            sessions = sessions,
+            selected = selected,
+            onSelectTarget = onSelectTarget,
+        )
         DestinationContent(
             destination = destination,
             selected = selected,
@@ -199,8 +211,8 @@ private fun DestinationContent(
 }
 
 @Composable
-private fun AutoConnectFastboot(sessions: List<UsbSession>, fastboot: FastbootPanel) {
-    val candidate = sessions.firstOrNull { session ->
+private fun AutoConnectFastboot(selected: UsbSession?, fastboot: FastbootPanel) {
+    val candidate = selected?.takeIf { session ->
         !session.closed &&
             session.state == UsbSessionState.READY &&
             session.candidate.kind == UsbInterfaceKind.FASTBOOT
@@ -255,8 +267,8 @@ private fun FastbootWorkspace(fastboot: FastbootPanel, console: FastbootConsoleP
     }
     val link = fastboot.state
     if (link is FastbootLinkState.Connected) {
-        ToolCard(title = stringResource(R.string.fastboot_card_actions)) {
-            FastbootConsoleSection(console = console, lock = link.lock, onPlan = fastboot.onPlan)
+        ToolCard(title = stringResource(R.string.fast_flash_card_title)) {
+            FastbootQuickFlashSection(console = console, lock = link.lock)
         }
     }
 }

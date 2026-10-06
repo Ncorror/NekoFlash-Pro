@@ -62,8 +62,8 @@ public object AdbTokenSigner {
         }
     }
 
-    /** То же DigestInfo, что уходит под подпись: нужно проверке в тестах. */
-    public fun digestInfo(token: ByteArray): ByteArray {
+    /** DigestInfo exposed only inside this module so tests can verify the exact AUTH bytes. */
+    internal fun digestInfo(token: ByteArray): ByteArray {
         require(token.size == TOKEN_SIZE_BYTES) {
             "ADB AUTH token must be $TOKEN_SIZE_BYTES bytes, got ${token.size}"
         }

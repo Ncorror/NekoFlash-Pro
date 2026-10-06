@@ -39,6 +39,18 @@ data class VtRun(val start: Int, val end: Int, val style: VtStyle)
 /** Строка, готовая к показу. */
 data class VtRow(val text: String, val runs: List<VtRun>)
 
+private fun VtRow.toLine(columns: Int): VtLine = VtLine(columns).also { line ->
+    val count = minOf(text.length, columns)
+    for (index in 0 until count) line.chars[index] = text[index]
+    for (run in runs) {
+        val start = run.start.coerceIn(0, columns)
+        val end = run.end.coerceIn(start, columns)
+        for (index in start until end) line.styles[index] = run.style
+    }
+}
+
+private fun VtLine.isVisuallyBlank(): Boolean = freeze().text.isEmpty()
+
 /**
  * Экран терминала: сетка [columns] × [rows], курсор, область прокрутки и
  * второй экран (`?1049h`), у которого нет истории, как у xterm.
@@ -50,6 +62,9 @@ internal class VtBuffer(var columns: Int, var rows: Int) {
     private var main = MutableList(rows) { VtLine(columns) }
     private var alternate: MutableList<VtLine>? = null
     val history = ArrayDeque<VtRow>()
+
+    /** Сколько верхних строк main были временно возвращены из history именно resize-ом. */
+    private var restoredForResize = 0
 
     internal val lines: MutableList<VtLine> get() = alternate ?: main
 
@@ -114,13 +129,17 @@ internal class VtBuffer(var columns: Int, var rows: Int) {
 
     fun scrollUp(count: Int) = repeat(count.coerceAtMost(bottom - top + 1)) {
         val gone = lines.removeAt(top)
-        if (top == 0 && alternate == null) archive(gone)
+        if (top == 0 && alternate == null) {
+            history.add(gone.freeze())
+            if (restoredForResize > 0) restoredForResize--
+        }
         lines.add(bottom, VtLine(columns).also { it.clear(0, columns, blank()) })
     }
 
     fun scrollDown(count: Int) = repeat(count.coerceAtMost(bottom - top + 1)) {
         lines.removeAt(bottom)
         lines.add(top, VtLine(columns).also { it.clear(0, columns, blank()) })
+        if (top == 0 && alternate == null) restoredForResize = 0
     }
 
     fun setRegion(newTop: Int, newBottom: Int) {
@@ -148,28 +167,96 @@ internal class VtBuffer(var columns: Int, var rows: Int) {
         if (on) moveTo(0, 0)
     }
 
-    /** Новый размер: содержимое сохраняется, лишние верхние строки уходят в историю. */
+    /**
+     * Resize keeps the terminal grid reversible when only its height changes.
+     *
+     * Soft-keyboard and lifecycle transitions change rows much more often than
+     * columns. Blank rows below the cursor are discarded first. If real rows
+     * must leave the visible grid they enter scrollback, and an expansion pulls
+     * those same rows back before adding new blanks.
+     */
     fun resize(newColumns: Int, newRows: Int) {
+        if (newColumns <= 0 || newRows <= 0) return
+        if (newColumns == columns && alternate == null) {
+            resizeMainRows(newRows)
+            return
+        }
+
+        restoredForResize = 0
+        val oldRows = rows
         for (screen in listOfNotNull(main, alternate)) {
             screen.forEach { it.resize(newColumns) }
             while (screen.size > newRows) {
                 val gone = screen.removeAt(0)
-                if (screen === main) archive(gone)
+                if (screen === main) history.add(gone.freeze())
             }
             while (screen.size < newRows) screen.add(VtLine(newColumns))
         }
-        val shift = rows - newRows
+        val shift = oldRows - newRows
         columns = newColumns
         rows = newRows
         top = 0
         bottom = rows - 1
+        saved = saved.clamp(rows, columns, shift.coerceAtLeast(0))
         moveTo(if (shift > 0) row - shift else row, column)
+    }
+
+    private fun resizeMainRows(newRows: Int) {
+        if (newRows == rows || newRows <= 0) return
+        if (newRows < rows) {
+            shrinkMainRows(newRows)
+        } else {
+            var remaining = newRows - rows
+            while (remaining > 0 && history.isNotEmpty()) {
+                main.add(0, history.removeLast().toLine(columns))
+                restoredForResize++
+                row++
+                saved = saved.copy(row = saved.row + 1)
+                remaining--
+            }
+            repeat(remaining) {
+                main.add(VtLine(columns).also { it.clear(0, columns, blank()) })
+            }
+        }
+        rows = newRows
+        top = 0
+        bottom = rows - 1
+        row = row.coerceIn(0, rows - 1)
+        column = column.coerceIn(0, columns - 1)
+        saved = saved.clamp(rows, columns)
+        wrapPending = false
+    }
+
+    private fun shrinkMainRows(newRows: Int) {
+        var remaining = rows - newRows
+        // Если прошлое расширение подняло history в live-grid, обратное
+        // сжатие сначала возвращает именно эти строки. Иначе пустой хвост
+        // под курсором съедается раньше и screenStartRow незаметно уезжает.
+        while (remaining > 0 && restoredForResize > 0 && main.size > newRows) {
+            history.add(main.removeAt(0).freeze())
+            restoredForResize--
+            row = (row - 1).coerceAtLeast(0)
+            saved = saved.copy(row = (saved.row - 1).coerceAtLeast(0))
+            remaining--
+        }
+        while (remaining > 0 && main.size > newRows) {
+            if (row >= main.lastIndex || !main.last().isVisuallyBlank()) break
+            main.removeAt(main.lastIndex)
+            remaining--
+        }
+        while (remaining > 0 && main.size > newRows) {
+            history.add(main.removeAt(0).freeze())
+            row = (row - 1).coerceAtLeast(0)
+            saved = saved.copy(row = (saved.row - 1).coerceAtLeast(0))
+            remaining--
+        }
     }
 
     fun reset() {
         main = MutableList(rows) { VtLine(columns) }
         alternate = null
         history.clear()
+        restoredForResize = 0
         style = VtStyle.PLAIN
         top = 0
         bottom = rows - 1
@@ -178,23 +265,28 @@ internal class VtBuffer(var columns: Int, var rows: Int) {
         moveTo(0, 0)
     }
 
-    /** Снимок экрана: история и текущие строки. */
-    fun snapshot(): VtSnapshot = VtSnapshot(
-        rows = history.toList() + lines.map { it.freeze() },
-        cursorRow = history.size + row,
-        cursorColumn = column,
-        cursorVisible = cursorVisible,
-    )
+    /** Снимок: scrollback + текущая экранная сетка и её явное начало. */
+    fun snapshot(): VtSnapshot {
+        val scrollback = if (onAlternate) emptyList() else history.toList()
+        return VtSnapshot(
+            rows = scrollback + lines.map { it.freeze() },
+            cursorRow = scrollback.size + row,
+            cursorColumn = column,
+            cursorVisible = cursorVisible,
+            screenStartRow = scrollback.size,
+        )
+    }
 
     /** Стертые клетки получают текущий фон, как у xterm (`bce`). */
     internal fun blank(): VtStyle =
         if (style.background == VtStyle.DEFAULT) VtStyle.PLAIN else VtStyle(background = style.background)
 
-    private fun archive(line: VtLine) {
-        history.add(line.freeze())
+    private data class Saved(val row: Int, val column: Int, val style: VtStyle) {
+        fun clamp(rows: Int, columns: Int, shift: Int = 0): Saved = copy(
+            row = (row - shift).coerceIn(0, rows - 1),
+            column = column.coerceIn(0, columns - 1),
+        )
     }
-
-    private data class Saved(val row: Int, val column: Int, val style: VtStyle)
 
     private companion object {
         const val TAB = 8
@@ -207,6 +299,8 @@ data class VtSnapshot(
     val cursorRow: Int,
     val cursorColumn: Int,
     val cursorVisible: Boolean,
+    /** Индекс первой строки текущей VT-сетки внутри [rows]. */
+    val screenStartRow: Int = 0,
 ) {
     /** Текст без оформления: строки через `\n`, пустой хвост отброшен. */
     val text: String

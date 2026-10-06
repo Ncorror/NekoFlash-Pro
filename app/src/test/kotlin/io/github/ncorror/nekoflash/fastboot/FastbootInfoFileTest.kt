@@ -7,6 +7,28 @@ import org.junit.Test
 /** `fastboot-info.txt` — как `ParseFastbootInfo`. */
 class FastbootInfoFileTest {
     @Test
+    fun aMalformedStreamStopsWithoutReadingTheRemainingFile() {
+        val lines = sequence {
+            yield("version 1")
+            yield("flash a b c")
+            error("parser continued past an invalid command")
+        }
+
+        assertTrue(FastbootInfoFile.parse(lines, "", "") is FastbootInfoRead.Invalid)
+    }
+
+    @Test
+    fun manyCommentLinesDoNotBecomeTasks() {
+        val lines = sequence {
+            repeat(100_000) { yield("# image bundle comment") }
+            yield("flash boot")
+        }
+        val parsed = FastbootInfoFile.parse(lines, "a", "b") as FastbootInfoRead.Tasks
+
+        assertEquals(listOf(FlashAllTask.Flash("boot", "boot.img", "a", false)), parsed.tasks)
+    }
+
+    @Test
     fun linesBecomeTasks() {
         val read = FastbootInfoFile.parse(
             "version 1\nflash --slot-other system system_other.img\nflash --apply-vbmeta vbmeta\nupdate-super\nreboot bootloader",

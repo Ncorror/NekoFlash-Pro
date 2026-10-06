@@ -16,9 +16,12 @@ import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executor
 import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.receiveAsFlow
 
 /** Один обратный проброс в том виде, в каком его показывает экран. */
 public data class AdbReverseEntry(
@@ -49,8 +52,11 @@ public data class AdbReverseState(
 
 /** Как обратиться к устройству и как завести соединение поверх принятого потока. */
 public interface AdbReverseSource {
-    /** Шлёт запрос семейства `reverse:` и возвращает ответ устройства. */
-    public fun request(onDevice: String, onHost: String): AdbReverseOutcome
+    /** Шлёт запрос семейства reverse и возвращает ответ устройства. */
+    public fun request(onDevice: String, onHost: String, noRebind: Boolean = false): AdbReverseOutcome
+
+    /** Снимает один обратный проброс по адресу на устройстве. */
+    public fun remove(onDevice: String): AdbReverseOutcome
 
     /** Спрашивает, что устройство слушает сейчас. */
     public fun list(): AdbReverseOutcome
@@ -90,6 +96,7 @@ public class AdbReverseController(
     },
 ) : AdbInboundStreams {
     private val mutableState = MutableStateFlow(AdbReverseState.None)
+    private val commandEvents = Channel<AdbReverseState>(Channel.UNLIMITED)
 
     /** Что мы просили слушать, по адресу на хосте: по нему приходят потоки. */
     private val expected = ConcurrentHashMap<String, Reverse>()
@@ -99,6 +106,9 @@ public class AdbReverseController(
 
     /** Состояние обратных пробросов. Экран подписывается и ничего не опрашивает. */
     public val state: StateFlow<AdbReverseState> = mutableState.asStateFlow()
+
+    /** Explicit reverse-command results; identical replies remain distinct events. */
+    public val commandResults: Flow<AdbReverseState> = commandEvents.receiveAsFlow()
 
     /** Привязывает контроллер к живому соединению; `null` — соединения больше нет. */
     public fun bind(live: AdbReverseSource?) {
@@ -111,12 +121,35 @@ public class AdbReverseController(
      *
      * Пустые поля — не ошибка, а нечего делать.
      */
-    public fun add(onDevice: String, onHost: String) {
+    public fun add(onDevice: String, onHost: String, noRebind: Boolean = false) {
         val device = onDevice.trim()
         val host = onHost.trim()
         if (device.isEmpty() || host.isEmpty()) return
         val live = source ?: return
-        executor.execute { ask(live, device, host) }
+        executor.execute {
+            ask(live, device, host, noRebind)
+            commandEvents.trySend(mutableState.value)
+        }
+    }
+
+    /** Снимает один обратный проброс по адресу на устройстве. */
+    public fun remove(onDevice: String) {
+        val device = onDevice.trim()
+        if (device.isEmpty()) return
+        val live = source ?: return
+        executor.execute {
+            val outcome = live.remove(device)
+            if (outcome is AdbReverseOutcome.Accepted) {
+                expected.entries.filter { it.value.onDevice == device }.forEach { entry ->
+                    expected.remove(entry.key, entry.value)
+                }
+                emit("reverse_removed", mapOf("onDevice" to device))
+                publish(failure = null)
+            } else {
+                fail(describe(outcome))
+            }
+            commandEvents.trySend(mutableState.value)
+        }
     }
 
     /** Спрашивает устройство, что оно слушает. */
@@ -127,6 +160,7 @@ public class AdbReverseController(
                 is AdbReverseOutcome.Accepted -> publish(listing = outcome.body.ifEmpty { EMPTY_LISTING })
                 else -> fail(describe(outcome))
             }
+            commandEvents.trySend(mutableState.value)
         }
     }
 
@@ -138,6 +172,7 @@ public class AdbReverseController(
             expected.clear()
             emit("reverse_removed_all", mapOf("outcome" to describe(outcome)))
             if (outcome is AdbReverseOutcome.Accepted) publish(listing = null) else fail(describe(outcome))
+            commandEvents.trySend(mutableState.value)
         }
     }
 
@@ -154,8 +189,8 @@ public class AdbReverseController(
         executor.execute { serve(service.trim(), mailbox) }
     }
 
-    private fun ask(live: AdbReverseSource, device: String, host: String) {
-        when (val outcome = live.request(device, host)) {
+    private fun ask(live: AdbReverseSource, device: String, host: String, noRebind: Boolean) {
+        when (val outcome = live.request(device, host, noRebind)) {
             is AdbReverseOutcome.Accepted -> {
                 expected[host] = Reverse(device, host, outcome.body)
                 emit(
@@ -297,7 +332,10 @@ public class AdbReverseController(
 internal fun AdbConnection.reverseSource(diagnostics: DiagnosticSink): AdbReverseSource {
     val requests = reverse(diagnostics)
     return object : AdbReverseSource {
-        override fun request(onDevice: String, onHost: String) = requests.forward(onDevice, onHost)
+        override fun request(onDevice: String, onHost: String, noRebind: Boolean) =
+            requests.forward(onDevice, onHost, noRebind)
+
+        override fun remove(onDevice: String) = requests.kill(onDevice)
 
         override fun list() = requests.list()
 

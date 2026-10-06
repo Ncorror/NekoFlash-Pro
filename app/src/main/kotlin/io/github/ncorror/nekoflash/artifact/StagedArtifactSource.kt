@@ -74,10 +74,9 @@ internal class StagedArtifactSource private constructor(
         /**
          * Копирует [source] в каталог [directory].
          *
-         * Место проверяется **до** первого байта там, где размер известен:
-         * оборвавшаяся на середине стажировка оставит половину файла и
-         * потраченное время оператора. Где размер неизвестен, проверить нечем,
-         * и об этом говорится честно — исход тогда выяснится по ходу.
+         * Читает до конца ограниченным буфером и измеряет длину даже там,
+         * где провайдер её не сообщает. Ошибка чтения или записи удаляет
+         * частичную копию; временный файл успеха принадлежит вызывающему.
          */
         fun stage(
             source: ArtifactSource,
@@ -90,14 +89,7 @@ internal class StagedArtifactSource private constructor(
                 directory.mkdirs()
                 source.open().use { input ->
                     file.outputStream().use { output ->
-                        val buffer = ByteArray(COPY_BLOCK_BYTES)
-                        var read = input.read(buffer)
-                        while (read > 0) {
-                            output.write(buffer, 0, read)
-                            digest.update(buffer, 0, read)
-                            onProgress(digest.bytes)
-                            read = input.read(buffer)
-                        }
+                        copy(input, output, digest, onProgress)
                     }
                 }
                 staged(source, file, digest)
@@ -106,6 +98,22 @@ internal class StagedArtifactSource private constructor(
                 ArtifactStagingOutcome.Failed(
                     "стажировка не удалась: ${error.message ?: error.javaClass.simpleName}",
                 )
+            }
+        }
+
+        private fun copy(
+            input: InputStream,
+            output: java.io.OutputStream,
+            digest: ArtifactDigest,
+            onProgress: (Long) -> Unit,
+        ) {
+            val buffer = ByteArray(COPY_BLOCK_BYTES)
+            var read = readArtifactChunk(input, buffer)
+            while (read >= 0) {
+                output.write(buffer, 0, read)
+                digest.update(buffer, 0, read)
+                onProgress(digest.bytes)
+                read = readArtifactChunk(input, buffer)
             }
         }
 

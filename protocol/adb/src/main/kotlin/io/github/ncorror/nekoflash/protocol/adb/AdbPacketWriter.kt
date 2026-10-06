@@ -9,7 +9,7 @@ public sealed interface AdbWriteOutcome {
     /** Кадр отправлен целиком. */
     public data object Sent : AdbWriteOutcome
 
-    /** Интерфейс больше не удерживается. */
+    /** Писатель остановлен или интерфейс больше не удерживается. */
     public data object Closed : AdbWriteOutcome
 
     /**
@@ -55,6 +55,21 @@ public class AdbPacketWriter(
     /** Кадр уходит целиком или не уходит: чужой отправитель в середину не влезет. */
     private val writeLock = Any()
 
+    @Volatile
+    private var stopped = false
+
+    private var onFailure: (AdbWriteOutcome) -> Unit = { }
+
+    /** The dispatch loop owns the failure of every writer sharing this transport. */
+    internal fun observeFailure(listener: (AdbWriteOutcome) -> Unit) {
+        onFailure = listener
+    }
+
+    /** Stops queued frames and the remaining chunks without waiting for a blocked USB call. */
+    internal fun stop() {
+        stopped = true
+    }
+
     /**
      * Версия протокола peer'а: определяет, считается ли контрольная сумма.
      *
@@ -82,7 +97,32 @@ public class AdbPacketWriter(
         arg1: Int,
         payload: ByteArray = EMPTY_PAYLOAD,
         timeoutMillis: Int = DEFAULT_SEND_TIMEOUT_MS,
-    ): AdbWriteOutcome = synchronized(writeLock) {
+    ): AdbWriteOutcome {
+        require(timeoutMillis >= 0) { "ADB send timeout must not be negative: $timeoutMillis" }
+        val outcome = synchronized(writeLock) {
+            if (stopped) {
+                null
+            } else {
+                finishWrite(writeFrame(command, arg0, arg1, payload, timeoutMillis))
+            }
+        }
+        // The owner may close shells or the connection. It must never run under the frame lock.
+        if (outcome != null && outcome != AdbWriteOutcome.Sent) onFailure(outcome)
+        return outcome ?: AdbWriteOutcome.Closed
+    }
+
+    private fun finishWrite(outcome: AdbWriteOutcome): AdbWriteOutcome {
+        if (outcome != AdbWriteOutcome.Sent) stopped = true
+        return outcome
+    }
+
+    private fun writeFrame(
+        command: Long,
+        arg0: Int,
+        arg1: Int,
+        payload: ByteArray,
+        timeoutMillis: Int,
+    ): AdbWriteOutcome {
         val checksum = if (AdbChecksum.isRequired(localVersion, peerVersion)) {
             AdbChecksum.compute(payload)
         } else {
@@ -91,7 +131,7 @@ public class AdbPacketWriter(
         AdbPacketHeader.encode(headerBuffer, command, arg0, arg1, payload, checksum)
 
         val header = sendFully(headerBuffer, headerBuffer.size, 0, timeoutMillis)
-        when {
+        return when {
             header !is AdbWriteOutcome.Sent -> header
             payload.isEmpty() -> AdbWriteOutcome.Sent
             else -> sendFully(payload, payload.size, headerBuffer.size, timeoutMillis)
@@ -102,6 +142,8 @@ public class AdbPacketWriter(
      * @param alreadySent сколько байт кадра ушло раньше: нужно, чтобы
      * прерванная отправка payload сообщала о кадре целиком, а не о своём куске.
      */
+    // A platform exception cannot leave the shared transport available to another frame.
+    @Suppress("TooGenericExceptionCaught")
     private fun sendFully(
         source: ByteArray,
         length: Int,
@@ -110,16 +152,22 @@ public class AdbPacketWriter(
     ): AdbWriteOutcome {
         var sent = 0
         var outcome: AdbWriteOutcome? = null
-        while (sent < length && outcome == null) {
+        while (sent < length && outcome == null && !stopped) {
             val chunk = minOf(USB_BULK_CHUNK_BYTES, length - sent)
-            when (
-                val result = handle.send(
+            val result = try {
+                handle.send(
                     source = source,
                     offset = sent,
                     length = chunk,
                     timeoutMillis = timeoutMillis,
                 )
-            ) {
+            } catch (error: RuntimeException) {
+                return AdbWriteOutcome.Interrupted(
+                    alreadySent + sent,
+                    "send threw ${error.javaClass.simpleName}",
+                )
+            }
+            when (result) {
                 is UsbTransferResult.Completed -> {
                     if (result.bytes !in 1..chunk) {
                         outcome = AdbWriteOutcome.Interrupted(
@@ -140,7 +188,7 @@ public class AdbPacketWriter(
                 }
             }
         }
-        return outcome ?: AdbWriteOutcome.Sent
+        return outcome ?: if (stopped) AdbWriteOutcome.Closed else AdbWriteOutcome.Sent
     }
 
     public companion object {

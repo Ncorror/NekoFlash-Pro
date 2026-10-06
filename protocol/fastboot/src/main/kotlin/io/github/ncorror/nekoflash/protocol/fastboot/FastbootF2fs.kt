@@ -1,5 +1,7 @@
 package io.github.ncorror.nekoflash.protocol.fastboot
 
+import java.io.ByteArrayOutputStream
+import java.io.OutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.TreeMap
@@ -30,7 +32,13 @@ public object FastbootF2fs {
     )
 
     /** Образ в формате sparse, как его пишет `make_f2fs`: обнулённое — заполнением, остальное — пропуском. */
-    public fun image(request: Request): Result<ByteArray> = runCatching {
+    public fun image(request: Request): Result<ByteArray> {
+        val output = ByteArrayOutputStream()
+        return write(request, output).map { output.toByteArray() }
+    }
+
+    /** Пишет sparse-образ последовательно; большие RAW-runs не склеиваются в ByteArray. */
+    public fun write(request: Request, output: OutputStream): Result<Long> = runCatching {
         var features = F2fs.ANDROID_FEATURES
         if (request.projectIds) features = features or F2fs.FEATURE_PRJQUOTA or F2fs.FEATURE_EXTRA_ATTR
         if (request.casefold) features = features or F2fs.FEATURE_CASEFOLD
@@ -40,11 +48,13 @@ public object FastbootF2fs {
         val chunks = mutableListOf<SparseChunk>()
         var runStart = -1L
         var next = -1L
-        var run = java.io.ByteArrayOutputStream()
+        var runBytes = 0L
+        var run = mutableListOf<ByteArray>()
         fun flush() {
-            if (runStart >= 0 && run.size() > 0) chunks += SparseChunk.Raw(runStart, run.toByteArray())
-            run = java.io.ByteArrayOutputStream()
-            runStart = -1
+            if (runStart >= 0 && run.isNotEmpty()) chunks += SparseChunk.Raw(runStart, run)
+            run = mutableListOf()
+            runStart = -1L
+            runBytes = 0L
         }
         for ((block, bytes) in blocks) {
             if (bytes == null) {
@@ -56,14 +66,15 @@ public object FastbootF2fs {
                     chunks += SparseChunk.Fill(block, 1)
                 }
             } else {
-                if (block != next || run.size() >= MAX_CHUNK_BYTES) flush()
+                if (block != next || runBytes >= MAX_CHUNK_BYTES) flush()
                 if (runStart < 0) runStart = block
-                run.write(bytes)
+                run += bytes
+                runBytes += bytes.size
             }
             next = block + 1
         }
         flush()
-        SparseWriter.write(F2fs.BLOCK, layout.totalSectors * F2fsLayout.SECTOR / F2fs.BLOCK, chunks)
+        SparseWriter.writeTo(output, F2fs.BLOCK, layout.totalSectors * F2fsLayout.SECTOR / F2fs.BLOCK, chunks)
     }
 
     /** `MAX_CHUNK_SIZE` у `f2fs_finalize_device`: кусок данных не длиннее 1 ГиБ. */

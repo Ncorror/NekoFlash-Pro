@@ -134,8 +134,26 @@ class TerminalParserTest {
     }
 
     @Test
+    fun forwardingCommandsStayTyped() {
+        assertEquals(
+            AdbForwardCommand(AdbForwardRequest.Add("tcp:1234", "tcp:4321")),
+            adb("adb forward tcp:1234 tcp:4321").command,
+        )
+        assertEquals(
+            AdbForwardCommand(AdbForwardRequest.Remove("tcp:1234")),
+            adb("adb forward --remove tcp:1234").command,
+        )
+        assertEquals(AdbForwardCommand(AdbForwardRequest.List), adb("adb forward --list").command)
+        assertEquals(
+            AdbReverseCommand(AdbReverseRequest.Add("tcp:7777", "tcp:8888", noRebind = true)),
+            adb("adb reverse --no-rebind tcp:7777 tcp:8888").command,
+        )
+        assertEquals(AdbReverseCommand(AdbReverseRequest.RemoveAll), adb("adb reverse --remove-all").command)
+        assertIs<TerminalParseResult.Invalid>(parser.parse("adb forward --remove"))
+    }
+
+    @Test
     fun unknownHostCommandsCannotTurnIntoRemoteShell() {
-        assertIs<TerminalParseResult.Unsupported>(parser.parse("adb forward tcp:1234 tcp:1234"))
         assertIs<TerminalParseResult.Unsupported>(parser.parse("adb bugreport"))
         assertIs<TerminalParseResult.Unsupported>(parser.parse("adb shell -e ^ echo hi"))
         assertIs<TerminalParseResult.Unsupported>(parser.parse("fastboot --unrecognized flash boot boot.img"))
@@ -276,4 +294,3 @@ class TerminalParserTest {
             adb("adb pull \"/sdcard/x y\"").command)
     }
 }
-

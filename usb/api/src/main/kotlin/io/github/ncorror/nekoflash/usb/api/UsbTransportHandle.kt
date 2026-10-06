@@ -90,6 +90,9 @@ public interface UsbTransportHandle : AutoCloseable {
 
 /** Почему интерфейс не удалось захватить. */
 public enum class UsbClaimFailure {
+    /** The owner released the interface or a newer claim superseded this pending request. */
+    SUPERSEDED,
+
     /** Устройство исчезло между обнаружением и захватом. */
     DEVICE_GONE,
 

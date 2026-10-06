@@ -94,8 +94,8 @@ internal object NativeUsbfsBackend {
         }
         val unavailable = raw == null || raw.size < BACKEND_STATE_FIELD_COUNT
         return BackendState(
-            poisoned = unavailable || raw?.getOrNull(0) == 1L,
-            nativeTransferActive = unavailable || raw?.getOrNull(1) == 1L,
+            poisoned = unavailable || raw.getOrNull(0) == 1L,
+            nativeTransferActive = unavailable || raw.getOrNull(1) == 1L,
             nativeTransferToken = raw?.getOrNull(2) ?: 0L,
             confirmedBytes = raw?.getOrNull(3) ?: 0L,
             submittedBytes = raw?.getOrNull(4) ?: 0L,

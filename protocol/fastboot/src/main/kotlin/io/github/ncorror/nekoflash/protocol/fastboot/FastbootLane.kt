@@ -232,13 +232,14 @@ public class FastbootLane(
         expectedBytes: Long,
         inactivityMillis: Long = DEFAULT_INACTIVITY_MS,
         writeTimeoutMillis: Int = DATA_WRITE_TIMEOUT_MS,
+        progress: (Long) -> Unit = {},
     ): FastbootDataOutcome {
         require(expectedBytes >= 0L) { "объявленный размер не может быть отрицательным" }
         require(inactivityMillis > 0L) { "бюджет бездействия должен быть положительным" }
         return if (currentState != FastbootLaneState.AWAITING_DATA) {
             FastbootDataOutcome.NotReady(currentState)
         } else {
-            pump(source, expectedBytes, inactivityMillis, writeTimeoutMillis)
+            pump(source, expectedBytes, inactivityMillis, writeTimeoutMillis, progress)
         }
     }
 
@@ -268,6 +269,7 @@ public class FastbootLane(
         payloadFd: Int,
         expectedBytes: Long,
         inactivityMillis: Long = DEFAULT_INACTIVITY_MS,
+        progress: (Long) -> Unit = {},
     ): FastbootDataOutcome {
         require(expectedBytes >= 0L) { "объявленный размер не может быть отрицательным" }
         require(inactivityMillis > 0L) { "бюджет бездействия должен быть положительным" }
@@ -276,7 +278,7 @@ public class FastbootLane(
             currentState != FastbootLaneState.AWAITING_DATA -> FastbootDataOutcome.NotReady(currentState)
             sender == null -> finish(0L, expectedBytes, NO_FILE_SENDER, inactivityMillis)
             else -> {
-                val result = sender.send(payloadFd, expectedBytes)
+                val result = sender.send(payloadFd, expectedBytes, progress)
                 val failure = when {
                     !result.success -> "нативная передача не состоялась: ${result.detail}"
                     result.confirmedBytes != expectedBytes ->
@@ -293,6 +295,7 @@ public class FastbootLane(
         expectedBytes: Long,
         inactivityMillis: Long,
         writeTimeoutMillis: Int,
+        progress: (Long) -> Unit,
     ): FastbootDataOutcome {
         val block = ByteArray(DATA_BLOCK_BYTES)
         var sent = 0L
@@ -310,6 +313,7 @@ public class FastbootLane(
                 val written = writeBlock(block, read, sent, writeTimeoutMillis)
                 failure = written.second
                 sent += written.first
+                if (written.first > 0L) progress(sent)
             }
         }
 

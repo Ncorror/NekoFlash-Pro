@@ -5,7 +5,6 @@ import io.github.ncorror.nekoflash.protocol.adb.AdbConnection
 import io.github.ncorror.nekoflash.protocol.adb.AdbInteractiveShell
 import io.github.ncorror.nekoflash.protocol.adb.AdbShellEvent
 import io.github.ncorror.nekoflash.protocol.adb.AdbShellMode
-import io.github.ncorror.nekoflash.terminal.TerminalShellProfile
 import io.github.ncorror.nekoflash.terminal.VtScreen
 import io.github.ncorror.nekoflash.terminal.VtSnapshot
 import java.util.concurrent.Executor
@@ -53,13 +52,8 @@ public enum class TerminalKey { ESCAPE, TAB, UP, DOWN, LEFT, RIGHT, HOME, END, P
 public class AdbTerminalController(
     private val readerExecutor: Executor,
     private val writerExecutor: Executor,
-    private val diagnostics: DiagnosticSink = DiagnosticSink { },
+    private val diagnostics: DiagnosticSink,
     private val elapsedNanos: () -> Long = { System.nanoTime() },
-    /**
-     * Логотип и приглашение как у NetHunter (D078) — только для обычного
-     * терминала: у `-T` и `-x` приглашения нет или оно чужое.
-     */
-    private val profile: Boolean = false,
 ) {
     private val mutableState = MutableStateFlow(AdbTerminalState())
     private val lifecycleLock = Any()
@@ -184,18 +178,16 @@ public class AdbTerminalController(
     @Suppress("TooGenericExceptionCaught")
     private fun openAndPump(connection: AdbConnection, requestId: Long, mode: AdbShellMode) {
         if (markReaderStarted(requestId)) {
-            val styled = profile && mode == AdbShellMode.PTY
             var session: AdbInteractiveShell? = null
             try {
                 session = connection.interactiveShell(
                     diagnostics = diagnostics,
                     mode = mode,
                     term = VtScreen.TERM,
-                    command = if (styled) TerminalShellProfile.command else "",
                 )
                 when {
                     !session.open() -> finishSession(session, requestId, OPEN_FAILED)
-                    bindShell(session, requestId) -> pumpUntilClosed(session, requestId, styled)
+                    bindShell(session, requestId) -> pumpUntilClosed(session, requestId)
                     else -> session.close()
                 }
             } catch (error: Throwable) {
@@ -246,17 +238,12 @@ public class AdbTerminalController(
      * [PUBLISH_INTERVAL_MS]: терминалу этого хватает, а темп разбора перестаёт
      * зависеть от скорости перерисовки.
      */
-    private fun pumpUntilClosed(session: AdbInteractiveShell, requestId: Long, styled: Boolean) {
+    private fun pumpUntilClosed(session: AdbInteractiveShell, requestId: Long) {
         // Ответы терминала (`DSR`, `DA`) уходят в оболочку тем же вводом.
         val terminal = VtScreen(size.columns, size.rows) { answer ->
             enqueueWriter("terminal reply") { session.sendInput(answer) }
         }
-        synchronized(screenLock) {
-            if (styled) terminal.feed(TerminalShellProfile.banner(size.columns))
-            screen = terminal
-        }
-        // Логотип виден сразу, пока устройство ещё открывает поток.
-        if (styled) publishRunningState(requestId, ready = false, terminal = terminal)
+        synchronized(screenLock) { screen = terminal }
         var progress = PumpProgress()
         var shown = ShownState()
 
@@ -503,7 +490,6 @@ public class AdbTerminalController(
         }
     }
 
-
     private data class PumpProgress(
         val ready: Boolean = false,
         val ended: String? = null,
@@ -514,7 +500,6 @@ public class AdbTerminalController(
     private companion object {
         const val OPEN_FAILED = "open failed"
         const val CLOSED = "closed"
-
 
         /**
          * Как часто вывод попадает на экран.

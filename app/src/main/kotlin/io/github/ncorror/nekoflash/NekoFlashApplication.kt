@@ -4,37 +4,43 @@ import android.Manifest
 import android.app.Application
 import android.net.Uri
 import android.os.Build
+import io.github.ncorror.nekoflash.adb.AdbLinkController
+import io.github.ncorror.nekoflash.adb.AdbLinkState
+import io.github.ncorror.nekoflash.adb.AdbHostServices
+import io.github.ncorror.nekoflash.artifact.ArtifactStorageSpace
 import io.github.ncorror.nekoflash.core.diagnostics.DiagnosticBundle
 import io.github.ncorror.nekoflash.core.diagnostics.DiagnosticBundleResult
 import io.github.ncorror.nekoflash.core.diagnostics.DiagnosticEvent
 import io.github.ncorror.nekoflash.core.diagnostics.DiagnosticRedaction
 import io.github.ncorror.nekoflash.core.diagnostics.InMemoryDiagnosticSink
 import io.github.ncorror.nekoflash.core.model.SessionGeneration
-import io.github.ncorror.nekoflash.adb.AdbLinkController
-import io.github.ncorror.nekoflash.fastboot.FastbootLinkController
-import io.github.ncorror.nekoflash.miunlock.MiAccountSession
-import io.github.ncorror.nekoflash.terminal.StarshipInstaller
+import io.github.ncorror.nekoflash.core.operation.FileOperationJournal
 import io.github.ncorror.nekoflash.diagnostics.ExportIdentifiers
 import io.github.ncorror.nekoflash.diagnostics.HostFacts
+import io.github.ncorror.nekoflash.fastboot.FastbootLinkController
+import io.github.ncorror.nekoflash.miunlock.MiAccountSession
+import io.github.ncorror.nekoflash.operation.OperationEngine
+import io.github.ncorror.nekoflash.operation.OperationService
 import io.github.ncorror.nekoflash.protocol.adb.AdbKeyStore
 import io.github.ncorror.nekoflash.usb.android.AndroidUsbHost
+import io.github.ncorror.nekoflash.usb.api.UsbClaimResult
 import io.github.ncorror.nekoflash.usb.api.UsbDiagnosticReport
 import io.github.ncorror.nekoflash.usb.api.UsbPermissionCallbackIdentity
 import io.github.ncorror.nekoflash.usb.api.UsbPermissionPolicy
-import io.github.ncorror.nekoflash.core.operation.FileOperationJournal
-import io.github.ncorror.nekoflash.operation.OperationEngine
-import io.github.ncorror.nekoflash.operation.OperationService
+import io.github.ncorror.nekoflash.usb.api.UsbSession
 import io.github.ncorror.nekoflash.usb.api.UsbSessionCoordinator
 import io.github.ncorror.nekoflash.usb.api.UsbSessionState
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
+import io.github.ncorror.nekoflash.usb.api.UsbTransportHandle
 import java.io.File
 import java.time.Instant
 import java.util.UUID
 import java.util.concurrent.Executors
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.launch
 
 /**
  * Владелец USB на уровне приложения.
@@ -54,9 +60,6 @@ public class NekoFlashApplication : Application() {
      * Compose.
      */
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-
-    /** Optional local-shell integration; the ADB PTY remains a remote process. */
-    public val starshipInstaller: StarshipInstaller by lazy { StarshipInstaller(this) }
 
     private val host by lazy {
         AndroidUsbHost(
@@ -88,6 +91,14 @@ public class NekoFlashApplication : Application() {
             diagnostics = events,
         )
     }
+
+    /**
+     * Единственный выбор цели для UI, ADB и Fastboot.
+     *
+     * Контроллер не владеет транспортом: он лишь связывает выбранный TargetId с
+     * generation, для которой тождество действительно доказано.
+     */
+    internal val targetSelection = TargetSelectionController()
 
     /**
      * Ключ хоста ADB.
@@ -150,10 +161,12 @@ public class NekoFlashApplication : Application() {
             executor = adbOperationThreads,
             terminalWriterExecutor = adbWriterThread,
             diagnostics = events,
-            // Факт, а не догадка: спрашивается у платформы в момент отказа.
-            networkPermission = { HostFacts.permissionState(this, Manifest.permission.INTERNET) },
             operations = operations,
-            holdProcess = { OperationService.start(this) },
+            hostServices = AdbHostServices(
+                networkPermission = { HostFacts.permissionState(this, Manifest.permission.INTERNET) },
+                holdProcess = { OperationService.start(this) },
+                stagingSpace = ArtifactStorageSpace(this)::prepare,
+            ),
         )
     }
 
@@ -165,7 +178,7 @@ public class NekoFlashApplication : Application() {
      */
     public val fastbootLink: FastbootLinkController by lazy {
         FastbootLinkController(
-            claim = usbSessions::claim,
+            claim = ::claimFastboot,
             executor = adbOperationThreads,
             diagnostics = events,
             sessions = { usbSessions.sessions.value },
@@ -214,9 +227,6 @@ public class NekoFlashApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
-        // Asset extraction is best effort and never blocks startup. If the
-        // optional binary is absent, the installer returns MissingAsset.
-        scope.launch(Dispatchers.IO) { starshipInstaller.install() }
         // Операции, застигнутые гибелью процесса, читаются и закрываются здесь
         // — до того, как экран успеет показать их идущими. Продолжения среди
         // исходов нет: транспорт ушёл вместе с процессом, и «сейчас дожмём»
@@ -227,16 +237,54 @@ public class NekoFlashApplication : Application() {
         // проверьте» от этого только точнее.
         operations.restoreAll(currentGeneration = null)
         usbSessions.start()
-        // Соединения ADB и Fastboot живы ровно пока удерживается интерфейс. Наблюдение
-        // заведено здесь, а не внутри контроллера: владелец USB живёт на уровне
-        // приложения, и подписываться на него должен тот, кто им владеет.
+        // Физические сессии и операторский выбор сходятся здесь. Ни ADB, ни
+        // Fastboot больше не получают полный список и потому не могут выбрать
+        // «первое» устройство независимо друг от друга.
         scope.launch {
-            usbSessions.sessions.collect { sessions ->
-                adbLink.onUsbSessionsChanged(sessions)
-                fastbootLink.onUsbSessionsChanged(sessions)
-            }
+            combine(usbSessions.sessions, targetSelection.state) { sessions, _ -> sessions }
+                .collect(::reconcileProtocolOwners)
         }
     }
+
+    /** Привязывает оба протокола только к выбранной доказанной generation. */
+    private fun reconcileProtocolOwners(sessions: List<UsbSession>) {
+        targetSelection.reconcile(sessions)
+        val selected = targetSelection.resolve(sessions)
+        val selectedGeneration = selected?.generation
+        val currentAdb = adbGeneration()
+        if (currentAdb != null && currentAdb != selectedGeneration) {
+            // ADB owns its claim through the coordinator; switching targets must
+            // release that generation, not merely close the protocol object.
+            adbLink.disconnect(currentAdb)
+        }
+        val selectedSessions = selected?.let(::listOf).orEmpty()
+        adbLink.onUsbSessionsChanged(selectedSessions)
+        fastbootLink.onUsbSessionsChanged(selectedSessions)
+    }
+
+    private fun adbGeneration(): SessionGeneration? = when (val state = adbLink.state.value) {
+        AdbLinkState.Idle -> null
+        is AdbLinkState.Connecting -> state.generation
+        is AdbLinkState.WaitingForAuthorization -> state.generation
+        is AdbLinkState.Connected -> state.generation
+        is AdbLinkState.Failed -> state.generation
+    }
+
+    /**
+     * Fastboot closes its transport directly. Wrap the claim so closing that
+     * handle also updates the coordinator from CLAIMED back to READY.
+     */
+    private fun claimFastboot(generation: SessionGeneration): UsbClaimResult =
+        when (val claimed = usbSessions.claim(generation)) {
+            is UsbClaimResult.Failed -> claimed
+            is UsbClaimResult.Claimed -> UsbClaimResult.Claimed(
+                object : UsbTransportHandle by claimed.handle {
+                    override fun close() {
+                        usbSessions.release(generation)
+                    }
+                },
+            )
+        }
 
     private companion object {
         /** Каталог ключа ADB внутри приватного хранилища приложения. */

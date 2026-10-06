@@ -1,5 +1,7 @@
 package io.github.ncorror.nekoflash.protocol.fastboot
 
+import java.io.ByteArrayOutputStream
+import java.io.OutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
@@ -49,17 +51,24 @@ public object FastbootExt4 {
      * (`DONT_CARE`); с `casefold` образ сплошной, как у настольного клиента,
      * и нули пишутся заполнением.
      */
-    public fun image(request: Request): Result<ByteArray> = runCatching {
+    public fun image(request: Request): Result<ByteArray> {
+        val output = ByteArrayOutputStream()
+        return write(request, output).map { output.toByteArray() }
+    }
+
+    /** Тот же sparse-образ, но без массива размером со весь результат. */
+    public fun write(request: Request, output: OutputStream): Result<Long> = runCatching {
         val requested = request.sizeBytes / BLOCK_SIZE
         val geometry = Ext4Geometry.of(requested, Ext4Profile.of(requested, request.projectIds))
         val blocks = Ext4Builder(geometry, request).build()
         val chunks = mutableListOf<SparseChunk>()
         var runStart = -1L
-        var run = java.io.ByteArrayOutputStream()
+        var run = mutableListOf<ByteArray>()
         var next = -1L
         fun flush() {
-            if (runStart >= 0) chunks += SparseChunk.Raw(runStart, run.toByteArray())
-            run = java.io.ByteArrayOutputStream()
+            if (runStart >= 0 && run.isNotEmpty()) chunks += SparseChunk.Raw(runStart, run)
+            run = mutableListOf()
+            runStart = -1L
         }
         for ((block, bytes) in blocks) {
             if (block != next) {
@@ -70,12 +79,16 @@ public object FastbootExt4 {
                 }
                 runStart = block
             }
-            run.write(bytes)
+            if (runStart < 0) runStart = block
+            run += bytes
             next = block + 1
         }
         flush()
-        if (request.casefold && next < requested) chunks += SparseChunk.Fill(maxOf(next, 0), requested - maxOf(next, 0))
-        SparseWriter.write(BLOCK_SIZE, requested, chunks)
+        if (request.casefold && next < requested) {
+            val gapStart = maxOf(next, 0)
+            chunks += SparseChunk.Fill(gapStart, requested - gapStart)
+        }
+        SparseWriter.writeTo(output, BLOCK_SIZE, requested, chunks)
     }
 
     private const val MIN_STRIDE_BYTES = 8192L

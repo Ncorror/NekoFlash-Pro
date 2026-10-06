@@ -23,7 +23,9 @@ internal class ZstdDecoder : SyncDecoder {
     override fun feed(chunk: ByteArray, output: (ByteArray) -> Unit) {
         corruptIf(state == State.DONE && chunk.isNotEmpty()) { "Zstd stream hit end before reading all data" }
         input.append(chunk)
-        while (step(output)) Unit
+        while (step(output)) {
+            // Keep consuming complete input already buffered.
+        }
         corruptIf(state == State.DONE && input.available > 0) { "Zstd stream hit end before reading all data" }
     }
 

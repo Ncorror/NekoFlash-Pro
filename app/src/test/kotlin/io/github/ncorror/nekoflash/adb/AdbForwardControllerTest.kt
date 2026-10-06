@@ -13,6 +13,8 @@ import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -262,6 +264,19 @@ class AdbForwardControllerTest {
         )
     }
 
+    @Test
+    fun identicalNoOpRemovalsStillProduceTwoCommandResults() {
+        val controller = controller()
+
+        controller.remove(54321)
+        val first = runBlocking { controller.commandResults.first() }
+        controller.remove(54321)
+        val second = runBlocking { controller.commandResults.first() }
+
+        assertEquals(first, second)
+        assertTrue(first.forwards.isEmpty())
+    }
+
     /** Снятие видно в журнале так же, как заведение. */
     @Test
     fun removingAForwardIsNamedInTheJournal() {
@@ -342,6 +357,30 @@ class AdbForwardControllerTest {
         controller.stopAll("transport closed")
 
         assertTrue(controller.state.value.forwards.isEmpty())
+    }
+
+    @Test
+    fun aNormalAddRebindsAnOwnedPort() {
+        val controller = controller()
+        controller.add(HeldSource(), localPort = 0, address = ADDRESS)
+        val port = awaitSingleForward(controller).localPort
+
+        controller.add(HeldSource(), localPort = port, address = "tcp:6666")
+
+        assertTrue(await { controller.state.value.forwards.singleOrNull()?.address == "tcp:6666" })
+        assertEquals(port, controller.state.value.forwards.single().localPort)
+    }
+
+    @Test
+    fun noRebindKeepsTheExistingOwnedPort() {
+        val controller = controller()
+        controller.add(HeldSource(), localPort = 0, address = ADDRESS)
+        val port = awaitSingleForward(controller).localPort
+
+        controller.add(HeldSource(), localPort = port, address = "tcp:6666", noRebind = true)
+
+        assertTrue(await { controller.state.value.failure != null })
+        assertEquals(ADDRESS, controller.state.value.forwards.single().address)
     }
 
     @Test

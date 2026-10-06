@@ -186,17 +186,6 @@ class OperationJournalTest {
         assertNull(OperationJournalCodec.decode(java.util.Properties()))
     }
 
-    /** Хранилище в памяти отвечает так же: тесты и хранилище не расходятся. */
-    @Test
-    fun theInMemoryJournalAnswersTheSameWay() {
-        val journal = InMemoryOperationJournal()
-        journal.save(record(id = "a", createdAt = Instant.parse("2026-01-01T00:00:00Z")))
-        journal.save(record(id = "b", createdAt = Instant.parse("2026-02-01T00:00:00Z")))
-        journal.forget(OperationId("a"))
-
-        assertEquals(listOf("b"), journal.history().records.map { it.id.value })
-    }
-
     private fun record(
         id: String = "op-1",
         createdAt: Instant = Instant.EPOCH,

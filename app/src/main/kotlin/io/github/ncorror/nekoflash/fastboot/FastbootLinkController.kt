@@ -39,6 +39,7 @@ import io.github.ncorror.nekoflash.usb.api.UsbSessionState
 import io.github.ncorror.nekoflash.usb.api.UsbTransportHandle
 import java.time.Instant
 import java.util.concurrent.Executor
+import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -77,6 +78,22 @@ public sealed interface FastbootLinkState {
     public data class Failed(val generation: SessionGeneration, val detail: String) : FastbootLinkState
 }
 
+private fun runningFlashState(
+    command: String,
+    startedAtMillis: Long,
+    stage: FastbootOperationStage,
+    target: String,
+    transferredBytes: Long,
+    totalBytes: Long,
+): FastbootConsoleState.Running = FastbootConsoleState.Running(
+    command = command,
+    startedAtMillis = startedAtMillis,
+    stage = stage,
+    target = target,
+    transferredBytes = transferredBytes,
+    totalBytes = totalBytes,
+)
+
 /** Класс мутации исхода: у каждого варианта он свой, у отправленного заранее — по команде. */
 private fun mutationClassOf(outcome: FastbootMutationOutcome): FastbootMutationClass = when (outcome) {
     is FastbootMutationOutcome.Applied -> outcome.mutation
@@ -86,6 +103,98 @@ private fun mutationClassOf(outcome: FastbootMutationOutcome): FastbootMutationC
     is FastbootMutationOutcome.Departed -> FastbootMutationClass.REBOOT
     is FastbootMutationOutcome.NotStarted -> FastbootMutation.classify(outcome.command)
 }
+
+/** Diagnostic mutation fields stay outside the transport owner to keep that owner focused. */
+/**
+ * Исход мутации в поля журнала.
+ *
+ * `claim` — то, что можно утверждать о состоянии устройства, одним словом:
+ * по нему прогон разбирается без чтения текста. `applied` означает, что
+ * устройство сказало «сделал»; `refused` — что оно сказало «не сделал», и
+ * доказательством целости раздела это не является; `unknown` — что мы не
+ * знаем; `departed` — что устройство ушло по нашей же просьбе.
+ */
+private fun mutationFields(state: FastbootConsoleState.Mutated): Map<String, String> {
+    val outcome = state.outcome
+    val common = mapOf(
+        "command" to outcome.command,
+        "mutation" to mutationClassOf(outcome).name,
+        "lane" to state.lane.name,
+    )
+    return common + when (outcome) {
+        is FastbootMutationOutcome.Applied -> mapOf(
+            "claim" to "applied",
+            "reply" to "OKAY",
+            "payload" to journalled(outcome.command, outcome.payload),
+            "infoLines" to outcome.info.size.toString(),
+            "confirmation" to (outcome.confirmation ?: "none"),
+        )
+
+        is FastbootMutationOutcome.Refused -> mapOf(
+            "claim" to "refused",
+            "reply" to "FAIL",
+            "detail" to outcome.detail,
+        )
+
+        is FastbootMutationOutcome.Unconfirmed -> mapOf(
+            "claim" to "unconfirmed",
+            "reply" to "OKAY",
+            "expected" to outcome.expected,
+            "observed" to outcome.observed,
+        )
+
+        is FastbootMutationOutcome.Departed -> mapOf(
+            "claim" to "departed",
+            "reply" to "none",
+            "waitedMillis" to outcome.waitedMillis.toString(),
+            "infoLines" to outcome.info.size.toString(),
+        )
+
+        is FastbootMutationOutcome.Unknown -> mapOf(
+            "claim" to "unknown",
+            "reply" to "none",
+            "detail" to outcome.detail,
+        )
+
+        is FastbootMutationOutcome.NotStarted -> mapOf(
+            "claim" to "not_started",
+            "reply" to "none",
+            "detail" to outcome.detail,
+        )
+    }
+}
+
+/**
+ * Значение ответа так, как оно попадёт в **выгрузку диагностики**.
+ *
+ * Токен разблокировки в журнал не пишется. Решение об этом было принято в
+ * §6.72 для `getvar:all` — там записываются имена и счётчики, но не
+ * значения, — и обходилось двумя путями, которые тогда не заметили:
+ * одиночное чтение переменной по имени и ответ произвольной команды. Оба
+ * закрыты здесь.
+ *
+ * **Оператор при этом не теряет ничего**: значение показывается на экране
+ * целиком, как он и просил. Скрыто оно только в архиве, который человек
+ * отдаёт кому-то ещё. Это решение о **нашем отчёте**, а не ограничение
+ * возможностей (`01` §3): команда уходит как набрана, ответ приходит
+ * целиком, прячется одна строка в файле, который мы же и составляем.
+ *
+ * Совпадение ищется по **вопросу**, а не по ответу: спросили про токен —
+ * значение не записываем. Это узкая заглушка на известный случай, а не
+ * общее правило. Общее — чьи ещё ответы нельзя выгружать — принадлежит
+ * `diagnostics privacy review` из Phase 11, и придумывать его на бегу
+ * значило бы дать ложную уверенность списком, который заведомо неполон.
+ */
+private fun journalled(command: String, payload: String): String =
+    if (payload.isNotBlank() && SECRET_ANSWERS.any { command.contains(it, ignoreCase = true) }) {
+        "$HIDDEN, символов: ${payload.length}"
+    } else {
+        payload
+    }
+
+
+private val SECRET_ANSWERS = listOf("token")
+private const val HIDDEN = "не записано"
 
 /**
  * Владелец Fastboot-соединения на уровне приложения.
@@ -139,7 +248,12 @@ public class FastbootLinkController(
     private val lifecycleEpoch = AtomicLong(0L)
 
     /** Только собственный rejoin операции вправе перенести эту привязку на новую полосу. */
-    private class ConsoleOwnership(var lane: FastbootLane?, var epoch: Long)
+    private class ConsoleOwnership(
+        var lane: FastbootLane?,
+        var epoch: Long,
+        val command: String,
+        val startedAtMillis: Long,
+    )
 
     /** Вызывается под [lifecycleLock]. */
     private fun ownsConnection(owner: ConsoleOwnership): Boolean =
@@ -164,46 +278,91 @@ public class FastbootLinkController(
      * поток раскладки нельзя.
      */
     public fun connect(generation: SessionGeneration) {
-        val epoch = synchronized(lifecycleLock) {
-            if (mutableState.value is FastbootLinkState.Probing) return
+        val transition = synchronized(lifecycleLock) {
+            if (alreadyConnectedOrProbing(generation)) return
             val next = lifecycleEpoch.incrementAndGet()
-            scenarioRunning = false
+            val resources = detachResources()
             mutableState.value = FastbootLinkState.Probing(generation)
-            next
+            next to resources
         }
+        closeResources(transition.second)
+        val epoch = transition.first
+        if (!synchronized(lifecycleLock) { isCurrentProbe(generation, epoch) }) return
 
         when (val claimed = claim(generation)) {
-            is UsbClaimResult.Failed -> {
-                val current = synchronized(lifecycleLock) {
-                    if (lifecycleEpoch.get() != epoch || mutableState.value !is FastbootLinkState.Probing) {
-                        false
-                    } else {
-                        mutableState.value = FastbootLinkState.Failed(generation, claimed.reason.name)
-                        true
-                    }
-                }
-                if (current) emit("fastboot_claim_failed", mapOf("reason" to claimed.reason.name))
-            }
+            is UsbClaimResult.Failed -> failProbe(generation, epoch, claimed.reason.name, "fastboot_claim_failed")
 
-            is UsbClaimResult.Claimed -> executor.execute { probe(generation, claimed.handle, epoch) }
+            is UsbClaimResult.Claimed -> scheduleProbe(generation, epoch, claimed.handle)
         }
+    }
+
+    /** Called under [lifecycleLock]; duplicate requests preserve the running operation. */
+    private fun alreadyConnectedOrProbing(generation: SessionGeneration): Boolean =
+        when (val current = mutableState.value) {
+            is FastbootLinkState.Probing -> current.generation == generation
+            is FastbootLinkState.Connected -> current.generation == generation
+            else -> false
+        }
+
+    /** Queued probes own their handle before execution; publication is serialized with disconnect. */
+    private fun retainProbeHandle(generation: SessionGeneration, epoch: Long, claimed: UsbTransportHandle): Boolean =
+        synchronized(lifecycleLock) {
+            if (!isCurrentProbe(generation, epoch)) {
+                false
+            } else {
+                handle = claimed
+                true
+            }
+        }
+
+    private fun scheduleProbe(generation: SessionGeneration, epoch: Long, claimed: UsbTransportHandle) {
+        if (!retainProbeHandle(generation, epoch, claimed)) {
+            claimed.close()
+            return
+        }
+        try {
+            executor.execute { probe(generation, claimed, epoch) }
+        } catch (rejected: RejectedExecutionException) {
+            failProbe(generation, epoch, rejected.message ?: rejected.javaClass.simpleName, "fastboot_probe_failed")
+            claimed.close()
+        }
+    }
+
+    /** Called under [lifecycleLock]. */
+    private fun isCurrentProbe(generation: SessionGeneration, epoch: Long): Boolean =
+        lifecycleEpoch.get() == epoch && mutableState.value == FastbootLinkState.Probing(generation)
+
+    private fun failProbe(generation: SessionGeneration, epoch: Long, detail: String, event: String) {
+        val resources = synchronized(lifecycleLock) {
+            if (!isCurrentProbe(generation, epoch)) return
+            detachResources().also { mutableState.value = FastbootLinkState.Failed(generation, detail) }
+        }
+        closeResources(resources)
+        emit(event, mapOf("reason" to detail, "generation" to generation.value.toString()))
+    }
+
+    /** Called under [lifecycleLock]; invalidation precedes any potentially blocking close. */
+    private fun detachResources(): Pair<FastbootLane?, UsbTransportHandle?> {
+        val resources = lane to handle
+        scenarioRunning = false
+        lane = null
+        handle = null
+        mutableConsole.value = FastbootConsoleState.Idle
+        return resources
+    }
+
+    private fun closeResources(resources: Pair<FastbootLane?, UsbTransportHandle?>) {
+        resources.first?.close()
+        resources.second?.close()
     }
 
     /** Отпускает интерфейс. Повторный вызов безопасен. */
     public fun disconnect() {
         val resources = synchronized(lifecycleLock) {
             lifecycleEpoch.incrementAndGet()
-            scenarioRunning = false
-            val oldLane = lane
-            val oldHandle = handle
-            lane = null
-            handle = null
-            mutableConsole.value = FastbootConsoleState.Idle
-            mutableState.value = FastbootLinkState.Idle
-            oldLane to oldHandle
+            detachResources().also { mutableState.value = FastbootLinkState.Idle }
         }
-        resources.first?.close()
-        resources.second?.close()
+        closeResources(resources)
     }
 
     /**
@@ -221,25 +380,26 @@ public class FastbootLinkController(
     public fun onUsbSessionsChanged(sessions: List<UsbSession>) {
         // Сценарий сам переводит связь на новое подключение; после него сверка
         // повторяется (см. [busy]).
-        if (scenarioRunning) return
-        val stale = when (val state = mutableState.value) {
-            is FastbootLinkState.Connected -> state.generation.takeIf { generation ->
-                sessions.none { it.generation == generation && !it.closed && it.state == UsbSessionState.CLAIMED }
-            }
-            // Отказ остаётся на экране, пока его сессия существует: он
-            // единственное, что есть у оператора для разбора.
-            is FastbootLinkState.Failed -> state.generation.takeIf { generation ->
-                sessions.none { it.generation == generation && !it.closed }
-            }
-            is FastbootLinkState.Probing -> state.generation.takeIf { generation ->
-                sessions.none { it.generation == generation && !it.closed }
-            }
-            FastbootLinkState.Idle -> null
+        val dropped = synchronized(lifecycleLock) {
+            if (scenarioRunning) return
+            val stale = when (val state = mutableState.value) {
+                is FastbootLinkState.Connected -> state.generation.takeIf { generation ->
+                    sessions.none { it.generation == generation && !it.closed && it.state == UsbSessionState.CLAIMED }
+                }
+                // Отказ остаётся на экране, пока его сессия существует.
+                is FastbootLinkState.Failed -> state.generation.takeIf { generation ->
+                    sessions.none { it.generation == generation && !it.closed }
+                }
+                is FastbootLinkState.Probing -> state.generation.takeIf { generation ->
+                    sessions.none { it.generation == generation && !it.closed }
+                }
+                FastbootLinkState.Idle -> null
+            } ?: return
+            lifecycleEpoch.incrementAndGet()
+            stale to detachResources().also { mutableState.value = FastbootLinkState.Idle }
         }
-        if (stale != null) {
-            emit("fastboot_link_dropped", mapOf("generation" to stale.value.toString()))
-            disconnect()
-        }
+        closeResources(dropped.second)
+        emit("fastboot_link_dropped", mapOf("generation" to dropped.first.value.toString()))
     }
 
     /**
@@ -454,7 +614,7 @@ public class FastbootLinkController(
         origin: () -> ArtifactSource,
     ) {
         val label = (listOf("выбранный файл") + then).joinToString(" ; ")
-        busy("fastboot_download_file", label) { lane, _ ->
+        busyOwned("fastboot_download_file", label) { lane, _, owner ->
             // Имена уточняются до первого байта: грузить файл под команду,
             // которую не уточнить, незачем.
             val resolved = slotCommands(then, slot, lane)
@@ -469,7 +629,15 @@ public class FastbootLinkController(
                         "а download: обязан объявить его до первого байта",
                     lane = lane.state,
                 )
-                else -> flashImage(lane, source, size, sparseLimit, commands)
+                else -> {
+                    val reporter = FastbootFlashProgressReporter { stage, target, sent, total ->
+                        publishFlashProgress(owner, stage, target, sent, total)
+                    }
+                    commands.firstOrNull { it.startsWith(FLASH) }
+                        ?.removePrefix(FLASH)
+                        ?.let { target -> reporter.preparing(target, size) }
+                    flashImage(lane, source, size, sparseLimit, commands, reporter::report)
+                }
             }
         }
     }
@@ -682,8 +850,9 @@ public class FastbootLinkController(
                 mutableConsole.value is FastbootConsoleState.Running -> null
 
                 else -> {
-                    mutableConsole.value = FastbootConsoleState.Running(trimmed, clock().toEpochMilli())
-                    ConsoleOwnership(live, lifecycleEpoch.get())
+                    val startedAt = clock().toEpochMilli()
+                    mutableConsole.value = FastbootConsoleState.Running(trimmed, startedAt)
+                    ConsoleOwnership(live, lifecycleEpoch.get(), trimmed, startedAt)
                 }
             }
         } ?: return
@@ -701,6 +870,26 @@ public class FastbootLinkController(
             emit(event, mapOf("command" to trimmed))
             val outcome = runCatching { action(live, trimmed, operation) }
             completeConsoleOperation(event, trimmed, operation, scenario, outcome, live)
+        }
+    }
+
+    private fun publishFlashProgress(
+        owner: ConsoleOwnership,
+        stage: FastbootOperationStage,
+        target: String,
+        transferredBytes: Long,
+        totalBytes: Long,
+    ) {
+        synchronized(lifecycleLock) {
+            if (!ownsConnection(owner)) return
+            mutableConsole.value = runningFlashState(
+                owner.command,
+                owner.startedAtMillis,
+                stage,
+                target,
+                transferredBytes,
+                totalBytes,
+            )
         }
     }
 
@@ -822,98 +1011,16 @@ public class FastbootLinkController(
         emit(event + "_finished", fields)
     }
 
-    /**
-     * Исход мутации в поля журнала.
-     *
-     * `claim` — то, что можно утверждать о состоянии устройства, одним словом:
-     * по нему прогон разбирается без чтения текста. `applied` означает, что
-     * устройство сказало «сделал»; `refused` — что оно сказало «не сделал», и
-     * доказательством целости раздела это не является; `unknown` — что мы не
-     * знаем; `departed` — что устройство ушло по нашей же просьбе.
-     */
-    private fun mutationFields(state: FastbootConsoleState.Mutated): Map<String, String> {
-        val outcome = state.outcome
-        val common = mapOf(
-            "command" to outcome.command,
-            "mutation" to mutationClassOf(outcome).name,
-            "lane" to state.lane.name,
-        )
-        return common + when (outcome) {
-            is FastbootMutationOutcome.Applied -> mapOf(
-                "claim" to "applied",
-                "reply" to "OKAY",
-                "payload" to journalled(outcome.command, outcome.payload),
-                "infoLines" to outcome.info.size.toString(),
-                "confirmation" to (outcome.confirmation ?: "none"),
-            )
-
-            is FastbootMutationOutcome.Refused -> mapOf(
-                "claim" to "refused",
-                "reply" to "FAIL",
-                "detail" to outcome.detail,
-            )
-
-            is FastbootMutationOutcome.Unconfirmed -> mapOf(
-                "claim" to "unconfirmed",
-                "reply" to "OKAY",
-                "expected" to outcome.expected,
-                "observed" to outcome.observed,
-            )
-
-            is FastbootMutationOutcome.Departed -> mapOf(
-                "claim" to "departed",
-                "reply" to "none",
-                "waitedMillis" to outcome.waitedMillis.toString(),
-                "infoLines" to outcome.info.size.toString(),
-            )
-
-            is FastbootMutationOutcome.Unknown -> mapOf(
-                "claim" to "unknown",
-                "reply" to "none",
-                "detail" to outcome.detail,
-            )
-
-            is FastbootMutationOutcome.NotStarted -> mapOf(
-                "claim" to "not_started",
-                "reply" to "none",
-                "detail" to outcome.detail,
-            )
-        }
-    }
-
-    /**
-     * Значение ответа так, как оно попадёт в **выгрузку диагностики**.
-     *
-     * Токен разблокировки в журнал не пишется. Решение об этом было принято в
-     * §6.72 для `getvar:all` — там записываются имена и счётчики, но не
-     * значения, — и обходилось двумя путями, которые тогда не заметили:
-     * одиночное чтение переменной по имени и ответ произвольной команды. Оба
-     * закрыты здесь.
-     *
-     * **Оператор при этом не теряет ничего**: значение показывается на экране
-     * целиком, как он и просил. Скрыто оно только в архиве, который человек
-     * отдаёт кому-то ещё. Это решение о **нашем отчёте**, а не ограничение
-     * возможностей (`01` §3): команда уходит как набрана, ответ приходит
-     * целиком, прячется одна строка в файле, который мы же и составляем.
-     *
-     * Совпадение ищется по **вопросу**, а не по ответу: спросили про токен —
-     * значение не записываем. Это узкая заглушка на известный случай, а не
-     * общее правило. Общее — чьи ещё ответы нельзя выгружать — принадлежит
-     * `diagnostics privacy review` из Phase 11, и придумывать его на бегу
-     * значило бы дать ложную уверенность списком, который заведомо неполон.
-     */
-    private fun journalled(command: String, payload: String): String =
-        if (payload.isNotBlank() && SECRET_ANSWERS.any { command.contains(it, ignoreCase = true) }) {
-            "$HIDDEN, символов: ${payload.length}"
-        } else {
-            payload
-        }
 
     private fun probe(
         generation: SessionGeneration,
         claimed: UsbTransportHandle,
         epoch: Long,
     ): FastbootLane? {
+        if (!retainProbeHandle(generation, epoch, claimed)) {
+            claimed.close()
+            return null
+        }
         val opened = FastbootLane(claimed)
         emit("fastboot_probe_started", mapOf("generation" to generation.value.toString()))
 
@@ -923,6 +1030,12 @@ public class FastbootLinkController(
             // Исключение — программистская ошибка, а не ответ устройства.
             // Роль от этого не становится известной, поэтому UNKNOWN с текстом.
             FastbootIdentity(FastbootMode.UNKNOWN, failure.message ?: failure.javaClass.simpleName)
+        }
+
+        if (!synchronized(lifecycleLock) { isCurrentProbe(generation, epoch) }) {
+            opened.close()
+            claimed.close()
+            return null
         }
 
         // Замок читается тем же опросом, что и роль: он нужен до первого
@@ -945,14 +1058,15 @@ public class FastbootLinkController(
             ),
         )
         val published = publishProbe(generation, epoch, claimed, opened, identity, lock)
-        if (!published) {
+        return if (published) {
+            opened
+        } else {
             // A disconnect or a newer connect won while the probe was blocked
             // in USB I/O. Never publish the stale lane or leak its handle.
             opened.close()
             claimed.close()
-            return null
+            null
         }
-        return opened
     }
 
     private fun verifyPendingUnlock(
@@ -1020,15 +1134,12 @@ public class FastbootLinkController(
         const val MAX_PRODUCT_LENGTH = 128
         const val FETCH = "fetch:"
         const val UPLOAD = "upload"
+        const val FLASH = "flash:"
 
         /** Сколько ждать возвращения цели после её перезагрузки посреди сценария. */
         const val REJOIN_BUDGET_MS = 180_000L
         const val REJOIN_POLL_MS = 250L
         const val DIAGNOSTIC_CATEGORY = "fastboot"
 
-        /** Вопросы, ответ на которые в выгрузку не идёт. Совпадение — по вопросу. */
-        val SECRET_ANSWERS = listOf("token")
-
-        const val HIDDEN = "не записано"
     }
 }

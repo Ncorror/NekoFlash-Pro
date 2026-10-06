@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="terminal_no_transport">Command not executed: no active ADB/Fastboot transport.</string>
+    <string name="terminal_shell_label" translatable="false">SHELL</string>
+    <string name="terminal_shell_opening">Opening adb shell…</string>
+    <string name="terminal_shell_inactive">adb shell is not active</string>
 </resources>

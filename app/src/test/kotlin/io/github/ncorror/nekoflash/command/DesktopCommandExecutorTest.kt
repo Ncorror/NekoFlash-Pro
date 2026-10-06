@@ -41,6 +41,38 @@ class DesktopCommandExecutorTest {
     }
 
     @Test
+    fun unavailableTransportAnswersBeforeStartingOrRequestingAFile() {
+        val blockedCalls = mutableListOf<String>()
+        val blocked = DesktopCommandExecutor(
+            RecordingTargets(blockedCalls),
+            unavailable = { "error: no active transport" },
+        )
+
+        assertEquals(
+            DesktopCommandStart.Answered("error: no active transport"),
+            blocked.execute(plan("adb shell id"), null),
+        )
+        assertEquals(
+            DesktopCommandStart.Answered("error: no active transport"),
+            blocked.execute(plan("adb pull /sdcard/a"), null),
+        )
+        assertEquals(emptyList<String>(), blockedCalls)
+    }
+
+    @Test
+    fun localReportsBypassTransportAdmission() {
+        val blocked = DesktopCommandExecutor(
+            RecordingTargets(mutableListOf()),
+            unavailable = { "error: no active transport" },
+        )
+
+        assertEquals(
+            DesktopCommandStart.Answered("ADB DEVICES"),
+            blocked.execute(plan("adb devices"), null),
+        )
+    }
+
+    @Test
     fun aPlanThatNeedsAFileSendsNothingWithoutIt() {
         assertEquals(DesktopCommandStart.FileMissing, executor.execute(plan("fastboot flash boot boot.img"), null))
         assertEquals(DesktopCommandStart.FileMissing, executor.execute(plan("adb pull /sdcard/a"), picked))

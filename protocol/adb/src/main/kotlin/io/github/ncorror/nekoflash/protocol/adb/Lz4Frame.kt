@@ -26,7 +26,9 @@ internal class Lz4FrameDecoder : SyncDecoder {
     override fun feed(chunk: ByteArray, output: (ByteArray) -> Unit) {
         corruptIf(state == State.DONE && chunk.isNotEmpty()) { "LZ4 stream hit end before reading all data" }
         input.append(chunk)
-        while (step(output)) Unit
+        while (step(output)) {
+            // Keep consuming complete input already buffered.
+        }
         corruptIf(state == State.DONE && input.available > 0) { "LZ4 stream hit end before reading all data" }
     }
 

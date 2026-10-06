@@ -1,9 +1,6 @@
 package io.github.ncorror.nekoflash.ui
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -15,15 +12,14 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.PointerEventPass
-import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -39,13 +35,15 @@ import androidx.compose.ui.unit.sp
 import io.github.ncorror.nekoflash.terminal.VtRow
 import io.github.ncorror.nekoflash.terminal.VtSnapshot
 import io.github.ncorror.nekoflash.terminal.VtStyle
+import kotlinx.coroutines.delay
 
 /**
  * VT renderer for the live ADB PTY.
  *
- * History is rendered row-by-row through LazyColumn instead of rebuilding one
- * giant Text node. This lets the transcript grow without a line-count limit
- * while only composing the visible rows.
+ * The buffer exposes the first row of its current screen explicitly. Following
+ * that row is the terminal equivalent of Termux' topRow=0: scrollback and the
+ * live grid are separate states, and Compose never infers either from a
+ * programmatic LazyColumn scroll.
  */
 @Composable
 internal fun TerminalScreen(
@@ -55,6 +53,7 @@ internal fun TerminalScreen(
     onResize: (Int, Int) -> Unit,
     modifier: Modifier = Modifier,
     onTap: () -> Unit = {},
+    onPaste: () -> Unit = {},
 ) {
     val colors = TerminalColors(TerminalPalette.foreground, TerminalPalette.background)
     val style = TextStyle(
@@ -67,7 +66,7 @@ internal fun TerminalScreen(
         modifier = modifier
             .fillMaxSize()
             .background(colors.background)
-            .observeTaps(onTap),
+            .terminalTap(onTap, onPaste),
     ) {
         TerminalViewport(
             screen = screen,
@@ -100,9 +99,12 @@ private fun TerminalViewport(
         (width - PADDING * 2).toPx().coerceAtLeast(1f) to
             (height - PADDING * 2).toPx().coerceAtLeast(1f)
     }
-    val columns = (inner.first / cell.width.coerceAtLeast(1)).toInt().coerceAtLeast(1)
-    val rows = (inner.second / cell.height.coerceAtLeast(1)).toInt().coerceAtLeast(1)
-    LaunchedEffect(columns, rows) { onResize(columns, rows) }
+    val columns = (inner.first / cell.width.coerceAtLeast(1)).toInt().coerceAtLeast(MIN_GRID)
+    val rows = (inner.second / cell.height.coerceAtLeast(1)).toInt().coerceAtLeast(MIN_GRID)
+    LaunchedEffect(columns, rows) {
+        delay(RESIZE_SETTLE_MS)
+        onResize(columns, rows)
+    }
 
     if (screen.rows.isEmpty()) {
         Text(
@@ -123,23 +125,37 @@ private fun TerminalRows(
     colors: TerminalColors,
 ) {
     val listState = rememberLazyListState()
-    var followTail by remember { mutableStateOf(true) }
-
-    LaunchedEffect(listState) {
-        snapshotFlow { listState.isScrollInProgress }.collect { scrolling ->
-            if (!scrolling) {
-                val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
-                followTail = lastVisible >= screen.rows.lastIndex - 1
+    val viewport = remember { TerminalViewportState() }
+    val userScrollConnection = remember(viewport) {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (source == NestedScrollSource.UserInput) viewport.noteUserScroll()
+                return Offset.Zero
             }
         }
     }
-    LaunchedEffect(screen.rows.size, screen.cursorRow, screen.rows.lastOrNull()?.text) {
-        if (followTail && screen.rows.isNotEmpty()) listState.scrollToItem(screen.rows.lastIndex)
+
+    LaunchedEffect(listState, screen.screenStartRow) {
+        snapshotFlow { listState.isScrollInProgress }.collect { scrolling ->
+            if (!scrolling) {
+                viewport.settleUserScroll(
+                    firstVisibleRow = listState.firstVisibleItemIndex,
+                    firstVisibleScrollOffsetPx = listState.firstVisibleItemScrollOffset,
+                    screenStartRow = screen.screenStartRow,
+                )
+            }
+        }
+    }
+    LaunchedEffect(screen.screenStartRow, screen.rows.size) {
+        if (screen.rows.isNotEmpty()) {
+            val target = viewport.targetRow(screen.screenStartRow, screen.rows.lastIndex)
+            listState.scrollToItem(target, viewport.targetScrollOffsetPx())
+        }
     }
 
     LazyColumn(
         state = listState,
-        modifier = Modifier.fillMaxSize().padding(PADDING),
+        modifier = Modifier.fillMaxSize().nestedScroll(userScrollConnection).padding(PADDING),
     ) {
         itemsIndexed(screen.rows) { index, row ->
             SelectionContainer {
@@ -151,15 +167,6 @@ private fun TerminalRows(
                 )
             }
         }
-    }
-}
-
-private fun Modifier.observeTaps(onTap: () -> Unit): Modifier = pointerInput(onTap) {
-    awaitEachGesture {
-        val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
-        val up = waitForUpOrCancellation(pass = PointerEventPass.Initial)
-        val quick = up != null && up.uptimeMillis - down.uptimeMillis < viewConfiguration.longPressTimeoutMillis
-        if (quick && (up!!.position - down.position).getDistance() < viewConfiguration.touchSlop) onTap()
     }
 }
 
@@ -241,6 +248,8 @@ private fun colorOf(value: Int): Color? = when {
 private val PADDING = 4.dp
 private val TEXT_SIZE = 11.sp
 private val LINE_HEIGHT = 13.sp
+private const val MIN_GRID = 4
+private const val RESIZE_SETTLE_MS = 160L
 private const val DIM_ALPHA = 0.6f
 private const val OPAQUE = -0x1000000
 private const val RGB_MASK = 0xFFFFFF

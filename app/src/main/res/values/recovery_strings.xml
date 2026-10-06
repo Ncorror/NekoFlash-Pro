@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="recovery_log_note">Capture the baseline before installing and read the verdict afterwards: only a new Recovery log entry can identify the result of this install.</string>
+    <string name="recovery_log_needs_adb">Connect the device in Recovery over ADB to read installation evidence.</string>
+    <string name="recovery_baseline">Capture Recovery baseline</string>
+    <string name="recovery_verdict_read">Read Recovery verdict</string>
+    <string name="recovery_evidence_busy">Reading Recovery evidence…</string>
+    <string name="recovery_evidence_failed">Could not read Recovery evidence: %1$s</string>
+    <string name="recovery_verdict_success">Recovery confirmed the install. %1$s</string>
+    <string name="recovery_verdict_failed">Recovery reported an install error. %1$s</string>
+    <string name="recovery_verdict_unknown">The install outcome is unknown. %1$s</string>
+    <string name="recovery_verdict_evidence">Basis: %1$s</string>
+</resources>

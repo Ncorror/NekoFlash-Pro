@@ -13,6 +13,7 @@ RESOURCES_PROPERTIES = ROOT / "app/src/main/res/resources.properties"
 KOTLIN_ROOT = ROOT / "app/src/main/kotlin"
 
 
+
 def resource_keys(path: Path, *, include_non_translatable: bool) -> set[tuple[str, str]]:
     root = ET.parse(path).getroot()
     keys: set[tuple[str, str]] = set()
@@ -90,8 +91,9 @@ def main() -> int:
     violations: list[str] = []
     for path in sorted(KOTLIN_ROOT.rglob("*.kt")):
         for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+            stripped = line.strip()
             if any(pattern.search(line) for pattern in hardcoded_patterns):
-                violations.append(f"{path.relative_to(ROOT)}:{line_number}: {line.strip()}")
+                violations.append(f"{path.relative_to(ROOT)}:{line_number}: {stripped}")
 
     if violations:
         print("localization: hardcoded user-facing Compose text found:", file=sys.stderr)

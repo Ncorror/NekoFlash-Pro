@@ -364,10 +364,12 @@ class AdbInteractiveShellTest {
 
     @Test
     fun lostTransportBreaksTheSession() {
-        val device = Device(okay(), failed(UsbTransferFailure.NOT_HELD))
-        val shell = device.opening()
+        val device = Device(okay())
+        val shell = device.opened()
+        assertTrue(shell.active)
+        device.handle.enqueue(FakeUsbTransportHandle.Transfer.Failed(UsbTransferFailure.NOT_HELD))
 
-        val events = shell.collect(expected = 2)
+        val events = shell.collect(expected = 1)
 
         assertTrue((events.last() as AdbShellEvent.Broken).reason.contains("transport"))
         assertFalse(shell.active)

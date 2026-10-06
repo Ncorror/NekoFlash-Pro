@@ -8,10 +8,20 @@ import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 
 class FastbootFormatTest {
-    private val options = FormatOptions(random = { size -> ByteArray(size) { 7 } }, now = { NOW }, kernelRelease = { "test-kernel" })
+    @JvmField @Rule val temporary = TemporaryFolder()
+
+    private val options: FormatOptions
+        get() = FormatOptions(
+            stagingDirectory = temporary.root,
+            random = { size -> ByteArray(size) { 7 } },
+            now = { NOW },
+            kernelRelease = { "test-kernel" },
+        )
 
     /** Тот же образ, что соберёт генератор для этого раздела. */
     private fun expected(bytes: Long, erase: Long = 0, logical: Long = 0) = FastbootExt4.image(
@@ -36,6 +46,7 @@ class FastbootFormatTest {
         assertNull(planned.detail, planned.stoppedAt)
         assertTrue(device.sent.last() == "flash:userdata")
         assertArrayEquals(expected(0x1000000, erase = 0x80000, logical = 0x1000), device.downloads.single())
+        assertTrue("temporary format image must be deleted", temporary.root.listFiles().orEmpty().isEmpty())
     }
 
     @Test

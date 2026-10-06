@@ -82,6 +82,37 @@ class FastbootDownloadTest {
      * дробление объявленного payload разрушало рамку.
      */
     @Test
+    fun progressReportsConfirmedBytes() {
+        val transport = FakeFastbootTransport().willReply("DATA00000010", "OKAY")
+        transport.dataAfterCommands = 1
+        val progress = mutableListOf<Long>()
+
+        FastbootDownload(FastbootLane(transport)).send(payload(16), 16, progress = progress::add)
+
+        assertEquals(16L, progress.last())
+    }
+
+    @Test
+    fun aLargePayloadStreamsWithoutMaterialisingItAsAByteArray() {
+        val bytes = LARGE_STREAM_BYTES
+        val transport = FakeFastbootTransport()
+            .willReply("DATA08000000", "OKAY")
+        transport.dataAfterCommands = 1
+        val progress = mutableListOf<Long>()
+
+        val outcome = FastbootDownload(FastbootLane(transport)).send(
+            RepeatingZeroStream(bytes),
+            bytes,
+            progress = progress::add,
+        )
+
+        val answered = outcome as FastbootDownloadOutcome.Answered
+        assertEquals(bytes, answered.bytesSent)
+        assertEquals(bytes, transport.dataBytes)
+        assertEquals(bytes, progress.last())
+    }
+
+    @Test
     fun aShortWriteIsCompletedRatherThanTreatedAsFailure() {
         val transport = FakeFastbootTransport().willReply("DATA00000010", "OKAY")
         transport.dataAfterCommands = 1
@@ -231,4 +262,25 @@ class FastbootDownloadTest {
     }
 
     private fun payload(bytes: Int): InputStream = ByteArrayInputStream(ByteArray(bytes) { it.toByte() })
+
+    private class RepeatingZeroStream(private var remaining: Long) : InputStream() {
+        override fun read(): Int = if (remaining > 0L) {
+            remaining--
+            0
+        } else {
+            -1
+        }
+
+        override fun read(destination: ByteArray, offset: Int, length: Int): Int {
+            if (remaining <= 0L) return -1
+            val count = minOf(length.toLong(), remaining).toInt()
+            destination.fill(0, offset, offset + count)
+            remaining -= count
+            return count
+        }
+    }
+
+    private companion object {
+        const val LARGE_STREAM_BYTES = 128L shl 20
+    }
 }

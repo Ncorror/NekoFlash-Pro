@@ -87,7 +87,7 @@ internal class FakeUsbTransportHandle(
         UsbTransferArguments.validate(destination.size, offset, length, timeoutMillis)
         receiveWindows += length
         receiveTimeouts += timeoutMillis
-        val transfer = if (answerOnlyAfterRequest && sentBytes.isEmpty()) {
+        val transfer = if (answerOnlyAfterRequest && sentFrameCount() == 0) {
             null
         } else {
             nextReleasedTransfer()
@@ -185,6 +185,9 @@ internal class FakeUsbTransportHandle(
 
     /** Снимок отправленного: читать список под чужим потоком нельзя. */
     fun sentSnapshot(): List<ByteArray> = synchronized(lock) { sentBytes.toList() }
+
+    /** Inject a transport event after the caller has observed the intended protocol state. */
+    fun enqueue(vararg transfers: Transfer) = synchronized(lock) { inbound.addAll(transfers) }
 
     private companion object {
         val ENDPOINT_IN = UsbEndpointDescriptor(

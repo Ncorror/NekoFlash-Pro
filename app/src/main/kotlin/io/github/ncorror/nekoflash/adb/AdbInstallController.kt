@@ -1,17 +1,18 @@
 package io.github.ncorror.nekoflash.adb
 
+import io.github.ncorror.nekoflash.artifact.ArtifactStagingOutcome
+import io.github.ncorror.nekoflash.artifact.StagedArtifactSource
 import io.github.ncorror.nekoflash.core.artifact.ArtifactSource
 import io.github.ncorror.nekoflash.core.diagnostics.DiagnosticEvent
 import io.github.ncorror.nekoflash.core.diagnostics.DiagnosticSink
 import io.github.ncorror.nekoflash.protocol.adb.AdbByteChannel
 import io.github.ncorror.nekoflash.protocol.adb.AdbConnection
+import java.io.File
 import java.io.InputStream
 import java.time.Instant
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executor
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 
 /** Что происходит с установкой пакетов. */
 public sealed interface AdbInstallState {
@@ -41,42 +42,79 @@ public sealed interface AdbInstallState {
  * не осталось половины установки.
  *
  * Размер каждого файла обязан быть известен до первого байта: он уходит в
- * саму команду. Файл, размер которого провайдер не сообщает, отвергается до
- * отправки.
+ * саму команду. Если SAF-провайдер его не сообщает, источник сначала одним
+ * проходом стажируется во временный файл, где размер становится доказанным.
  */
 public class AdbInstallController(
     private val executor: Executor,
     private val diagnostics: DiagnosticSink,
 ) {
-    private val mutableState = MutableStateFlow<AdbInstallState>(AdbInstallState.None)
+    private val slot = AdbOperationSlot<AdbInstallState>(AdbInstallState.None)
 
-    public val state: StateFlow<AdbInstallState> = mutableState.asStateFlow()
+    public val state: StateFlow<AdbInstallState> = slot.state
 
     public val active: Boolean
-        get() = mutableState.value is AdbInstallState.Running
+        get() = slot.active
+
+    internal fun bind(connection: AdbConnection?, discard: Boolean = false) = slot.bind(connection, discard)
 
     /** Устанавливает [origins]; [several] — сессией `install-multiple`, даже для одного файла. */
     public fun install(
         connection: AdbConnection,
+        stagingDirectory: File,
         origins: List<() -> ArtifactSource>,
         options: List<String>,
         several: Boolean,
     ) {
-        if (active || origins.isEmpty()) return
-        mutableState.value = AdbInstallState.Running("open", 0, 0)
-        executor.execute {
-            val outcome = runCatching {
-                val sources = origins.map { it() }
-                val sizes = sources.map { it.identity.sizeBytes }
-                if (sizes.any { it == null }) {
-                    AdbInstallState.Failed(NO_SIZE)
-                } else {
-                    Install(connection, sources, sizes.map { it!! }, options).run(several)
-                }
-            }.getOrElse { failure -> AdbInstallState.Failed(failure.message ?: failure.javaClass.simpleName) }
-            mutableState.value = outcome
-            emit(outcome)
+        if (origins.isEmpty()) return
+        val request = slot.begin(connection, AdbInstallState.Running("open", 0, 0), retainOutcome = true) ?: return
+        slot.submit(executor, request, failure = { AdbInstallState.Failed(it.javaClass.simpleName) }) {
+            val staged = mutableListOf<StagedArtifactSource>()
+            val outcome = try {
+                runCatching {
+                    val sources = origins.mapIndexed { index, origin ->
+                        request.requireConnected()
+                        prepare(request, origin(), stagingDirectory, index, origins.size, staged)
+                    }
+                    request.requireConnected()
+                    val sizes = sources.map { source -> checkNotNull(source.identity.sizeBytes) }
+                    Install(request, sources, sizes, options).run(several)
+                }.fold(
+                    onSuccess = { it },
+                    onFailure = { failure ->
+                        if (failure is InstallStagingFailure) {
+                            AdbInstallState.Failed(failure.detail)
+                        } else {
+                            AdbInstallState.Failed(failure.javaClass.simpleName)
+                        }
+                    },
+                )
+            } finally {
+                staged.forEach(StagedArtifactSource::close)
+            }
+            if (request.current) emit(outcome)
+            outcome
         }
+    }
+
+    private fun prepare(
+        request: AdbOperationSlot.Request<AdbInstallState>,
+        source: ArtifactSource,
+        stagingDirectory: File,
+        index: Int,
+        count: Int,
+        staged: MutableList<StagedArtifactSource>,
+    ): ArtifactSource {
+        if (source.identity.sizeBytes != null) return source
+        val stage = "stage ${index + 1}/$count"
+        return when (
+            val outcome = StagedArtifactSource.stage(source, stagingDirectory) { bytes ->
+                request.publish(AdbInstallState.Running(stage, bytes, 0))
+            }
+        ) {
+            is ArtifactStagingOutcome.Staged -> outcome.source.also(staged::add)
+            is ArtifactStagingOutcome.Failed -> throw InstallStagingFailure(outcome.detail)
+        }.also { request.requireConnected() }
     }
 
     private fun emit(outcome: AdbInstallState) {
@@ -95,7 +133,7 @@ public class AdbInstallController(
 
     /** Одна установка: источники, их размеры и счёт отправленного. */
     private inner class Install(
-        private val connection: AdbConnection,
+        private val request: AdbOperationSlot.Request<AdbInstallState>,
         private val sources: List<ArtifactSource>,
         private val sizes: List<Long>,
         private val options: List<String>,
@@ -107,6 +145,7 @@ public class AdbInstallController(
             if (several) session() else single()
 
         private fun single(): AdbInstallState {
+            request.requireConnected()
             val answer = sources[0].open().use { exchange("install", InstallCommands.install(options, sizes[0]), it) }
             return finished(answer)
         }
@@ -115,7 +154,15 @@ public class AdbInstallController(
             val created = exchange("install-create", InstallCommands.create(options, total), null)
             val id = InstallCommands.session(created)
                 ?: return AdbInstallState.Finished(false, created.ifBlank { "install-create: no answer" }, 0, 0)
-            val failure = sources.indices.firstNotNullOfOrNull { index -> write(id, index) }
+            val failure = runCatching { sources.indices.firstNotNullOfOrNull { index -> write(id, index) } }
+                .getOrElse { error ->
+                    // A local provider/queue failure still owns this package session.
+                    // Never abandon through a replacement connection.
+                    if (request.connected) {
+                        runCatching { exchange("install-abandon", InstallCommands.abandon(id), null) }
+                    }
+                    throw error
+                }
             return if (failure != null) {
                 exchange("install-abandon", InstallCommands.abandon(id), null)
                 AdbInstallState.Finished(false, failure, sources.size, sent)
@@ -126,6 +173,7 @@ public class AdbInstallController(
 
         /** Пишет один файл в сессию; `null` — принят, иначе ответ отказа. */
         private fun write(id: String, index: Int): String? {
+            request.requireConnected()
             val command = InstallCommands.write(id, index, sources[index].identity.name, sizes[index])
             val stage = "install-write ${index + 1}/${sources.size}"
             val answer = sources[index].open().use { exchange(stage, command, it) }
@@ -145,18 +193,25 @@ public class AdbInstallController(
          * пока поток закроет устройство.
          */
         private fun exchange(stage: String, service: String, input: InputStream?): String {
-            mutableState.value = AdbInstallState.Running(stage, sent, total)
+            request.requireConnected()
+            request.publish(AdbInstallState.Running(stage, sent, total))
             val channel = InstallChannel(input) { bytes ->
                 sent += bytes
-                mutableState.value = AdbInstallState.Running(stage, sent, total)
+                request.publish(AdbInstallState.Running(stage, sent, total))
             }
-            val stream = connection.forwardStream(channel, diagnostics)
-            val refused = stream.open(service)
-            if (refused != null) return "${refused.end.name}: ${refused.detail}"
-            executor.execute { stream.fromClient() }
-            val outcome = stream.fromDevice()
-            channel.close()
-            return channel.answer().ifBlank { "${outcome.end.name}: ${outcome.detail}" }
+            val stream = request.connection.forwardStream(channel, diagnostics)
+            try {
+                val refused = stream.open(service)
+                if (refused != null) return "${refused.end.name}: ${refused.detail}"
+                executor.execute {
+                    runCatching { stream.fromClient() }.onFailure { stream.cancel(it.javaClass.simpleName) }
+                }
+                val outcome = stream.fromDevice()
+                return channel.answer().ifBlank { "${outcome.end.name}: ${outcome.detail}" }
+            } finally {
+                channel.close()
+                stream.cancel("install exchange finished")
+            }
         }
     }
 
@@ -189,10 +244,11 @@ public class AdbInstallController(
         fun answer(): String = synchronized(answer) { answer.toString() }
     }
 
+    private class InstallStagingFailure(val detail: String) : RuntimeException()
+
     private companion object {
         const val CATEGORY = "adb"
         const val MAX_ANSWER = 16 * 1024
-        const val NO_SIZE = "provider does not report a file size; install declares it before the first byte"
     }
 }
 

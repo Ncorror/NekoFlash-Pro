@@ -87,7 +87,7 @@ public class AdbTerminalTabs(
         selected = controllers.lastIndex
     }
 
-    private fun newController() = AdbTerminalController(readerExecutor, writerExecutor, diagnostics, profile = false)
+    private fun newController() = AdbTerminalController(readerExecutor, writerExecutor, diagnostics)
 
     private fun snapshot(): TerminalTabs = synchronized(lock) { TerminalTabs(controllers.map { it.state }, selected) }
 

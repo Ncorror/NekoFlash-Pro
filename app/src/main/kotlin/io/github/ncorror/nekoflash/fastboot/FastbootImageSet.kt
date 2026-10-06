@@ -10,9 +10,6 @@ import io.github.ncorror.nekoflash.core.artifact.ArtifactSource
  * (`LocalImageSource`) или архив (`ZipImageSource`).
  */
 internal interface FastbootImageSet {
-    /** Небольшой файл целиком; `null` — его нет. */
-    fun bytes(name: String): ByteArray?
-
     /** Образ как источник; `null` — его нет. */
     fun source(name: String): ArtifactSource?
 }
@@ -21,15 +18,11 @@ internal interface FastbootImageSet {
 internal class FolderImageSet(folder: LocalFolder) : FastbootImageSet {
     private val files by lazy { folder.entries().filterIsInstance<LocalEntry.File>().associateBy { it.name } }
 
-    override fun bytes(name: String): ByteArray? = source(name)?.open()?.use { it.readBytes() }
-
     override fun source(name: String): ArtifactSource? = files[name]?.open?.invoke()
 }
 
 /** Архив `update.zip`. */
 internal class ZipImageSet(private val archive: ZipArchive) : FastbootImageSet {
-    override fun bytes(name: String): ByteArray? = archive.bytes(name)
-
     override fun source(name: String): ArtifactSource? = archive.source(name)
 }
 

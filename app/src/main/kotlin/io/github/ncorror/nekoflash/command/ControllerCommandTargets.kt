@@ -1,10 +1,14 @@
 package io.github.ncorror.nekoflash.command
 
+import com.ncorror.nekoflash.pro.engine.AdbForwardListStep
+import com.ncorror.nekoflash.pro.engine.AdbForwardRemoveAllStep
+import com.ncorror.nekoflash.pro.engine.AdbForwardRemoveStep
 import com.ncorror.nekoflash.pro.engine.LocalReportKind
 import com.ncorror.nekoflash.pro.engine.ShellMode
 import com.ncorror.nekoflash.pro.engine.TerminalParser
 import com.ncorror.nekoflash.pro.engine.TerminalPlanStep
 import io.github.ncorror.nekoflash.adb.AdbLinkController
+import io.github.ncorror.nekoflash.adb.AdbLinkState
 import io.github.ncorror.nekoflash.adb.AdbPushMode
 import io.github.ncorror.nekoflash.adb.PullTarget
 import io.github.ncorror.nekoflash.adb.PushSource
@@ -14,6 +18,7 @@ import io.github.ncorror.nekoflash.core.artifact.ArtifactSink
 import io.github.ncorror.nekoflash.core.artifact.ArtifactSource
 import io.github.ncorror.nekoflash.core.model.SessionGeneration
 import io.github.ncorror.nekoflash.fastboot.FastbootLinkController
+import io.github.ncorror.nekoflash.fastboot.FastbootLinkState
 import io.github.ncorror.nekoflash.fastboot.FlashAllRequest
 import io.github.ncorror.nekoflash.fastboot.FormatOptions
 import io.github.ncorror.nekoflash.fastboot.FolderImageSet
@@ -72,7 +77,11 @@ internal class ControllerCommandTargets(
                 sparseLimit = step.sparseLimit,
                 flashAll = step.archiveName == null,
                 wipe = step.wipe,
-                format = FormatOptions(step.sparseLimit, step.fsOptions),
+                format = FormatOptions(
+                    step.sparseLimit,
+                    step.fsOptions,
+                    stagingDirectory = stagingDirectory,
+                ),
             ),
         ) {
             when (picked) {
@@ -87,10 +96,13 @@ internal class ControllerCommandTargets(
             step.fileSystem,
             step.size,
             step.slot,
-            FormatOptions(step.sparseLimit, step.fsOptions),
+            FormatOptions(step.sparseLimit, step.fsOptions, stagingDirectory = stagingDirectory),
         )
-        is TerminalPlanStep.FastbootWipe ->
-            fastboot.scenarios.wipe(step.force, step.then, FormatOptions(step.sparseLimit, step.fsOptions))
+        is TerminalPlanStep.FastbootWipe -> fastboot.scenarios.wipe(
+            step.force,
+            step.then,
+            FormatOptions(step.sparseLimit, step.fsOptions, stagingDirectory = stagingDirectory),
+        )
         else -> error("format: $step")
     }
     override fun adbShell(command: String) = adb.runCommand(command)
@@ -105,6 +117,35 @@ internal class ControllerCommandTargets(
     )
     override fun adbService(service: String) = adb.callRawService(service)
     override fun adbReboot(target: String) = adb.requestReboot(target)
+
+    override val adbForwarding: AdbForwardingTargets = object : AdbForwardingTargets {
+        override fun forwardAdd(localPort: Int, remote: String, noRebind: Boolean) =
+            adb.forwards.add(localPort, remote, noRebind)
+
+        override fun forwardRemove(localPort: Int) = adb.forwards.remove(localPort)
+
+        override fun forwardRemoveAll() = adb.forwards.removeAll()
+
+        override fun forwardList(): String {
+            val serial = (adb.state.value as? AdbLinkState.Connected)?.generation
+                ?.let { generation -> sessions().firstOrNull { it.generation == generation }?.identity?.serialNumber }
+                ?.takeIf { it.isNotBlank() }
+                ?: UNKNOWN_SERIAL
+            return adb.forward.value.forwards.joinToString("\n") { entry ->
+                "$serial\ttcp:${entry.localPort}\t${entry.address}"
+            }
+        }
+
+        override fun reverseAdd(remote: String, local: String, noRebind: Boolean) =
+            adb.reverses.add(remote, local, noRebind)
+
+        override fun reverseRemove(remote: String) = adb.reverses.remove(remote)
+
+        override fun reverseList() = adb.reverses.refresh()
+
+        override fun reverseRemoveAll() = adb.reverses.removeAll()
+    }
+
     override fun adbPull(
         remotePaths: List<String>,
         localName: String?,
@@ -131,7 +172,7 @@ internal class ControllerCommandTargets(
     ) = adb.storage.push({ pushSources(localNames, picked) }, remotePath, sync, AdbPushMode(dryRun, compression))
     override fun adbSideload(origin: () -> ArtifactSource) = adb.recovery.sideloadFrom(stagingDirectory, origin)
     override fun adbInstall(origins: List<() -> ArtifactSource>, options: List<String>, several: Boolean) =
-        adb.packages.install(origins, options, several)
+        adb.packages.install(stagingDirectory, origins, options, several)
 
     override fun localReport(tool: TerminalParser.Tool, kind: LocalReportKind): String {
         val identity = { generation: SessionGeneration ->
@@ -142,6 +183,23 @@ internal class ControllerCommandTargets(
             TerminalParser.Tool.FASTBOOT -> LocalReports.fastboot(kind, fastboot.state.value, identity)
         }
     }
+
+    private companion object {
+        const val UNKNOWN_SERIAL = "????????????"
+    }
+}
+
+/** Host-terminal transport admission without adding another engine target method. */
+internal fun commandUnavailable(
+    adb: AdbLinkController,
+    fastboot: FastbootLinkController,
+    step: TerminalPlanStep,
+): String? = when {
+    step is TerminalPlanStep.LocalReport -> null
+    step is AdbForwardListStep || step is AdbForwardRemoveStep || step === AdbForwardRemoveAllStep -> null
+    step.isFastboot() && fastboot.state.value !is FastbootLinkState.Connected -> "error: no active Fastboot transport"
+    !step.isFastboot() && adb.state.value !is AdbLinkState.Connected -> "error: no active ADB transport"
+    else -> null
 }
 
 /**
