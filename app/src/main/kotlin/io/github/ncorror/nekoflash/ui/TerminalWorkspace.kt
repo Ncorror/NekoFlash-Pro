@@ -42,6 +42,7 @@ import io.github.ncorror.nekoflash.adb.AdbRebootState
 import io.github.ncorror.nekoflash.adb.AdbTerminalState
 import io.github.ncorror.nekoflash.fastboot.FastbootConsoleState
 import io.github.ncorror.nekoflash.fastboot.FastbootLinkState
+import io.github.ncorror.nekoflash.fastboot.FastbootOperationStage
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootMutationOutcome
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootReply
 
@@ -60,6 +61,9 @@ private object TerminalUiSession {
     val altActive = mutableStateOf(false)
     var fastbootInfoGeneration: Long? = null
     var previousFastbootState: FastbootConsoleState? = null
+    var previousFastbootProgressBucket: Int? = null
+    var previousFastbootProgressStage: FastbootOperationStage? = null
+    var previousFastbootProgressTarget: String? = null
     var previousHostAnswer: String? = null
     var previousAdbCommand: AdbCommandState? = null
     var previousAdbService: AdbRawServiceState? = null
@@ -394,11 +398,39 @@ private fun ObserveTerminalEnd(ended: String?, transcript: MutableList<String>) 
 @Composable
 private fun ObserveFastbootOutcome(state: FastbootConsoleState, transcript: MutableList<String>) {
     LaunchedEffect(state) {
-        if (state != TerminalUiSession.previousFastbootState) {
-            TerminalUiSession.previousFastbootState = state
-            fastbootStateLines(state).forEach(transcript::add)
-        }
+        if (state == TerminalUiSession.previousFastbootState) return@LaunchedEffect
+        TerminalUiSession.previousFastbootState = state
+        if (!shouldPrintFastbootProgress(state)) return@LaunchedEffect
+        fastbootStateLines(state).forEach(transcript::add)
     }
+}
+
+private fun shouldPrintFastbootProgress(state: FastbootConsoleState): Boolean {
+    val running = state as? FastbootConsoleState.Running
+    if (running?.target == null) {
+        TerminalUiSession.previousFastbootProgressBucket = null
+        TerminalUiSession.previousFastbootProgressStage = null
+        TerminalUiSession.previousFastbootProgressTarget = null
+        return true
+    }
+
+    val total = running.totalBytes ?: 0L
+    val percent = if (total > 0L) {
+        (running.transferredBytes * PERCENT_TOTAL / total).coerceIn(0L, PERCENT_TOTAL)
+    } else {
+        0L
+    }
+    val bucket = (percent / TERMINAL_PROGRESS_STEP).toInt()
+    val changed = running.stage != TerminalUiSession.previousFastbootProgressStage ||
+        running.target != TerminalUiSession.previousFastbootProgressTarget ||
+        bucket != TerminalUiSession.previousFastbootProgressBucket
+
+    if (changed) {
+        TerminalUiSession.previousFastbootProgressStage = running.stage
+        TerminalUiSession.previousFastbootProgressTarget = running.target
+        TerminalUiSession.previousFastbootProgressBucket = bucket
+    }
+    return changed
 }
 
 @Composable
@@ -484,7 +516,24 @@ private fun appendTextLines(transcript: MutableList<String>, text: String) {
 
 private fun fastbootStateLines(state: FastbootConsoleState): List<String> = when (state) {
     FastbootConsoleState.Idle -> emptyList()
-    is FastbootConsoleState.Running -> listOf("[running] ${state.command}")
+    is FastbootConsoleState.Running -> if (state.target == null) {
+        listOf("[running] ${state.command}")
+    } else {
+        val total = state.totalBytes ?: 0L
+        val percent = if (total > 0L) {
+            (state.transferredBytes * PERCENT_TOTAL / total).coerceIn(0L, PERCENT_TOTAL)
+        } else {
+            0L
+        }
+        val phase = when (state.stage) {
+            FastbootOperationStage.PREPARING -> "preparing"
+            FastbootOperationStage.TRANSFERRING ->
+                "${percent}% ${terminalBytes(state.transferredBytes)}/${terminalBytes(total)}"
+            FastbootOperationStage.WRITING -> "transfer complete; writing"
+            FastbootOperationStage.WAITING -> "waiting"
+        }
+        listOf("[flash] ${state.target}: $phase")
+    }
     is FastbootConsoleState.Answered -> buildList {
         state.info.forEach { add("INFO $it") }
         add("${state.reply.name} ${state.payload}".trimEnd())
@@ -545,6 +594,12 @@ private fun fastbootMutationLines(outcome: FastbootMutationOutcome): List<String
     is FastbootMutationOutcome.NotStarted -> listOf("error: ${outcome.command}: ${outcome.detail}")
 }
 
+private fun terminalBytes(bytes: Long): String = when {
+    bytes >= TERMINAL_MIB -> String.format(java.util.Locale.US, "%.1f MiB", bytes.toDouble() / TERMINAL_MIB)
+    bytes >= TERMINAL_KIB -> String.format(java.util.Locale.US, "%.1f KiB", bytes.toDouble() / TERMINAL_KIB)
+    else -> "$bytes B"
+}
+
 private val OUTPUT_PADDING = 4.dp
 private val OUTPUT_GAP = 0.dp
 private val OUTPUT_TEXT_SIZE = 11.sp
@@ -554,3 +609,7 @@ private val PANE_HORIZONTAL_PADDING = 10.dp
 private val PANE_VERTICAL_PADDING = 5.dp
 private val EXPLICIT_TOOL = Regex("""(?i)^(adb|fastboot)(?:\s|$)""")
 private const val HOST_PROMPT = "❯"
+private const val PERCENT_TOTAL = 100L
+private const val TERMINAL_PROGRESS_STEP = 10L
+private const val TERMINAL_KIB = 1024L
+private const val TERMINAL_MIB = 1024L * TERMINAL_KIB
