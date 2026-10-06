@@ -71,17 +71,24 @@ public class AdbInstallController(
         slot.submit(executor, request, failure = { AdbInstallState.Failed(it.javaClass.simpleName) }) {
             val staged = mutableListOf<StagedArtifactSource>()
             val outcome = try {
-                val sources = origins.mapIndexed { index, origin ->
+                runCatching {
+                    val sources = origins.mapIndexed { index, origin ->
+                        request.requireConnected()
+                        prepare(request, origin(), stagingDirectory, index, origins.size, staged)
+                    }
                     request.requireConnected()
-                    prepare(request, origin(), stagingDirectory, index, origins.size, staged)
-                }
-                request.requireConnected()
-                val sizes = sources.map { source -> checkNotNull(source.identity.sizeBytes) }
-                Install(request, sources, sizes, options).run(several)
-            } catch (failure: InstallStagingFailure) {
-                AdbInstallState.Failed(failure.detail)
-            } catch (failure: Throwable) {
-                AdbInstallState.Failed(failure.javaClass.simpleName)
+                    val sizes = sources.map { source -> checkNotNull(source.identity.sizeBytes) }
+                    Install(request, sources, sizes, options).run(several)
+                }.fold(
+                    onSuccess = { it },
+                    onFailure = { failure ->
+                        if (failure is InstallStagingFailure) {
+                            AdbInstallState.Failed(failure.detail)
+                        } else {
+                            AdbInstallState.Failed(failure.javaClass.simpleName)
+                        }
+                    },
+                )
             } finally {
                 staged.forEach(StagedArtifactSource::close)
             }
