@@ -153,6 +153,7 @@ class FastbootNativeDownloadTest {
 
         override fun send(payloadFd: Int, totalBytes: Long, progress: (Long) -> Unit): UsbFileSendResult {
             sends += payloadFd to totalBytes
+            progress(confirm)
             return UsbFileSendResult(failure == null, confirm, false, failure ?: "ok")
         }
 

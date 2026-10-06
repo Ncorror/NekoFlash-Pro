@@ -82,6 +82,17 @@ class FastbootDownloadTest {
      * дробление объявленного payload разрушало рамку.
      */
     @Test
+    fun progressReportsConfirmedBytes() {
+        val transport = FakeFastbootTransport().willReply("DATA00000010", "OKAY")
+        transport.dataAfterCommands = 1
+        val progress = mutableListOf<Long>()
+
+        FastbootDownload(FastbootLane(transport)).send(payload(16), 16, progress = progress::add)
+
+        assertEquals(16L, progress.last())
+    }
+
+    @Test
     fun aShortWriteIsCompletedRatherThanTreatedAsFailure() {
         val transport = FakeFastbootTransport().willReply("DATA00000010", "OKAY")
         transport.dataAfterCommands = 1
