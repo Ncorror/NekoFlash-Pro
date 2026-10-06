@@ -209,22 +209,7 @@ public class AdbForwardController(
     }
 
     private fun bind(source: AdbForwardSource, requestedPort: Int, address: String, noRebind: Boolean) {
-        if (requestedPort != 0) {
-            val existing = forwards[requestedPort]
-            if (existing != null) {
-                if (noRebind) {
-                    fail("port $requestedPort is already forwarded")
-                    return
-                }
-                existing.rebind(source, address)
-                emit(
-                    "forward_rebound",
-                    mapOf("localPort" to requestedPort.toString(), "address" to address),
-                )
-                mutableState.value = snapshot(failure = null)
-                return
-            }
-        }
+        if (rebindOwned(source, requestedPort, address, noRebind)) return
         val server = try {
             listen(requestedPort)
         } catch (failure: IOException) {
@@ -247,6 +232,26 @@ public class AdbForwardController(
         )
         mutableState.value = snapshot(failure = null)
         executor.execute { accept(forward) }
+    }
+
+    private fun rebindOwned(
+        source: AdbForwardSource,
+        requestedPort: Int,
+        address: String,
+        noRebind: Boolean,
+    ): Boolean {
+        val existing = requestedPort.takeIf { it != 0 }?.let(forwards::get) ?: return false
+        if (noRebind) {
+            fail("port $requestedPort is already forwarded")
+        } else {
+            existing.rebind(source, address)
+            emit(
+                "forward_rebound",
+                mapOf("localPort" to requestedPort.toString(), "address" to address),
+            )
+            mutableState.value = snapshot(failure = null)
+        }
+        return true
     }
 
     private fun accept(forward: Forward) {
