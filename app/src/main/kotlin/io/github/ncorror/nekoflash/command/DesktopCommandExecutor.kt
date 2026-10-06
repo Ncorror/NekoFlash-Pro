@@ -59,6 +59,12 @@ interface DesktopCommandTargets {
     fun adbService(service: String)
     fun adbReboot(target: String)
 
+    /**
+     * Host-terminal admission check. A non-null result is printed immediately
+     * and no picker or device operation is started.
+     */
+    fun unavailable(step: TerminalPlanStep): String? = null
+
     /** Long-lived forwarding operations are one capability surface, not six unrelated target functions. */
     val adbForwarding: AdbForwardingTargets
         get() = MissingAdbForwardingTargets
@@ -175,11 +181,15 @@ class DesktopCommandExecutor(private val targets: DesktopCommandTargets) {
         first: TerminalPlanStep,
         plan: TerminalPlan,
         file: PickedFile?,
-    ): DesktopCommandStart? = when {
+    ): DesktopCommandStart? {
+        val unavailable = targets.unavailable(first)
+        return when {
         first is TerminalPlanStep.LocalReport ->
             DesktopCommandStart.Answered(targets.localReport(first.tool, first.kind))
         first is AdbForwardListStep -> DesktopCommandStart.Answered(targets.adbForwarding.forwardList())
+        unavailable != null -> DesktopCommandStart.Answered(unavailable)
         else -> fileProblem(plan, file)
+        }
     }
 
     private fun start(

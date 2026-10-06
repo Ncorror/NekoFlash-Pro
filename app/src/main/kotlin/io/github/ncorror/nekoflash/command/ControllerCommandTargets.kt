@@ -1,5 +1,8 @@
 package io.github.ncorror.nekoflash.command
 
+import com.ncorror.nekoflash.pro.engine.AdbForwardListStep
+import com.ncorror.nekoflash.pro.engine.AdbForwardRemoveAllStep
+import com.ncorror.nekoflash.pro.engine.AdbForwardRemoveStep
 import com.ncorror.nekoflash.pro.engine.LocalReportKind
 import com.ncorror.nekoflash.pro.engine.ShellMode
 import com.ncorror.nekoflash.pro.engine.TerminalParser
@@ -15,6 +18,7 @@ import io.github.ncorror.nekoflash.core.artifact.ArtifactSink
 import io.github.ncorror.nekoflash.core.artifact.ArtifactSource
 import io.github.ncorror.nekoflash.core.model.SessionGeneration
 import io.github.ncorror.nekoflash.fastboot.FastbootLinkController
+import io.github.ncorror.nekoflash.fastboot.FastbootLinkState
 import io.github.ncorror.nekoflash.fastboot.FlashAllRequest
 import io.github.ncorror.nekoflash.fastboot.FormatOptions
 import io.github.ncorror.nekoflash.fastboot.FolderImageSet
@@ -36,6 +40,16 @@ internal class ControllerCommandTargets(
     /** USB-сессии приложения: по ним `devices` называет серийный номер и порт. */
     private val sessions: () -> List<UsbSession>,
 ) : DesktopCommandTargets {
+    override fun unavailable(step: TerminalPlanStep): String? = when {
+        step is TerminalPlanStep.LocalReport -> null
+        step is AdbForwardListStep || step is AdbForwardRemoveStep || step === AdbForwardRemoveAllStep -> null
+        step.isFastboot() && fastboot.state.value !is FastbootLinkState.Connected ->
+            "error: no active Fastboot transport"
+        !step.isFastboot() && adb.state.value !is AdbLinkState.Connected ->
+            "error: no active ADB transport"
+        else -> null
+    }
+
     override fun fastbootCommand(command: String) = fastboot.runCommand(command)
     override fun fastbootPlan(commands: List<String>, slot: String?) = fastboot.runPlan(commands, slot)
     override fun fastbootVariable(name: String?) =

@@ -41,6 +41,36 @@ class DesktopCommandExecutorTest {
     }
 
     @Test
+    fun unavailableTransportAnswersBeforeStartingOrRequestingAFile() {
+        val blockedCalls = mutableListOf<String>()
+        val blocked = DesktopCommandExecutor(
+            RecordingTargets(blockedCalls) { "error: no active transport" },
+        )
+
+        assertEquals(
+            DesktopCommandStart.Answered("error: no active transport"),
+            blocked.execute(plan("adb shell id"), null),
+        )
+        assertEquals(
+            DesktopCommandStart.Answered("error: no active transport"),
+            blocked.execute(plan("adb pull /sdcard/a"), null),
+        )
+        assertEquals(emptyList<String>(), blockedCalls)
+    }
+
+    @Test
+    fun localReportsBypassTransportAdmission() {
+        val blocked = DesktopCommandExecutor(
+            RecordingTargets(mutableListOf()) { "error: no active transport" },
+        )
+
+        assertEquals(
+            DesktopCommandStart.Answered("ADB DEVICES"),
+            blocked.execute(plan("adb devices"), null),
+        )
+    }
+
+    @Test
     fun aPlanThatNeedsAFileSendsNothingWithoutIt() {
         assertEquals(DesktopCommandStart.FileMissing, executor.execute(plan("fastboot flash boot boot.img"), null))
         assertEquals(DesktopCommandStart.FileMissing, executor.execute(plan("adb pull /sdcard/a"), picked))
@@ -190,7 +220,11 @@ class DesktopCommandExecutorTest {
         )
     }
 
-    private class RecordingTargets(private val calls: MutableList<String>) : DesktopCommandTargets {
+    private class RecordingTargets(
+        private val calls: MutableList<String>,
+        private val blocked: (TerminalPlanStep) -> String? = { null },
+    ) : DesktopCommandTargets {
+        override fun unavailable(step: TerminalPlanStep): String? = blocked(step)
         override fun fastbootCommand(command: String) { calls += "command $command" }
         override fun fastbootPlan(commands: List<String>, slot: String?) {
             calls += "plan ${commands.joinToString(",")}" + (slot?.let { " slot=$it" } ?: "")
