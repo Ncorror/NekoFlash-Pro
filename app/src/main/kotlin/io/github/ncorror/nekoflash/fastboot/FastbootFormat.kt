@@ -196,14 +196,16 @@ internal class FastbootFormat(private val lane: FastbootLane, private val option
             directory.mkdirs()
             File.createTempFile("nekoflash-format-", ".img", directory)
         }.getOrElse { failure ->
-            throw FlashAllStop("Cannot create temporary image for $partition: ${failure.message ?: failure.javaClass.simpleName}")
+            val detail = failure.message ?: failure.javaClass.simpleName
+            throw FlashAllStop("Cannot create temporary image for $partition: $detail")
         }
         return runCatching {
             file.outputStream().buffered().use { output -> write(output).getOrThrow() }
             TemporaryImageSource(file, "$partition.img")
         }.getOrElse { failure ->
             file.delete()
-            throw FlashAllStop("Cannot generate image for $partition: ${failure.message ?: failure.javaClass.simpleName}")
+            val detail = failure.message ?: failure.javaClass.simpleName
+            throw FlashAllStop("Cannot generate image for $partition: $detail")
         }
     }
 
