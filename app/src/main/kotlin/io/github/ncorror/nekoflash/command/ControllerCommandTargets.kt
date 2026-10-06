@@ -77,7 +77,11 @@ internal class ControllerCommandTargets(
                 sparseLimit = step.sparseLimit,
                 flashAll = step.archiveName == null,
                 wipe = step.wipe,
-                format = FormatOptions(step.sparseLimit, step.fsOptions),
+                format = FormatOptions(
+                    step.sparseLimit,
+                    step.fsOptions,
+                    stagingDirectory = stagingDirectory,
+                ),
             ),
         ) {
             when (picked) {
@@ -92,10 +96,13 @@ internal class ControllerCommandTargets(
             step.fileSystem,
             step.size,
             step.slot,
-            FormatOptions(step.sparseLimit, step.fsOptions),
+            FormatOptions(step.sparseLimit, step.fsOptions, stagingDirectory = stagingDirectory),
         )
-        is TerminalPlanStep.FastbootWipe ->
-            fastboot.scenarios.wipe(step.force, step.then, FormatOptions(step.sparseLimit, step.fsOptions))
+        is TerminalPlanStep.FastbootWipe -> fastboot.scenarios.wipe(
+            step.force,
+            step.then,
+            FormatOptions(step.sparseLimit, step.fsOptions, stagingDirectory = stagingDirectory),
+        )
         else -> error("format: $step")
     }
     override fun adbShell(command: String) = adb.runCommand(command)

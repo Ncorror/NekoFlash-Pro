@@ -12,6 +12,10 @@ import io.github.ncorror.nekoflash.protocol.fastboot.FastbootLane
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootMutation
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootMutationOutcome
 import io.github.ncorror.nekoflash.protocol.fastboot.FastbootVariable
+import java.io.Closeable
+import java.io.File
+import java.io.OutputStream
+import java.io.RandomAccessFile
 import java.security.SecureRandom
 
 /** Что `fb_perform_format` берёт из командной строки и откуда у него UUID и время. */
@@ -19,6 +23,8 @@ internal data class FormatOptions(
     val sparseLimit: Long? = null,
     /** `--fs-options`: `casefold`, `projid`, `compress`. */
     val fsOptions: Set<String> = emptySet(),
+    /** Каталог приложения для сгенерированного sparse-образа; production передаёт cacheDir. */
+    val stagingDirectory: File? = null,
     val random: (Int) -> ByteArray = { size -> ByteArray(size).also(SecureRandom()::nextBytes) },
     val now: () -> Long = { System.currentTimeMillis() / MILLIS },
     /** `uname -r` машины, где собирается f2fs: у телефона — его ядро. */
@@ -148,20 +154,19 @@ internal class FastbootFormat(private val lane: FastbootLane, private val option
     }
 
     /** `generate_ext4_image` для раздела [partition] размером [size] (как назвало устройство). */
-    private fun ext4(partition: String, size: String): ByteArray {
+    private fun ext4(partition: String, size: String): TemporaryImageSource {
         val bytes = deviceNumber(size) ?: throw FlashAllStop("Couldn't parse partition size '${fixNumeric(size)}'.")
-        return FastbootExt4.image(
-            FastbootExt4.Request(
-                sizeBytes = bytes,
-                eraseBlockSize = blockSize(ERASE_BLOCK_SIZE),
-                logicalBlockSize = blockSize(LOGICAL_BLOCK_SIZE),
-                projectIds = PROJID in options.fsOptions,
-                casefold = CASEFOLD in options.fsOptions,
-                uuid = options.random(UUID_BYTES),
-                hashSeed = options.random(UUID_BYTES),
-                now = options.now(),
-            ),
-        ).getOrElse { failure -> throw FlashAllStop("Cannot generate image for $partition: ${failure.message}") }
+        val request = FastbootExt4.Request(
+            sizeBytes = bytes,
+            eraseBlockSize = blockSize(ERASE_BLOCK_SIZE),
+            logicalBlockSize = blockSize(LOGICAL_BLOCK_SIZE),
+            projectIds = PROJID in options.fsOptions,
+            casefold = CASEFOLD in options.fsOptions,
+            uuid = options.random(UUID_BYTES),
+            hashSeed = options.random(UUID_BYTES),
+            now = options.now(),
+        )
+        return generated(partition) { output -> FastbootExt4.write(request, output) }
     }
 
     /**
@@ -169,36 +174,55 @@ internal class FastbootFormat(private val lane: FastbootLane, private val option
      * android` и ключи из `--fs-options`. Версия чекпоинта — `rand() | 1`:
      * случайное число до `RAND_MAX` (2³¹ − 1), нечётное.
      */
-    private fun f2fs(partition: String, size: String): ByteArray {
+    private fun f2fs(partition: String, size: String): TemporaryImageSource {
         val bytes = deviceNumber(size) ?: throw FlashAllStop("Couldn't parse partition size '${fixNumeric(size)}'.")
         val rand = java.nio.ByteBuffer.wrap(options.random(Int.SIZE_BYTES)).int and Int.MAX_VALUE or 1
-        return FastbootF2fs.image(
-            FastbootF2fs.Request(
-                sizeBytes = bytes,
-                projectIds = PROJID in options.fsOptions,
-                casefold = CASEFOLD in options.fsOptions,
-                compression = COMPRESS in options.fsOptions,
-                uuid = options.random(UUID_BYTES),
-                now = options.now(),
-                checkpointVersion = rand.toLong(),
-                kernelRelease = options.kernelRelease(),
-            ),
-        ).getOrElse { failure -> throw FlashAllStop("Cannot generate image for $partition: ${failure.message}") }
+        val request = FastbootF2fs.Request(
+            sizeBytes = bytes,
+            projectIds = PROJID in options.fsOptions,
+            casefold = CASEFOLD in options.fsOptions,
+            compression = COMPRESS in options.fsOptions,
+            uuid = options.random(UUID_BYTES),
+            now = options.now(),
+            checkpointVersion = rand.toLong(),
+            kernelRelease = options.kernelRelease(),
+        )
+        return generated(partition) { output -> FastbootF2fs.write(request, output) }
     }
 
-    /** `flash_buf`: тот же путь, что у `fastboot flash`. */
-    private fun flash(partition: String, image: ByteArray) {
-        val flashed = flashImage(
-            lane,
-            BytesSource(image, "$partition.img"),
-            image.size.toLong(),
-            options.sparseLimit,
-            listOf(FLASH + partition),
-        ) as FastbootConsoleState.Planned
-        val offset = commands.size
-        commands += flashed.commands
-        applied += flashed.applied
-        flashed.stoppedAt?.let { throw FlashAllStop(flashed.detail, offset + it) }
+    private fun generated(partition: String, write: (OutputStream) -> Result<Long>): TemporaryImageSource {
+        val directory = options.stagingDirectory ?: File(System.getProperty("java.io.tmpdir") ?: ".")
+        val file = runCatching {
+            directory.mkdirs()
+            File.createTempFile("nekoflash-format-", ".img", directory)
+        }.getOrElse { failure ->
+            throw FlashAllStop("Cannot create temporary image for $partition: ${failure.message ?: failure.javaClass.simpleName}")
+        }
+        return runCatching {
+            file.outputStream().buffered().use { output -> write(output).getOrThrow() }
+            TemporaryImageSource(file, "$partition.img")
+        }.getOrElse { failure ->
+            file.delete()
+            throw FlashAllStop("Cannot generate image for $partition: ${failure.message ?: failure.javaClass.simpleName}")
+        }
+    }
+
+    /** `flash_buf`: тот же путь, что у `fastboot flash`, но источник уже файловый и потоковый. */
+    private fun flash(partition: String, image: TemporaryImageSource) {
+        image.use { source ->
+            val size = source.identity.sizeBytes ?: throw FlashAllStop("Generated image size is unknown.")
+            val flashed = flashImage(
+                lane,
+                source,
+                size,
+                options.sparseLimit,
+                listOf(FLASH + partition),
+            ) as FastbootConsoleState.Planned
+            val offset = commands.size
+            commands += flashed.commands
+            applied += flashed.applied
+            flashed.stoppedAt?.let { throw FlashAllStop(flashed.detail, offset + it) }
+        }
     }
 
     /** Пропуск раздела при очистке: причина уже записана. */
@@ -281,7 +305,36 @@ internal fun formatPartition(
 
 private const val FLASH_PREFIX = "flash:"
 
-/** Небольшой образ, собранный в памяти: `super` из `wipe-super`, файловая система, подпись. */
+/** Сгенерированный filesystem sparse: живёт только до конца своей операции. */
+private class TemporaryImageSource(
+    private val file: File,
+    name: String,
+) : ArtifactSource, Closeable {
+    override val identity = ArtifactIdentity(name, file.length(), ArtifactAccess.SEEKABLE)
+    override val openedStamp = stamp()
+
+    override fun stamp(): ArtifactStamp = ArtifactStamp(
+        sizeBytes = file.length(),
+        modifiedAtMillis = file.lastModified(),
+    )
+
+    override fun open() = file.inputStream()
+
+    override fun randomAccess(): ArtifactRandomAccess = ArtifactRandomAccess { offset, length ->
+        ByteArray(length).also { bytes ->
+            RandomAccessFile(file, "r").use { input ->
+                input.seek(offset)
+                input.readFully(bytes)
+            }
+        }
+    }
+
+    override fun close() {
+        file.delete()
+    }
+}
+
+/** Небольшой образ, собранный в памяти: служебная подпись или иной компактный payload. */
 internal class BytesSource(private val bytes: ByteArray, name: String) : ArtifactSource {
     override val identity = ArtifactIdentity(name, bytes.size.toLong(), ArtifactAccess.SEEKABLE)
     override val openedStamp = ArtifactStamp(bytes.size.toLong())

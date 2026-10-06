@@ -1,5 +1,6 @@
 package io.github.ncorror.nekoflash.protocol.fastboot
 
+import java.io.OutputStream
 import java.security.MessageDigest
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -22,10 +23,21 @@ class FastbootF2fsTest {
     private val uuid = ByteArray(16) { "11111111222233334444555555555555".substring(it * 2, it * 2 + 2).toInt(16).toByte() }
 
     private fun sha(size: Long, projid: Boolean = false, casefold: Boolean = false, compression: Boolean = false): String {
-        val image = FastbootF2fs.image(
+        val digest = MessageDigest.getInstance("SHA-256")
+        val output = object : OutputStream() {
+            override fun write(value: Int) {
+                digest.update(value.toByte())
+            }
+
+            override fun write(bytes: ByteArray, offset: Int, length: Int) {
+                digest.update(bytes, offset, length)
+            }
+        }
+        FastbootF2fs.write(
             FastbootF2fs.Request(size, projid, casefold, compression, uuid, NOW, RAND, KERNEL),
+            output,
         ).getOrThrow()
-        return MessageDigest.getInstance("SHA-256").digest(image).joinToString("") { "%02x".format(it) }
+        return digest.digest().joinToString("") { "%02x".format(it) }
     }
 
     @Test
