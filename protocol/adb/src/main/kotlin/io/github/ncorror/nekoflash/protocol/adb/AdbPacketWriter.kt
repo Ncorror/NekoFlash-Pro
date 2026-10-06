@@ -9,7 +9,7 @@ public sealed interface AdbWriteOutcome {
     /** Кадр отправлен целиком. */
     public data object Sent : AdbWriteOutcome
 
-    /** Интерфейс больше не удерживается. */
+    /** Писатель остановлен или интерфейс больше не удерживается. */
     public data object Closed : AdbWriteOutcome
 
     /**

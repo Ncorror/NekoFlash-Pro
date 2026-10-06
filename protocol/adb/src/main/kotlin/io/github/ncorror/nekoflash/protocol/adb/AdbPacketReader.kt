@@ -64,7 +64,7 @@ public sealed interface AdbReadOutcome {
      */
     public data object Idle : AdbReadOutcome
 
-    /** Интерфейс больше не удерживается: читать нечего и незачем. */
+    /** Читатель остановлен или интерфейс больше не удерживается: читать нечего и незачем. */
     public data object Closed : AdbReadOutcome
 
     /** Кадр потерян. Поколение транспорта после этого недостоверно. */

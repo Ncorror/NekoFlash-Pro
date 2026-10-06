@@ -261,7 +261,7 @@ class AdbTransportLifecycleTest {
             queued?.join(1_000)
         }
         assertFalse(first.isAlive)
-        assertFalse(queued?.isAlive ?: true)
+        assertFalse(queued.isAlive)
         assertEquals(AdbWriteOutcome.Closed, firstResult.get())
         assertEquals(AdbWriteOutcome.Closed, queuedResult.get())
         assertEquals(listOf(24, 16_384), delegate.sentBytes.map { it.size })
@@ -349,7 +349,7 @@ class AdbTransportLifecycleTest {
         }
 
         assertFalse("dispatcher and lifecycle locks deadlocked", reader.isAlive)
-        assertFalse("writer could not finish", writer?.isAlive ?: true)
+        assertFalse("writer could not finish", writer.isAlive)
         assertEquals(0, accepted.get())
         assertEnd(box, AdbMailboxEnd.FRAMING_LOST, "write interrupted")
         assertTrue(transport.dispatcher.activeMailboxes.isEmpty())
