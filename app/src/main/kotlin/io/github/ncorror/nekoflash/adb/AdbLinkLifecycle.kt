@@ -233,11 +233,14 @@ internal class AdbLinkLifecycle(
         val trimmed = command.trim()
         if (trimmed.isEmpty()) return
         val attempt = synchronized(lifecycleLock) {
-            val current = owner ?: return
-            if (mutableState.value !is AdbLinkState.Connected || mutableCommand.value is AdbCommandState.Running) return
-            mutableCommand.value = AdbCommandState.Running(trimmed)
-            current
-        }
+            val current = owner
+            if (current == null || mutableState.value !is AdbLinkState.Connected ||
+                mutableCommand.value is AdbCommandState.Running
+            ) null else {
+                mutableCommand.value = AdbCommandState.Running(trimmed)
+                current
+            }
+        } ?: return
         try {
             executor.execute { executeCommand(attempt, trimmed) }
         } catch (rejected: RejectedExecutionException) {
