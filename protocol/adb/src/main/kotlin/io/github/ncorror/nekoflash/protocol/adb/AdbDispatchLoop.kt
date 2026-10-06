@@ -36,11 +36,19 @@ internal class AdbDispatchLoop(
      */
     private val onTransportEnd: (AdbMailboxEnd, String) -> Unit = { _, _ -> },
 ) {
+    private val lifecycleLock = Any()
+
     @Volatile
     private var running = true
 
     @Volatile
     private var transportEnd: AdbMailboxEnd? = null
+
+    private var terminal: AdbMailboxItem.Ended? = null
+
+    init {
+        writer.observeFailure(::writeEnded)
+    }
 
     /** Работает ли цикл. */
     val active: Boolean
@@ -50,8 +58,8 @@ internal class AdbDispatchLoop(
      * Чем кончился **транспорт**. `null` — жив.
      *
      * Отличается от [active] намеренно: остановленный по просьбе цикл — это не
-     * умерший транспорт, и путать их нельзя. Поле заполняется только там, где
-     * читатель принёс беду, и не заполняется при [stop].
+     * умерший транспорт, и путать их нельзя. Поле заполняется при отказе
+     * приёма или записи и не заполняется при [stop].
      *
      * Нужно тому, кто уже получил конец своего потока и не может узнать о
      * судьбе транспорта из ящика: ящик хранит **первую** причину, и поздний
@@ -66,23 +74,31 @@ internal class AdbDispatchLoop(
      *
      * Блокирует вызвавший поток. Кто его выделяет — решает владелец соединения.
      */
+    // Every exit from the physical reader must close the waiting streams.
+    @Suppress("TooGenericExceptionCaught")
     fun run() {
-        while (running) {
-            step()
+        try {
+            while (running) {
+                step()
+            }
+        } catch (error: RuntimeException) {
+            end(AdbMailboxEnd.FRAMING_LOST, "dispatch threw ${error.javaClass.simpleName}")
+        } finally {
+            stop()
         }
-        // Причина, записанная первой, побеждает: если цикл кончился обрывом,
-        // ящики уже несут его, а не «нас попросили остановиться».
-        dispatcher.abandonAll(AdbMailboxEnd.TRANSPORT_CLOSED, "dispatch loop stopped")
     }
 
     /**
      * Просит цикл закончиться.
      *
-     * Ответ приходит не позже [readSliceMillis]: ожидание нарезано на куски
-     * именно затем, чтобы остановка не ждала молчащего устройства.
+     * Mailboxes close immediately; an in-flight USB call may still be returning.
+     * Header waits use [readSliceMillis], a started payload has its own timeout.
      */
     fun stop() {
-        running = false
+        val end = synchronized(lifecycleLock) {
+            terminate(AdbMailboxEnd.TRANSPORT_CLOSED, "dispatch loop stopped")
+        }
+        dispatcher.abandonAll(end.reason, end.detail)
     }
 
     private fun step() {
@@ -97,28 +113,54 @@ internal class AdbDispatchLoop(
             // пакет. Уцелевших потоков не бывает (`03` §3).
             is AdbReadOutcome.Failed -> end(AdbMailboxEnd.FRAMING_LOST, "${outcome.reason.name} ${outcome.detail}")
 
-            is AdbReadOutcome.Received -> dispatcher.dispatch(outcome.packet).forEach { packet ->
-                when (val written = writer.write(packet.command, packet.arg0, packet.arg1, packet.payload)) {
-                    AdbWriteOutcome.Sent -> Unit
-                    AdbWriteOutcome.Closed -> end(
-                        AdbMailboxEnd.TRANSPORT_CLOSED,
-                        "dispatch response write: transport closed",
-                    )
-
-                    is AdbWriteOutcome.Interrupted -> end(
-                        AdbMailboxEnd.FRAMING_LOST,
-                        "dispatch response write interrupted after ${written.sentBytes} bytes: ${written.detail}",
-                    )
-                }
+            is AdbReadOutcome.Received -> if (running) {
+                sendResponses(dispatcher.dispatch(outcome.packet))
             }
         }
     }
 
+    private fun sendResponses(packets: List<AdbOutboundPacket>) {
+        for (packet in packets) {
+            if (!running) break
+            writer.write(packet.command, packet.arg0, packet.arg1, packet.payload)
+        }
+    }
+
     private fun end(reason: AdbMailboxEnd, detail: String) {
-        transportEnd = reason
-        dispatcher.abandonAll(reason, detail)
+        val end = synchronized(lifecycleLock) {
+            if (terminal != null) {
+                null
+            } else {
+                transportEnd = reason
+                terminate(reason, detail)
+            }
+        }
+        if (end != null) {
+            // Dispatcher callbacks may stop the loop. Never acquire its lock under lifecycleLock.
+            dispatcher.abandonAll(end.reason, end.detail)
+            onTransportEnd(end.reason, end.detail)
+        }
+    }
+
+    /** Called under lifecycleLock; preserves the same reason for every concurrent close. */
+    private fun terminate(reason: AdbMailboxEnd, detail: String): AdbMailboxItem.Ended {
         running = false
-        onTransportEnd(reason, detail)
+        reader.stop()
+        writer.stop()
+        val end = terminal ?: AdbMailboxItem.Ended(reason, detail)
+        terminal = end
+        return end
+    }
+
+    private fun writeEnded(outcome: AdbWriteOutcome) {
+        when (outcome) {
+            AdbWriteOutcome.Sent -> Unit
+            AdbWriteOutcome.Closed -> end(AdbMailboxEnd.TRANSPORT_CLOSED, "write: transport closed")
+            is AdbWriteOutcome.Interrupted -> end(
+                AdbMailboxEnd.FRAMING_LOST,
+                "write interrupted after ${outcome.sentBytes} bytes: ${outcome.detail}",
+            )
+        }
     }
 
     companion object {

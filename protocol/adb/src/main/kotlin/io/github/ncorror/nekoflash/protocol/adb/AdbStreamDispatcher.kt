@@ -87,7 +87,7 @@ public class AdbStreamDispatcher(
      * если завело, оно должно узнать, что адресата нет, иначе будет ждать.
      */
     public fun inboundStreams(streams: AdbInboundStreams?): Unit = synchronized(lock) {
-        inbound = streams
+        inbound = streams.takeIf { abandoned == null }
     }
 
     /**
@@ -121,6 +121,7 @@ public class AdbStreamDispatcher(
             // Читать ответ больше некому: ящик кончается сразу и той же
             // причиной, что и транспорт.
             mailbox.end(end.reason, end.detail)
+            router.closeRequest(localId)
         }
         mailbox to packet
     }
@@ -149,6 +150,7 @@ public class AdbStreamDispatcher(
      * `CLSE` для потока, чей ящик переполнился.
      */
     public fun dispatch(packet: AdbPacket): List<AdbOutboundPacket> = synchronized(lock) {
+        if (abandoned != null) return@synchronized emptyList()
         val step = router.onPacket(packet)
         val outbound = step.outbound.toMutableList()
         step.events.forEach { event -> deliver(event, outbound) }
@@ -165,6 +167,7 @@ public class AdbStreamDispatcher(
      */
     public fun abandonAll(reason: AdbMailboxEnd, detail: String): Unit = synchronized(lock) {
         if (abandoned == null) abandoned = AdbMailboxItem.Ended(reason, detail)
+        inbound = null
         router.abandonAll()
         mailboxes.values.forEach { mailbox -> mailbox.end(reason, detail) }
         mailboxes.clear()
@@ -179,7 +182,9 @@ public class AdbStreamDispatcher(
      */
     private fun admit(event: AdbStreamEvent.Inbound, outbound: MutableList<AdbOutboundPacket>) {
         val handler = inbound
-        if (handler == null || !handler.wants(event.service)) {
+        val wanted = handler?.wants(event.service) == true
+        if (abandoned != null) return
+        if (handler == null || !wanted) {
             outbound += router.rejectInbound(event.remoteId)
             emit(
                 "inbound_stream_refused",
@@ -195,7 +200,7 @@ public class AdbStreamDispatcher(
             "inbound_stream_accepted",
             mapOf("service" to event.service, "stream" to localId.toString()),
         )
-        handler.accepted(event.service, mailbox)
+        if (abandoned == null) handler.accepted(event.service, mailbox)
     }
 
     private fun emit(message: String, fields: Map<String, String>) {

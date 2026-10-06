@@ -42,6 +42,9 @@ public enum class AdbReadFailure {
     /** Приём payload не состоялся вовсе: платформа не выполнила передачу. */
     PAYLOAD_TRANSFER_FAILED,
 
+    /** The receive operation threw; the position of the transport is unknown. */
+    TRANSFER_EXCEPTION,
+
     /** Содержимое payload не сходится с объявленной контрольной суммой. */
     CHECKSUM_MISMATCH,
 }
@@ -97,6 +100,13 @@ public class AdbPacketReader(
 ) {
     private val headerBuffer = ByteArray(AdbPacketHeader.SIZE_BYTES)
 
+    @Volatile
+    private var stopped = false
+
+    internal fun stop() {
+        stopped = true
+    }
+
     /**
      * Версия протокола peer'а.
      *
@@ -120,13 +130,29 @@ public class AdbPacketReader(
      * целиком: читающий цикл работает короткими отрезками, чтобы остановка
      * была наблюдаемой.
      */
-    public fun read(timeoutMillis: Int = DEFAULT_RECEIVE_TIMEOUT_MS): AdbReadOutcome =
+    // The receive boundary must report loss to the owner even when the platform throws.
+    @Suppress("TooGenericExceptionCaught")
+    public fun read(timeoutMillis: Int = DEFAULT_RECEIVE_TIMEOUT_MS): AdbReadOutcome {
+        require(timeoutMillis >= 0) { "ADB receive timeout must not be negative: $timeoutMillis" }
+        if (stopped) return AdbReadOutcome.Closed
+        return try {
+            readFrame(timeoutMillis)
+        } catch (error: RuntimeException) {
+            AdbReadOutcome.Failed(
+                AdbReadFailure.TRANSFER_EXCEPTION,
+                "receive threw ${error.javaClass.simpleName} ${transportContext()}",
+            )
+        }
+    }
+
+    private fun readFrame(timeoutMillis: Int): AdbReadOutcome =
         when (val outcome = readHeader(timeoutMillis)) {
             is HeaderOutcome.Ready -> readPacket(outcome.header, timeoutMillis)
             is HeaderOutcome.Other -> outcome.result
         }
 
     private fun readPacket(header: AdbPacketHeader, timeoutMillis: Int): AdbReadOutcome {
+        if (stopped) return AdbReadOutcome.Closed
         val payload = if (header.payloadLength == 0) {
             PayloadOutcome.Ready(EMPTY_PAYLOAD)
         } else {
@@ -164,7 +190,7 @@ public class AdbPacketReader(
     private fun readHeader(timeoutMillis: Int): HeaderOutcome {
         var received = 0
         var terminal: HeaderOutcome? = null
-        while (received < AdbPacketHeader.SIZE_BYTES && terminal == null) {
+        while (received < AdbPacketHeader.SIZE_BYTES && terminal == null && !stopped) {
             when (
                 val result = handle.receive(
                     destination = headerBuffer,
@@ -198,7 +224,7 @@ public class AdbPacketReader(
             }
         }
 
-        return terminal ?: decodeHeader()
+        return if (stopped) HeaderOutcome.Other(AdbReadOutcome.Closed) else terminal ?: decodeHeader()
     }
 
     private fun decodeHeader(): HeaderOutcome =
