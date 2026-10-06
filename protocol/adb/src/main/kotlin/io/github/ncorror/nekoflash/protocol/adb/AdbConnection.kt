@@ -37,6 +37,13 @@ public class AdbConnection(
     /** Транспорт кончился сам, не по [close]: причина и подробность из цикла раскладки. */
     onTransportEnd: (AdbMailboxEnd, String) -> Unit = { _, _ -> },
 ) {
+    @Volatile
+    private var closed = false
+
+    /** This exact transport is still usable; close and autonomous termination are permanent. */
+    public val active: Boolean
+        get() = !closed && handle.held
+
     /** Что объявляется peer'у и чем проверяется входящий кадр. */
     public val advertisedMaxPayload: Int = AdbInboundFraming.advertisedMaxPayload(apiLevel)
 
@@ -55,6 +62,7 @@ public class AdbConnection(
     private val dispatcher = AdbStreamDispatcher(diagnostics = diagnostics)
 
     private val dispatchLoop = AdbDispatchLoop(reader, writer, dispatcher) { reason, detail ->
+        closed = true
         // Конец транспорта пишется всегда, а не только через закрытый поток:
         // потеря кадра без открытого потока иначе не оставляла следа в журнале.
         diagnostics.emit(
@@ -104,6 +112,7 @@ public class AdbConnection(
      * — это новый захват интерфейса.
      */
     public fun close() {
+        closed = true
         dispatchLoop.stop()
         dispatchScope.cancel()
     }

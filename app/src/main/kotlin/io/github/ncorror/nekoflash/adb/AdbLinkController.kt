@@ -137,19 +137,36 @@ public class AdbLinkController(
         networkPermission = networkPermission,
     )
 
+    private var operationTarget: TargetId? = null
+
     private val lifecycle = AdbLinkLifecycle(
         coordinator, keyStore, apiLevel, executor, diagnostics,
+        onReplacing = { generation ->
+            operationTarget = targetOf(generation)
+            bindOperations(null, discard = true)
+        },
         onConnected = { live ->
+            bindOperations(live)
             // Bind the inbound handler before reverseSource starts the reader.
             live.acceptInboundStreams(reverseController)
             reverseController.bind(live.reverseSource(diagnostics))
         },
         onDisconnected = {
+            bindOperations(null)
             shellTabs.stopAll()
             forwardController.stopAll("transport is gone")
             reverseController.bind(null)
         },
     )
+
+    private fun bindOperations(live: AdbConnection?, discard: Boolean = false) {
+        fileOperations.bind(live, operationTarget, discard)
+        reboots.bind(live, discard)
+        rawServices.bind(live, discard)
+        sideloads.bind(live, discard)
+        installs.bind(live, discard)
+        transfers.bind(live, discard)
+    }
 
     private val connection: AdbConnection?
         get() = lifecycle.connection

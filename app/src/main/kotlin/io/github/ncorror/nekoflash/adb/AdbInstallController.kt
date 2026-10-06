@@ -9,9 +9,7 @@ import java.io.InputStream
 import java.time.Instant
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executor
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 
 /** Что происходит с установкой пакетов. */
 public sealed interface AdbInstallState {
@@ -48,12 +46,14 @@ public class AdbInstallController(
     private val executor: Executor,
     private val diagnostics: DiagnosticSink,
 ) {
-    private val mutableState = MutableStateFlow<AdbInstallState>(AdbInstallState.None)
+    private val slot = AdbOperationSlot<AdbInstallState>(AdbInstallState.None)
 
-    public val state: StateFlow<AdbInstallState> = mutableState.asStateFlow()
+    public val state: StateFlow<AdbInstallState> = slot.state
 
     public val active: Boolean
-        get() = mutableState.value is AdbInstallState.Running
+        get() = slot.active
+
+    internal fun bind(connection: AdbConnection?, discard: Boolean = false) = slot.bind(connection, discard)
 
     /** Устанавливает [origins]; [several] — сессией `install-multiple`, даже для одного файла. */
     public fun install(
@@ -62,20 +62,18 @@ public class AdbInstallController(
         options: List<String>,
         several: Boolean,
     ) {
-        if (active || origins.isEmpty()) return
-        mutableState.value = AdbInstallState.Running("open", 0, 0)
-        executor.execute {
-            val outcome = runCatching {
-                val sources = origins.map { it() }
-                val sizes = sources.map { it.identity.sizeBytes }
-                if (sizes.any { it == null }) {
-                    AdbInstallState.Failed(NO_SIZE)
-                } else {
-                    Install(connection, sources, sizes.map { it!! }, options).run(several)
-                }
-            }.getOrElse { failure -> AdbInstallState.Failed(failure.message ?: failure.javaClass.simpleName) }
-            mutableState.value = outcome
-            emit(outcome)
+        if (origins.isEmpty()) return
+        val request = slot.begin(connection, AdbInstallState.Running("open", 0, 0), retainOutcome = true) ?: return
+        slot.submit(executor, request, failure = { AdbInstallState.Failed(it.javaClass.simpleName) }) {
+            val sources = origins.map { request.requireConnected(); it() }
+            val sizes = sources.map { it.identity.sizeBytes }
+            val outcome = if (sizes.any { it == null }) {
+                AdbInstallState.Failed(NO_SIZE)
+            } else {
+                Install(request, sources, sizes.map { it!! }, options).run(several)
+            }
+            if (request.current) emit(outcome)
+            outcome
         }
     }
 
@@ -95,7 +93,7 @@ public class AdbInstallController(
 
     /** Одна установка: источники, их размеры и счёт отправленного. */
     private inner class Install(
-        private val connection: AdbConnection,
+        private val request: AdbOperationSlot.Request<AdbInstallState>,
         private val sources: List<ArtifactSource>,
         private val sizes: List<Long>,
         private val options: List<String>,
@@ -107,6 +105,7 @@ public class AdbInstallController(
             if (several) session() else single()
 
         private fun single(): AdbInstallState {
+            request.requireConnected()
             val answer = sources[0].open().use { exchange("install", InstallCommands.install(options, sizes[0]), it) }
             return finished(answer)
         }
@@ -115,7 +114,15 @@ public class AdbInstallController(
             val created = exchange("install-create", InstallCommands.create(options, total), null)
             val id = InstallCommands.session(created)
                 ?: return AdbInstallState.Finished(false, created.ifBlank { "install-create: no answer" }, 0, 0)
-            val failure = sources.indices.firstNotNullOfOrNull { index -> write(id, index) }
+            val failure = runCatching { sources.indices.firstNotNullOfOrNull { index -> write(id, index) } }
+                .getOrElse { error ->
+                    // A local provider/queue failure still owns this package session.
+                    // Never abandon through a replacement connection.
+                    if (request.connected) {
+                        runCatching { exchange("install-abandon", InstallCommands.abandon(id), null) }
+                    }
+                    throw error
+                }
             return if (failure != null) {
                 exchange("install-abandon", InstallCommands.abandon(id), null)
                 AdbInstallState.Finished(false, failure, sources.size, sent)
@@ -126,6 +133,7 @@ public class AdbInstallController(
 
         /** Пишет один файл в сессию; `null` — принят, иначе ответ отказа. */
         private fun write(id: String, index: Int): String? {
+            request.requireConnected()
             val command = InstallCommands.write(id, index, sources[index].identity.name, sizes[index])
             val stage = "install-write ${index + 1}/${sources.size}"
             val answer = sources[index].open().use { exchange(stage, command, it) }
@@ -145,18 +153,25 @@ public class AdbInstallController(
          * пока поток закроет устройство.
          */
         private fun exchange(stage: String, service: String, input: InputStream?): String {
-            mutableState.value = AdbInstallState.Running(stage, sent, total)
+            request.requireConnected()
+            request.publish(AdbInstallState.Running(stage, sent, total))
             val channel = InstallChannel(input) { bytes ->
                 sent += bytes
-                mutableState.value = AdbInstallState.Running(stage, sent, total)
+                request.publish(AdbInstallState.Running(stage, sent, total))
             }
-            val stream = connection.forwardStream(channel, diagnostics)
-            val refused = stream.open(service)
-            if (refused != null) return "${refused.end.name}: ${refused.detail}"
-            executor.execute { stream.fromClient() }
-            val outcome = stream.fromDevice()
-            channel.close()
-            return channel.answer().ifBlank { "${outcome.end.name}: ${outcome.detail}" }
+            val stream = request.connection.forwardStream(channel, diagnostics)
+            try {
+                val refused = stream.open(service)
+                if (refused != null) return "${refused.end.name}: ${refused.detail}"
+                executor.execute {
+                    runCatching { stream.fromClient() }.onFailure { stream.cancel(it.javaClass.simpleName) }
+                }
+                val outcome = stream.fromDevice()
+                return channel.answer().ifBlank { "${outcome.end.name}: ${outcome.detail}" }
+            } finally {
+                channel.close()
+                stream.cancel("install exchange finished")
+            }
         }
     }
 

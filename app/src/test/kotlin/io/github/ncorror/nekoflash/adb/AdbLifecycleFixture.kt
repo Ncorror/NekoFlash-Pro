@@ -39,6 +39,8 @@ internal class AdbLifecycleFixture(directory: File) : AutoCloseable {
     val events = CopyOnWriteArrayList<DiagnosticEvent>()
     var diagnosticHook: (DiagnosticEvent) -> Unit = { }
     var bindHook: (AdbConnection) -> Unit = { }
+    var replacingHook: (SessionGeneration) -> Unit = { }
+    var unbindHook: () -> Unit = { }
     val unbindings = AtomicInteger()
     private val diagnostics = DiagnosticSink { events.add(it); diagnosticHook(it) }
     val coordinator = UsbSessionCoordinator(
@@ -48,7 +50,8 @@ internal class AdbLifecycleFixture(directory: File) : AutoCloseable {
     val second: SessionGeneration = coordinator.sessions.value[1].generation
     val lifecycle = AdbLinkLifecycle(
         coordinator, AdbKeyStore(directory), 36, tasks, diagnostics,
-        onConnected = { bindHook(it) }, onDisconnected = { unbindings.incrementAndGet() },
+        onReplacing = { replacingHook(it) },
+        onConnected = { bindHook(it) }, onDisconnected = { unbindings.incrementAndGet(); unbindHook() },
     )
 
     fun awaitState(predicate: (AdbLinkState) -> Boolean): AdbLinkState = runBlocking {
@@ -116,6 +119,7 @@ internal class AdbLifecycleHandle(
     val banner = "device::ro.product.name=$product\u0000".toByteArray()
     var receiveHook: (ByteArray) -> Unit = { }
     var payloadHook: (AdbPacketHeader, ByteArray) -> Unit = { _, _ -> }
+    var serviceHook: ((AdbPacketHeader, ByteArray) -> Unit)? = null
     var closeHook: () -> Unit = { }
     var failSend: Long? = null
     @Volatile
@@ -156,9 +160,12 @@ internal class AdbLifecycleHandle(
             check(payload.size == header.payloadLength)
             pending = null
             if (header.command == AdbCommand.OPEN) {
-                enqueue(AdbCommand.OKAY, 77, header.arg0)
-                enqueue(AdbCommand.WRTE, 77, header.arg0, "reply:${String(payload).trimEnd('\u0000')}\n".toByteArray())
-                enqueue(AdbCommand.CLSE, 77, header.arg0)
+                val respond = serviceHook
+                if (respond != null) respond(header, payload) else {
+                    enqueue(AdbCommand.OKAY, 77, header.arg0)
+                    enqueue(AdbCommand.WRTE, 77, header.arg0, "reply:${String(payload).trimEnd('\u0000')}\n".toByteArray())
+                    enqueue(AdbCommand.CLSE, 77, header.arg0)
+                }
             }
             payloadHook(header, payload)
         }

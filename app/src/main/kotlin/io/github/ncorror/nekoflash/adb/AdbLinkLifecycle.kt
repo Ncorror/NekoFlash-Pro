@@ -27,6 +27,7 @@ internal class AdbLinkLifecycle(
     private val apiLevel: Int,
     private val executor: Executor,
     private val diagnostics: DiagnosticSink,
+    private val onReplacing: (SessionGeneration) -> Unit,
     private val onConnected: (AdbConnection) -> Unit,
     private val onDisconnected: () -> Unit,
 ) {
@@ -45,6 +46,7 @@ internal class AdbLinkLifecycle(
     private val bindingLock = Any()
     private var owner: Attempt? = null
     private var bound: Attempt? = null
+    private var selection: SessionGeneration? = null
     private val handled = mutableSetOf<Long>()
     private val mutableState = MutableStateFlow<AdbLinkState>(AdbLinkState.Idle)
     private val mutableCommand = MutableStateFlow<AdbCommandState>(AdbCommandState.None)
@@ -63,11 +65,13 @@ internal class AdbLinkLifecycle(
             handled.add(generation.value)
             owner.also {
                 owner = attempt
+                selection = generation
                 mutableCommand.value = AdbCommandState.None
                 mutableState.value = AdbLinkState.Connecting(generation)
             }
         }
         previous?.let(::dispose)
+        replaceBinding(attempt)
         val claimed = synchronized(claimLock) {
             if (!synchronized(lifecycleLock) { owner === attempt }) return
             runCatching { coordinator.claim(generation) }
@@ -76,6 +80,12 @@ internal class AdbLinkLifecycle(
             is UsbClaimResult.Claimed -> retainClaim(attempt, result.handle)
             is UsbClaimResult.Failed -> fail(attempt, AdbHandshakeFailure.TRANSPORT_CLOSED, result.reason.name)
             null -> fail(attempt, AdbHandshakeFailure.TRANSPORT_CLOSED, claimed.exceptionOrNull().typeName())
+        }
+    }
+
+    private fun replaceBinding(attempt: Attempt) {
+        synchronized(bindingLock) {
+            if (synchronized(lifecycleLock) { owner === attempt }) onReplacing(attempt.generation)
         }
     }
 
@@ -218,7 +228,18 @@ internal class AdbLinkLifecycle(
             }
         }
         dropped?.let(::dispose)
+        reconcileSelection(sessions.singleOrNull()?.generation)
         connectAutomatically(sessions)
+    }
+
+    private fun reconcileSelection(generation: SessionGeneration?) {
+        if (generation == null) return
+        synchronized(bindingLock) {
+            val changed = synchronized(lifecycleLock) {
+                if (selection == generation) false else { selection = generation; true }
+            }
+            if (changed) onReplacing(generation)
+        }
     }
 
     private fun connectAutomatically(sessions: List<UsbSession>) {

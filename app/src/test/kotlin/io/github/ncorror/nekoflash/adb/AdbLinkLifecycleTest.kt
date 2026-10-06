@@ -31,6 +31,34 @@ class AdbLinkLifecycleTest {
         assertTrue(f.lifecycle.state.value is AdbLinkState.Connected)
     }
 
+    @Test fun replacementIsPublishedBeforeAClaimThatWillFail() = withFixture { f ->
+        val replacements = mutableListOf<Long>()
+        f.replacingHook = { replacements.add(it.value) }
+        f.host.claimHook = {
+            assertEquals(listOf(f.first.value), replacements)
+            it.close()
+            UsbClaimResult.Failed(UsbClaimFailure.INTERFACE_REFUSED)
+        }
+        f.lifecycle.connect(f.first)
+        assertTrue(f.lifecycle.state.value is AdbLinkState.Failed)
+    }
+
+    @Test fun selectingANewTargetInvalidatesRetainedOutcomesWithoutAutoConnecting() = withFixture { f ->
+        val replacements = mutableListOf<Long>()
+        f.replacingHook = { replacements.add(it.value) }
+        f.lifecycle.connect(f.first)
+        f.tasks.runFirst()
+        f.lifecycle.disconnect(f.first)
+        // Mark the second generation handled so selection itself must reset the UI.
+        f.lifecycle.disconnect(f.second)
+        val selected = f.coordinator.sessions.value.filter { it.generation == f.second }
+        f.lifecycle.onUsbSessionsChanged(selected)
+        f.lifecycle.onUsbSessionsChanged(selected)
+        assertEquals(listOf(f.first.value, f.second.value), replacements)
+        assertEquals(AdbLinkState.Idle, f.lifecycle.state.value)
+        assertEquals(0, f.tasks.size)
+    }
+
     @Test fun duplicateLiveConnectPreservesTheQueuedCommand() = withFixture { f ->
         f.lifecycle.connect(f.first)
         f.tasks.runFirst()
