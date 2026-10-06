@@ -55,13 +55,8 @@ public class AdbLinkController(
     private val executor: Executor,
     private val terminalWriterExecutor: Executor,
     private val diagnostics: DiagnosticSink,
-    /**
-     * Что платформа говорит о праве открыть сокет.
-     *
-     * Прокидывается насквозь до пробросов: `Context` есть у приложения, а не у
-     * контроллера. Зачем это нужно — `AdbForwardController.networkPermission`.
-     */
-    private val networkPermission: () -> String,
+    /** Platform facts and resources are provided by the application without Android dependencies here. */
+    private val hostServices: AdbHostServices,
     /**
      * Владелец записей длительных операций.
      *
@@ -69,13 +64,6 @@ public class AdbLinkController(
      * длительной операции здесь нельзя.
      */
     private val operations: OperationEngine,
-    /**
-     * Поднять foreground service.
-     *
-     * Функция, а не `Context`: контроллер про Android не знает, и кто именно
-     * держит процесс, решает приложение (`06` §1).
-     */
-    private val holdProcess: () -> Unit,
 ) {
     /**
      * Владелец интерактивных сессий.
@@ -111,7 +99,9 @@ public class AdbLinkController(
      * следить за ней должен тот, кто её проходит, а не тот, кто держит
      * транспорт.
      */
-    private val sideloads = AdbSideloadController(executor, diagnostics, operations, holdProcess)
+    private val sideloads = AdbSideloadController(
+        executor, diagnostics, operations, hostServices.holdProcess, hostServices.stagingSpace,
+    )
 
     private val installs = AdbInstallController(executor, diagnostics)
     private val transfers = AdbTransferController(executor, diagnostics)
@@ -134,7 +124,7 @@ public class AdbLinkController(
     private val forwardController = AdbForwardController(
         executor = executor,
         diagnostics = diagnostics,
-        networkPermission = networkPermission,
+        networkPermission = hostServices.networkPermission,
     )
 
     private var operationTarget: TargetId? = null

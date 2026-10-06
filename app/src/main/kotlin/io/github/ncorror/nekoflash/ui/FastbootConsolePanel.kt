@@ -17,6 +17,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -164,7 +165,7 @@ internal fun FastbootOutcomePane(state: FastbootConsoleState) {
  */
 @Composable
 private fun FastbootWaitingLine(state: FastbootConsoleState.Running) {
-    var seconds by remember(state.startedAtMillis) { mutableStateOf(0L) }
+    var seconds by remember(state.startedAtMillis) { mutableLongStateOf(0L) }
     LaunchedEffect(state.startedAtMillis) {
         while (true) {
             seconds = (System.currentTimeMillis() - state.startedAtMillis).coerceAtLeast(0L) / MILLIS_IN_SECOND

@@ -56,13 +56,13 @@
     <string name="fastboot_console_lane">Полоса: %1$s</string>
     <string name="fastboot_console_lane_stalled">Рамка обмена потеряна. Устройство осталось ждать байты прошлой команды, и следующая ушла бы не туда — поэтому полоса и не пускает. Снимается это только новым захватом интерфейса. Само устройство при этом не трогается и ничего не теряет.</string>
     <string name="fastboot_console_lane_reclaim">Захватить интерфейс заново</string>
-    <string name="fastboot_variables_all">Устройство назвало переменных: %1$d</string>
-    <string name="fastboot_variables_partial">Список неполон: прочитано переменных %1$d, обмен оборвался</string>
+    <string name="fastboot_variables_all">Переменных, названных устройством: %1$d</string>
+    <string name="fastboot_variables_partial">Список неполон. Переменных, прочитанных до обрыва обмена: %1$d</string>
     <string name="fastboot_variables_conflict">%1$s названа больше одного раза с разными значениями: %2$s</string>
     <string name="fastboot_variables_ignored">Строк, которые не удалось разобрать: %1$d — сохранены в диагностике</string>
     <string name="fastboot_console_note">Списка команд здесь нет намеренно: что бывает у Fastboot, знает устройство, и его отказ — это ответ, а не наша ошибка. Две вещи, которые не несёт сам провод, называются, а не отправляются молча подменёнными: команда не в ASCII и команда длиннее 4096 байт. Полоса показана потому, что у Fastboot она одна, а потеря рамки липкая — вторая команда после этого уйдёт в никуда.</string>
     <string name="fastboot_variable_entry">%1$s = %2$s</string>
-    <string name="fastboot_download_result">Передано %1$d из %2$d байт; устройство ответило %3$s</string>
+    <string name="fastboot_download_result">Отправлено байт: %1$d / %2$d; ответ устройства: %3$s</string>
     <string name="fastboot_download_no_reply">ничего</string>
     <string name="fastboot_download_untouched">Буфер устройства не тронут: ни одного байта не отправлено.</string>
     <string name="fastboot_download_buffer_unknown">В буфере загрузки теперь что-то лежит; прошивать из него нельзя, пока устройство не подтвердило нагрузку целиком.</string>
@@ -95,19 +95,19 @@
     <string name="fastboot_fetch_label">Раздел для чтения</string>
     <string name="fastboot_fetch_role">Роль устройства сейчас: %1$s</string>
     <string name="fastboot_fetch_role_bootloader">Команда fetch: обычно живёт в fastbootd, а не в загрузчике. Отправить её отсюда можно — отвечает устройство.</string>
-    <string name="fastboot_fetch_complete">%1$s прочитан целиком: %2$d байт</string>
-    <string name="fastboot_fetch_partial">%1$s прочитан НЕ целиком: %2$d байт. Выдавать это за раздел нельзя — недостающий кусок снаружи не отличить от нулей внутри.</string>
+    <string name="fastboot_fetch_complete">%1$s прочитан целиком. Байт: %2$d</string>
+    <string name="fastboot_fetch_partial">%1$s НЕ прочитан целиком. Байт: %2$d. Выдать это за раздел нельзя — отсутствующий кусок неотличим от нулей внутри него.</string>
     <string name="fastboot_fetch_sha256">SHA-256 прочитанного: %1$s</string>
     <string name="fastboot_partitions_summary">Разделов названо: %1$d, подтверждено существенным полем: %2$d. Подтверждает размер, тип или признак логического; один только has-slot доказательством не является — устройства отвечают на него и про имена, которых у них нет.</string>
-    <string name="fastboot_plan_completed">План выполнен целиком: шагов %1$d из %2$d</string>
-    <string name="fastboot_plan_stopped">План остановлен: выполнено %1$d шагов из %2$d. Устройство осталось между «до» и «после» — часть сделана, остальное нет.</string>
+    <string name="fastboot_plan_completed">План выполнен полностью. Шагов: %1$d / %2$d</string>
+    <string name="fastboot_plan_stopped">План остановлен. Выполнено шагов: %1$d / %2$d. Устройство осталось между «до» и «после» — часть действий выполнена, остальные нет.</string>
     <string name="fastboot_plan_step_done">✓ %1$s</string>
     <string name="fastboot_plan_step_stopped">✗ %1$s — здесь план остановился</string>
     <string name="fastboot_plan_step_skipped">· %1$s — не отправлялось</string>
     <string name="fastboot_destructive_flash_and_reboot">Записать буфер и перезагрузить</string>
 
     <string name="sideload_idle">Не начинали.</string>
-    <string name="sideload_running">Подтверждено %1$d%% — %2$d из %3$d блоков, отдано %4$d байт.</string>
+    <string name="sideload_running">Подтверждено: %1$d%%. Блоков: %2$d / %3$d. Отправлено байт: %4$d.</string>
     <string name="sideload_cancel">Отменить передачу</string>
     <string name="sideload_cancel_gone">Пакет пошёл на устройство: отменять уже нечего.</string>
     <string name="sideload_transfer_complete">Recovery кончило передачу (DONEDONE). Это значит, что хост отдал всё, и ничего не значит про установку.</string>
@@ -120,7 +120,7 @@
     <string name="sideload_note">Выберите ZIP для передачи. После передачи проверьте результат установки на устройстве в Recovery.</string>
     <string name="sideload_device_hint">Подключите устройство в Recovery, выберите Apply update from ADB и затем укажите ZIP здесь.</string>
     <string name="sideload_choose">Выбрать ZIP и передать…</string>
-    <string name="sideload_staging">Копирую %2$s в приложение, чтобы блоки читались в любом порядке: пока %1$d байт. Устройство не тронуто.</string>
+    <string name="sideload_staging">Копирование %2$s в приложение для чтения блоков в любом порядке. Скопировано байт: %1$d. Устройство ещё не тронуто.</string>
     <string name="sideload_staging_note">Recovery просит блоки в своём порядке и вправе попросить один и тот же дважды, поэтому файл, читаемый только подряд, сперва копируется. Во время копирования на устройство не уходит ничего.</string>
     <string name="sideload_refused">Ничего не отправлено: %1$s</string>
     <string name="fastboot_fetch_to_file">Прочитать в файл…</string>

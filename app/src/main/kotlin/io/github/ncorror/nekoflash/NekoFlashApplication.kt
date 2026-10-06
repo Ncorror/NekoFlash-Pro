@@ -6,6 +6,8 @@ import android.net.Uri
 import android.os.Build
 import io.github.ncorror.nekoflash.adb.AdbLinkController
 import io.github.ncorror.nekoflash.adb.AdbLinkState
+import io.github.ncorror.nekoflash.adb.AdbHostServices
+import io.github.ncorror.nekoflash.artifact.ArtifactStorageSpace
 import io.github.ncorror.nekoflash.core.diagnostics.DiagnosticBundle
 import io.github.ncorror.nekoflash.core.diagnostics.DiagnosticBundleResult
 import io.github.ncorror.nekoflash.core.diagnostics.DiagnosticEvent
@@ -159,10 +161,12 @@ public class NekoFlashApplication : Application() {
             executor = adbOperationThreads,
             terminalWriterExecutor = adbWriterThread,
             diagnostics = events,
-            // Факт, а не догадка: спрашивается у платформы в момент отказа.
-            networkPermission = { HostFacts.permissionState(this, Manifest.permission.INTERNET) },
             operations = operations,
-            holdProcess = { OperationService.start(this) },
+            hostServices = AdbHostServices(
+                networkPermission = { HostFacts.permissionState(this, Manifest.permission.INTERNET) },
+                holdProcess = { OperationService.start(this) },
+                stagingSpace = ArtifactStorageSpace(this)::prepare,
+            ),
         )
     }
 

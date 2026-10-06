@@ -59,6 +59,13 @@ android {
         localeFilters += listOf("en", "ru")
     }
 
+    bundle {
+        language {
+            // App-local language switching must work offline in an installed bundle.
+            enableSplit = false
+        }
+    }
+
     buildTypes {
         getByName("release") {
             // Воспроизводимость (D074): AGP кладёт в APK

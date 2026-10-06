@@ -18,6 +18,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.snapshotFlow
@@ -50,9 +51,9 @@ private enum class HostTransport { HOST, ADB, FASTBOOT }
 private object TerminalUiSession {
     val hostTranscript = mutableStateListOf<String>()
     val stagedInput = mutableStateOf("")
-    val stagedCursor = mutableStateOf(0)
+    val stagedCursor = mutableIntStateOf(0)
     val hostHistory = mutableStateListOf<String>()
-    val historyIndex = mutableStateOf(0)
+    val historyIndex = mutableIntStateOf(0)
     val pane = mutableStateOf(TerminalPane.HOST)
     val controlActive = mutableStateOf(false)
     val altActive = mutableStateOf(false)
@@ -84,8 +85,8 @@ internal fun TerminalWorkspace(
     val hostTranscript = TerminalUiSession.hostTranscript
     val stagedInput = TerminalUiSession.stagedInput
     val selectedPane = TerminalUiSession.pane
-    val focusRequest = remember { mutableStateOf(0) }
-    val pasteRequest = remember { mutableStateOf(0) }
+    val focusRequest = remember { mutableIntStateOf(0) }
+    val pasteRequest = remember { mutableIntStateOf(0) }
     val inputFocused = remember { mutableStateOf(false) }
     val ptyInput = selectedPane.value == TerminalPane.SHELL && current.ready
     val noTransport = stringResource(R.string.terminal_no_transport)

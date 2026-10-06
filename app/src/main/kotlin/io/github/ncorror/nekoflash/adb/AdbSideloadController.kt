@@ -2,6 +2,8 @@ package io.github.ncorror.nekoflash.adb
 
 import io.github.ncorror.nekoflash.artifact.ArtifactStagingOutcome
 import io.github.ncorror.nekoflash.artifact.StagedArtifactSource
+import io.github.ncorror.nekoflash.artifact.filesystemStagingSpace
+import io.github.ncorror.nekoflash.core.artifact.ArtifactAccess
 import io.github.ncorror.nekoflash.core.artifact.ArtifactRandomAccess
 import io.github.ncorror.nekoflash.core.artifact.ArtifactSource
 import io.github.ncorror.nekoflash.core.artifact.ArtifactStability
@@ -106,6 +108,7 @@ public class AdbSideloadController(
      * должен — кто именно держит процесс, решает приложение.
      */
     private val holdProcess: () -> Unit,
+    private val stagingSpace: (File, Long?) -> Long = { directory, _ -> filesystemStagingSpace(directory) },
 ) {
     private val slot = AdbOperationSlot<AdbSideloadState>(AdbSideloadState.None)
 
@@ -201,7 +204,7 @@ public class AdbSideloadController(
         handle.state(STAGING)
         request.requireConnected()
         val prepared = runCatching { ready(origin(), stagingDirectory, request) }.getOrElse { error ->
-            Ready.No("источник не открылся: ${error.javaClass.simpleName}")
+            Ready.No("подготовка не удалась: ${error.javaClass.simpleName}")
         }
         return when (prepared) {
             is Ready.No -> AdbSideloadState.Refused(prepared.detail)
@@ -230,22 +233,27 @@ public class AdbSideloadController(
         if (stability is ArtifactStability.Changed) {
             return Ready.No("выбранный файл изменился с момента выбора: ${stability.detail}")
         }
-        val decision = ArtifactStaging.decide(
-            access = source.identity.access,
-            sizeBytes = source.identity.sizeBytes,
-            randomAccessRequired = true,
-            // Объём Sideload объявляет в самом имени сервиса, то есть обязан
-            // знать его до первого байта.
-            sizeRequiredUpFront = true,
-            bytesAvailable = stagingDirectory.usableSpace,
-        )
-        return when (decision) {
-            is ArtifactStagingDecision.NoRoom -> Ready.No(
-                "для копии нужно ${decision.bytesNeeded} байт, свободно ${decision.bytesAvailable}",
+        return if (source.identity.access == ArtifactAccess.SEEKABLE && source.identity.sizeBytes != null) {
+            direct(source)
+        } else {
+            request.requireConnected()
+            val decision = ArtifactStaging.decide(
+                access = source.identity.access,
+                sizeBytes = source.identity.sizeBytes,
+                randomAccessRequired = true,
+                // Объём Sideload объявляет в самом имени сервиса, то есть обязан
+                // знать его до первого байта.
+                sizeRequiredUpFront = true,
+                bytesAvailable = stagingSpace(stagingDirectory, source.identity.sizeBytes),
             )
+            when (decision) {
+                is ArtifactStagingDecision.NoRoom -> Ready.No(
+                    "для копии нужно ${decision.bytesNeeded} байт, свободно ${decision.bytesAvailable}",
+                )
 
-            is ArtifactStagingDecision.NotNeeded -> direct(source)
-            is ArtifactStagingDecision.Required -> staged(source, stagingDirectory, request)
+                is ArtifactStagingDecision.NotNeeded -> direct(source)
+                is ArtifactStagingDecision.Required -> staged(source, stagingDirectory, request)
+            }
         }
     }
 

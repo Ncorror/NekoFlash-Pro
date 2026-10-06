@@ -60,13 +60,13 @@
     <string name="fastboot_console_lane">Lane: %1$s</string>
     <string name="fastboot_console_lane_stalled">The exchange frame is lost. The device is still waiting for the bytes of the previous command, so the next one would go nowhere — that is why the lane refuses. Only a fresh claim of the interface clears it. The device itself is not touched and loses nothing.</string>
     <string name="fastboot_console_lane_reclaim">Claim the interface again</string>
-    <string name="fastboot_variables_all">The device named %1$d variables</string>
-    <string name="fastboot_variables_partial">The list is incomplete: %1$d variables read before the exchange broke off</string>
+    <string name="fastboot_variables_all">Variables named by the device: %1$d</string>
+    <string name="fastboot_variables_partial">The list is incomplete. Variables read before the exchange broke off: %1$d</string>
     <string name="fastboot_variables_conflict">%1$s was named more than once with different values: %2$s</string>
     <string name="fastboot_variables_ignored">Lines that could not be parsed: %1$d — kept in the diagnostics</string>
     <string name="fastboot_console_note">There is no command list here on purpose: what Fastboot offers is known to the device, and a refusal is its answer, not our error. Two things the wire itself cannot carry are named rather than sent silently altered: a command outside ASCII, and one longer than 4096 bytes. The lane is shown because Fastboot has exactly one and losing its framing is sticky — a second command would then go nowhere.</string>
     <string name="fastboot_variable_entry">%1$s = %2$s</string>
-    <string name="fastboot_download_result">Sent %1$d of %2$d bytes; the device answered %3$s</string>
+    <string name="fastboot_download_result">Bytes sent: %1$d / %2$d; the device answered %3$s</string>
     <string name="fastboot_download_no_reply">nothing</string>
     <string name="fastboot_download_untouched">The device buffer was not touched: not a single byte was sent.</string>
     <string name="fastboot_download_buffer_unknown">The download buffer now holds something; flashing from it is not safe unless the device confirmed the whole payload.</string>
@@ -99,19 +99,19 @@
     <string name="fastboot_fetch_label">Partition to read</string>
     <string name="fastboot_fetch_role">Device role right now: %1$s</string>
     <string name="fastboot_fetch_role_bootloader">fetch: usually lives in fastbootd, not in the bootloader. Sending it from here is allowed — the device answers.</string>
-    <string name="fastboot_fetch_complete">%1$s read in full: %2$d bytes</string>
-    <string name="fastboot_fetch_partial">%1$s was NOT read in full: %2$d bytes. This cannot be passed off as the partition — a missing piece is indistinguishable from zeros inside it.</string>
+    <string name="fastboot_fetch_complete">%1$s read in full. Bytes: %2$d</string>
+    <string name="fastboot_fetch_partial">%1$s was NOT read in full. Bytes: %2$d. This cannot be passed off as the partition — a missing piece is indistinguishable from zeros inside it.</string>
     <string name="fastboot_fetch_sha256">SHA-256 of what was read: %1$s</string>
     <string name="fastboot_partitions_summary">Partitions named: %1$d, confirmed by a substantive field: %2$d. Size, type or the logical flag confirm one; has-slot alone does not — devices answer it for names they do not have.</string>
-    <string name="fastboot_plan_completed">The plan ran in full: %1$d of %2$d steps</string>
-    <string name="fastboot_plan_stopped">The plan stopped: %1$d of %2$d steps done. The device is left between "before" and "after" — part of it happened, the rest did not.</string>
+    <string name="fastboot_plan_completed">The plan ran in full. Steps: %1$d / %2$d</string>
+    <string name="fastboot_plan_stopped">The plan stopped. Completed steps: %1$d / %2$d. The device is left between "before" and "after" — part of it happened, the rest did not.</string>
     <string name="fastboot_plan_step_done">✓ %1$s</string>
     <string name="fastboot_plan_step_stopped">✗ %1$s — the plan stopped here</string>
     <string name="fastboot_plan_step_skipped">· %1$s — never sent</string>
     <string name="fastboot_destructive_flash_and_reboot">Flash the buffer and reboot</string>
 
     <string name="sideload_idle">Not started.</string>
-    <string name="sideload_running">Confirmed %1$d%% — %2$d of %3$d blocks, %4$d bytes sent.</string>
+    <string name="sideload_running">Confirmed: %1$d%%. Blocks: %2$d / %3$d. Bytes sent: %4$d.</string>
     <string name="sideload_cancel">Cancel the transfer</string>
     <string name="sideload_cancel_gone">The package has started reaching the device: there is nothing left to cancel.</string>
     <string name="sideload_transfer_complete">Recovery ended the transfer (DONEDONE). This says the host handed everything over, and nothing about the install.</string>
@@ -124,7 +124,7 @@
     <string name="sideload_note">Choose a ZIP to transfer. When the transfer ends, check the installation result on the device in Recovery.</string>
     <string name="sideload_device_hint">Connect a device in Recovery and open Apply update from ADB, then choose a ZIP here.</string>
     <string name="sideload_choose">Choose ZIP and send…</string>
-    <string name="sideload_staging">Copying %2$s into the app so blocks can be read in any order: %1$d bytes so far. The device has not been touched.</string>
+    <string name="sideload_staging">Copying %2$s into the app so blocks can be read in any order. Bytes copied: %1$d. The device has not been touched.</string>
     <string name="sideload_staging_note">Recovery asks for blocks in its own order and may ask for the same one twice, so a file that can only be read front to back is copied first. Nothing reaches the device during the copy.</string>
     <string name="sideload_refused">Nothing was sent: %1$s</string>
     <string name="fastboot_fetch_to_file">Read into a file…</string>
