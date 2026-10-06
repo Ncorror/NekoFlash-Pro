@@ -31,6 +31,26 @@ class AdbReverseTest {
         assertEquals("reverse:forward:tcp:7777;tcp:8888" + NUL, open.payload.decodeToString())
     }
 
+    @Test
+    fun noRebindUsesTheDocumentedReverseServiceForm() {
+        val device = ScriptedDevice(okay(), write("OKAY00047777"), close())
+
+        device.reverse().forward("tcp:7777", "tcp:8888", noRebind = true)
+
+        val open = device.handle.awaitSentFrames(1).first()
+        assertEquals("reverse:forward:norebind:tcp:7777;tcp:8888" + NUL, open.payload.decodeToString())
+    }
+
+    @Test
+    fun killingOneUsesTheDocumentedReverseServiceForm() {
+        val device = ScriptedDevice(okay(), write("OKAY"), close())
+
+        device.reverse().kill("tcp:7777")
+
+        val open = device.handle.awaitSentFrames(1).first()
+        assertEquals("reverse:killforward:tcp:7777" + NUL, open.payload.decodeToString())
+    }
+
     /** Наблюдено: устройство отвечает назначенным портом. */
     @Test
     fun theAssignedPortComesBackFromTheDevice() {

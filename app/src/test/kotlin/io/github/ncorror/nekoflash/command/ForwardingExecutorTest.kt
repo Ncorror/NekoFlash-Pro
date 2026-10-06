@@ -26,16 +26,24 @@ class ForwardingExecutorTest {
     @Test
     fun forwardingUsesTheFormerWorkspaceControllers() {
         assertEquals(DesktopCommandStart.Started(DesktopCommandArea.ADB_FORWARD), run("adb forward tcp:1234 tcp:5555"))
+        assertEquals(DesktopCommandStart.Started(DesktopCommandArea.ADB_FORWARD), run("adb forward --no-rebind tcp:1235 tcp:5556"))
         assertEquals(DesktopCommandStart.Started(DesktopCommandArea.ADB_FORWARD), run("adb forward --remove tcp:1234"))
+        assertEquals(DesktopCommandStart.Started(DesktopCommandArea.ADB_FORWARD), run("adb forward --remove-all"))
         assertEquals(DesktopCommandStart.Started(DesktopCommandArea.ADB_REVERSE), run("adb reverse tcp:7777 tcp:8888"))
+        assertEquals(DesktopCommandStart.Started(DesktopCommandArea.ADB_REVERSE), run("adb reverse --no-rebind tcp:7778 tcp:8889"))
+        assertEquals(DesktopCommandStart.Started(DesktopCommandArea.ADB_REVERSE), run("adb reverse --remove tcp:7777"))
         assertEquals(DesktopCommandStart.Started(DesktopCommandArea.ADB_REVERSE_LIST), run("adb reverse --list"))
         assertEquals(DesktopCommandStart.Started(DesktopCommandArea.ADB_REVERSE), run("adb reverse --remove-all"))
 
         assertEquals(
             listOf(
-                "start:ADB_FORWARD", "forward+ 1234 tcp:5555",
+                "start:ADB_FORWARD", "forward+ 1234 tcp:5555 false",
+                "start:ADB_FORWARD", "forward+ 1235 tcp:5556 true",
                 "start:ADB_FORWARD", "forward- 1234",
-                "start:ADB_REVERSE", "reverse+ tcp:7777 tcp:8888",
+                "start:ADB_FORWARD", "forward-clear",
+                "start:ADB_REVERSE", "reverse+ tcp:7777 tcp:8888 false",
+                "start:ADB_REVERSE", "reverse+ tcp:7778 tcp:8889 true",
+                "start:ADB_REVERSE", "reverse- tcp:7777",
                 "start:ADB_REVERSE_LIST", "reverse-list",
                 "start:ADB_REVERSE", "reverse-clear",
             ),
@@ -51,18 +59,26 @@ class ForwardingExecutorTest {
 
     private class Targets(private val calls: MutableList<String>) : DesktopCommandTargets {
         override val adbForwarding: AdbForwardingTargets = object : AdbForwardingTargets {
-            override fun forwardAdd(localPort: Int, remote: String) {
-                calls += "forward+ $localPort $remote"
+            override fun forwardAdd(localPort: Int, remote: String, noRebind: Boolean) {
+                calls += "forward+ $localPort $remote $noRebind"
             }
 
             override fun forwardRemove(localPort: Int) {
                 calls += "forward- $localPort"
             }
 
+            override fun forwardRemoveAll() {
+                calls += "forward-clear"
+            }
+
             override fun forwardList(): String = "forward-list".also { calls += it }
 
-            override fun reverseAdd(remote: String, local: String) {
-                calls += "reverse+ $remote $local"
+            override fun reverseAdd(remote: String, local: String, noRebind: Boolean) {
+                calls += "reverse+ $remote $local $noRebind"
+            }
+
+            override fun reverseRemove(remote: String) {
+                calls += "reverse- $remote"
             }
 
             override fun reverseList() {

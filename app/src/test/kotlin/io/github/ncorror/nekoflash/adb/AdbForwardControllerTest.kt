@@ -345,6 +345,30 @@ class AdbForwardControllerTest {
     }
 
     @Test
+    fun aNormalAddRebindsAnOwnedPort() {
+        val controller = controller()
+        controller.add(HeldSource(), localPort = 0, address = ADDRESS)
+        val port = awaitSingleForward(controller).localPort
+
+        controller.add(HeldSource(), localPort = port, address = "tcp:6666")
+
+        assertTrue(await { controller.state.value.forwards.singleOrNull()?.address == "tcp:6666" })
+        assertEquals(port, controller.state.value.forwards.single().localPort)
+    }
+
+    @Test
+    fun noRebindKeepsTheExistingOwnedPort() {
+        val controller = controller()
+        controller.add(HeldSource(), localPort = 0, address = ADDRESS)
+        val port = awaitSingleForward(controller).localPort
+
+        controller.add(HeldSource(), localPort = port, address = "tcp:6666", noRebind = true)
+
+        assertTrue(await { controller.state.value.failure != null })
+        assertEquals(ADDRESS, controller.state.value.forwards.single().address)
+    }
+
+    @Test
     fun theJournalNamesEveryListener() {
         val sink = RecordingSink()
         val controller = controller(sink)

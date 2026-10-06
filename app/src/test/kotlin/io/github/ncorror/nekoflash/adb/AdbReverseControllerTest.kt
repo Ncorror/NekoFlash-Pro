@@ -176,6 +176,32 @@ class AdbReverseControllerTest {
         assertNull(AdbReverseController.hostPortOf("8888"))
     }
 
+    @Test
+    fun noRebindIsPassedToTheDeviceRequest() {
+        val source = FakeSource(AdbReverseOutcome.Accepted(SERVICE, "7777"))
+        val controller = controller()
+        controller.bind(source)
+
+        controller.add("tcp:7777", HOST, noRebind = true)
+
+        assertTrue(await { source.asked.isNotEmpty() })
+        assertEquals("tcp:7777;$HOST;true", source.asked.single())
+    }
+
+    @Test
+    fun removingOneReverseForgetsOnlyThatDeviceEndpoint() {
+        val source = FakeSource(AdbReverseOutcome.Accepted(SERVICE, "7777"))
+        val controller = controller()
+        controller.bind(source)
+        controller.add("tcp:7777", HOST)
+        assertTrue(await { controller.state.value.reverses.size == 1 })
+
+        controller.remove("tcp:7777")
+
+        assertTrue(await { controller.state.value.reverses.isEmpty() })
+        assertTrue(source.asked.contains("remove:tcp:7777"))
+    }
+
     /** Список — ответ устройства, и пустой список отличается от «не спрашивали». */
     @Test
     fun anEmptyListingIsShownAsAnAnswer() {
@@ -243,8 +269,13 @@ class AdbReverseControllerTest {
         val adopted: MutableList<AdbStreamMailbox> = CopyOnWriteArrayList()
         val ports: MutableList<Int> = CopyOnWriteArrayList()
 
-        override fun request(onDevice: String, onHost: String): AdbReverseOutcome {
-            asked += "$onDevice;$onHost"
+        override fun request(onDevice: String, onHost: String, noRebind: Boolean): AdbReverseOutcome {
+            asked += "$onDevice;$onHost;$noRebind"
+            return answer
+        }
+
+        override fun remove(onDevice: String): AdbReverseOutcome {
+            asked += "remove:$onDevice"
             return answer
         }
 
