@@ -379,6 +379,25 @@ class AdbLinkLifecycleTest {
         assertEquals(UsbSessionState.READY, f.coordinator.sessions.value[0].state)
     }
 
+    @Test
+    fun repeatedReconnectCyclesReleaseEveryOldAdbClaim() = withFixture { f ->
+        repeat(LIFECYCLE_STRESS_CYCLES) {
+            f.lifecycle.connect(f.first)
+            f.tasks.runFirst()
+            val connected = f.lifecycle.state.value as AdbLinkState.Connected
+            assertEquals(f.first, connected.generation)
+
+            f.lifecycle.disconnect(f.first)
+
+            assertEquals(AdbLinkState.Idle, f.lifecycle.state.value)
+            assertNull(f.lifecycle.connection)
+        }
+
+        assertEquals(LIFECYCLE_STRESS_CYCLES, f.host.handles.size)
+        assertTrue(f.host.handles.all { handle -> !handle.held })
+        assertEquals(UsbSessionState.READY, f.coordinator.sessions.value[0].state)
+    }
+
     private fun withFixture(block: (AdbLifecycleFixture) -> Unit) {
         AdbLifecycleFixture(temporary.newFolder()).use(block)
     }
@@ -396,5 +415,9 @@ class AdbLinkLifecycleTest {
         worker.join(3_000)
         assertFalse("worker did not finish", worker.isAlive)
         failure.get()?.let { throw AssertionError("worker failed", it) }
+    }
+
+    private companion object {
+        const val LIFECYCLE_STRESS_CYCLES = 32
     }
 }

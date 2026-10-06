@@ -304,6 +304,37 @@ class FastbootConnectionLifecycleTest {
     }
 
     @Test
+    fun repeatedGenerationHandoffsCloseEveryPreviousFastbootHandle() {
+        val handles = mutableListOf<FakeFastbootHandle>()
+        val tasks = ArrayDeque<Runnable>()
+        val controller = FastbootLinkController(
+            claim = {
+                UsbClaimResult.Claimed(
+                    FakeFastbootHandle(listOf("OKAYno", "OKAYyes")).also(handles::add),
+                )
+            },
+            executor = { tasks.addLast(it) },
+            diagnostics = InMemoryDiagnosticSink(),
+        )
+
+        repeat(LIFECYCLE_STRESS_CYCLES) { index ->
+            val generation = SessionGeneration(index + 1L)
+            controller.connect(generation)
+            tasks.removeFirst().run()
+
+            assertEquals(generation, (controller.state.value as FastbootLinkState.Connected).generation)
+            handles.dropLast(1).forEach { previous -> assertTrue(previous.closed) }
+            assertFalse(handles.last().closed)
+        }
+
+        controller.disconnect()
+
+        assertEquals(LIFECYCLE_STRESS_CYCLES, handles.size)
+        assertTrue(handles.all { it.closed })
+        assertTrue(tasks.isEmpty())
+    }
+
+    @Test
     fun droppingAUsbSessionCannotDisconnectAConnectionOpenedByTheNotification() {
         val first = FakeFastbootHandle(listOf("OKAYno", "OKAYyes"))
         val second = FakeFastbootHandle(listOf("OKAYyes", "OKAYyes"))
@@ -323,5 +354,9 @@ class FastbootConnectionLifecycleTest {
         assertTrue(first.closed)
         assertFalse(second.closed)
         assertEquals(SessionGeneration(2), (controller.state.value as FastbootLinkState.Connected).generation)
+    }
+
+    private companion object {
+        const val LIFECYCLE_STRESS_CYCLES = 32
     }
 }
