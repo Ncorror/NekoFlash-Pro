@@ -516,24 +516,7 @@ private fun appendTextLines(transcript: MutableList<String>, text: String) {
 
 private fun fastbootStateLines(state: FastbootConsoleState): List<String> = when (state) {
     FastbootConsoleState.Idle -> emptyList()
-    is FastbootConsoleState.Running -> if (state.target == null) {
-        listOf("[running] ${state.command}")
-    } else {
-        val total = state.totalBytes ?: 0L
-        val percent = if (total > 0L) {
-            (state.transferredBytes * PERCENT_TOTAL / total).coerceIn(0L, PERCENT_TOTAL)
-        } else {
-            0L
-        }
-        val phase = when (state.stage) {
-            FastbootOperationStage.PREPARING -> "preparing"
-            FastbootOperationStage.TRANSFERRING ->
-                "${percent}% ${terminalBytes(state.transferredBytes)}/${terminalBytes(total)}"
-            FastbootOperationStage.WRITING -> "transfer complete; writing"
-            FastbootOperationStage.WAITING -> "waiting"
-        }
-        listOf("[flash] ${state.target}: $phase")
-    }
+    is FastbootConsoleState.Running -> fastbootRunningLines(state)
     is FastbootConsoleState.Answered -> buildList {
         state.info.forEach { add("INFO $it") }
         add("${state.reply.name} ${state.payload}".trimEnd())
@@ -573,6 +556,24 @@ private fun fastbootStateLines(state: FastbootConsoleState): List<String> = when
         add("${state.snapshot.finalReply.name} ${state.snapshot.finalPayload}".trimEnd())
         add("complete=${state.snapshot.complete} lane=${state.lane}")
     }
+}
+
+private fun fastbootRunningLines(state: FastbootConsoleState.Running): List<String> {
+    if (state.target == null) return listOf("[running] ${state.command}")
+    val total = state.totalBytes ?: 0L
+    val percent = if (total > 0L) {
+        (state.transferredBytes * PERCENT_TOTAL / total).coerceIn(0L, PERCENT_TOTAL)
+    } else {
+        0L
+    }
+    val phase = when (state.stage) {
+        FastbootOperationStage.PREPARING -> "preparing"
+        FastbootOperationStage.TRANSFERRING ->
+            "${percent}% ${terminalBytes(state.transferredBytes)}/${terminalBytes(total)}"
+        FastbootOperationStage.WRITING -> "transfer complete; writing"
+        FastbootOperationStage.WAITING -> "waiting"
+    }
+    return listOf("[flash] ${state.target}: $phase")
 }
 
 private fun fastbootMutationLines(outcome: FastbootMutationOutcome): List<String> = when (outcome) {
