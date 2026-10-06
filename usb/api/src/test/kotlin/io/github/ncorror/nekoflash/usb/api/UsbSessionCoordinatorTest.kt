@@ -305,6 +305,120 @@ class UsbSessionCoordinatorTest {
     }
 
     @Test
+    fun releaseCancelsAClaimStillInsideThePlatform() {
+        val host = FakeUsbHost(attached = listOf(deviceA), permitted = setOf(deviceA.deviceName))
+        val coordinator = UsbSessionCoordinator(host)
+        coordinator.start()
+        val generation = coordinator.sessions.value.single().generation
+        var handle: UsbTransportHandle? = null
+        host.onClaim = { handle = it; coordinator.release(generation) }
+
+        val result = coordinator.claim(generation)
+
+        assertEquals(UsbClaimFailure.SUPERSEDED, (result as UsbClaimResult.Failed).reason)
+        assertFalse(checkNotNull(handle).held)
+        assertEquals(UsbSessionState.READY, coordinator.sessions.value.single().state)
+    }
+
+    @Test
+    fun aLatePlatformClaimCannotReplaceANewerClaimOfTheSameGeneration() {
+        val host = FakeUsbHost(attached = listOf(deviceA), permitted = setOf(deviceA.deviceName))
+        val coordinator = UsbSessionCoordinator(host)
+        coordinator.start()
+        val generation = coordinator.sessions.value.single().generation
+        var old: UsbTransportHandle? = null
+        var new: UsbTransportHandle? = null
+        var first = true
+        host.onClaim = {
+            if (first) {
+                first = false
+                old = it
+                coordinator.release(generation)
+                new = (coordinator.claim(generation) as UsbClaimResult.Claimed).handle
+            }
+        }
+
+        val late = coordinator.claim(generation)
+
+        assertEquals(UsbClaimFailure.SUPERSEDED, (late as UsbClaimResult.Failed).reason)
+        assertFalse(checkNotNull(old).held)
+        assertTrue(checkNotNull(new).held)
+        assertEquals(UsbSessionState.CLAIMED, coordinator.sessions.value.single().state)
+        coordinator.release(generation)
+        assertFalse(checkNotNull(new).held)
+    }
+
+    @Test
+    fun releasingAnOldHandleDoesNotReleaseANewerOne() {
+        val host = FakeUsbHost(attached = listOf(deviceA), permitted = setOf(deviceA.deviceName))
+        val coordinator = UsbSessionCoordinator(host)
+        coordinator.start()
+        val generation = coordinator.sessions.value.single().generation
+        val old = (coordinator.claim(generation) as UsbClaimResult.Claimed).handle
+        val current = (coordinator.claim(generation) as UsbClaimResult.Claimed).handle
+
+        coordinator.release(generation, old)
+
+        assertFalse(old.held)
+        assertTrue(current.held)
+        assertEquals(UsbSessionState.CLAIMED, coordinator.sessions.value.single().state)
+        coordinator.release(generation, current)
+        assertFalse(current.held)
+        assertEquals(UsbSessionState.READY, coordinator.sessions.value.single().state)
+    }
+
+    @Test
+    fun releasingTheOldHandleDoesNotCancelAPendingReplacement() {
+        val host = FakeUsbHost(attached = listOf(deviceA), permitted = setOf(deviceA.deviceName))
+        val coordinator = UsbSessionCoordinator(host)
+        coordinator.start()
+        val generation = coordinator.sessions.value.single().generation
+        val old = (coordinator.claim(generation) as UsbClaimResult.Claimed).handle
+        host.onClaim = { coordinator.release(generation, old) }
+
+        val replacement = (coordinator.claim(generation) as UsbClaimResult.Claimed).handle
+
+        assertFalse(old.held)
+        assertTrue(replacement.held)
+        assertEquals(UsbSessionState.CLAIMED, coordinator.sessions.value.single().state)
+        coordinator.release(generation, replacement)
+    }
+
+    @Test
+    fun detachDuringAPlatformClaimClosesItsUnpublishedHandle() {
+        val host = FakeUsbHost(attached = listOf(deviceA), permitted = setOf(deviceA.deviceName))
+        val coordinator = UsbSessionCoordinator(host)
+        coordinator.start()
+        val generation = coordinator.sessions.value.single().generation
+        var handle: UsbTransportHandle? = null
+        host.onClaim = { handle = it; coordinator.onDeviceDetached(deviceA) }
+
+        val result = coordinator.claim(generation)
+
+        assertEquals(UsbClaimFailure.DEVICE_GONE, (result as UsbClaimResult.Failed).reason)
+        assertFalse(checkNotNull(handle).held)
+        assertTrue(coordinator.sessions.value.isEmpty())
+    }
+
+    @Test
+    fun aCloseReturningLateCannotMarkAReplacementReady() {
+        val host = FakeUsbHost(attached = listOf(deviceA), permitted = setOf(deviceA.deviceName))
+        val coordinator = UsbSessionCoordinator(host)
+        coordinator.start()
+        val generation = coordinator.sessions.value.single().generation
+        val old = (coordinator.claim(generation) as UsbClaimResult.Claimed).handle as FakeHandle
+        var replacement: UsbTransportHandle? = null
+        old.onClose = { replacement = (coordinator.claim(generation) as UsbClaimResult.Claimed).handle }
+
+        coordinator.release(generation, old)
+
+        assertFalse(old.held)
+        assertTrue(checkNotNull(replacement).held)
+        assertEquals(UsbSessionState.CLAIMED, coordinator.sessions.value.single().state)
+        coordinator.release(generation, replacement)
+    }
+
+    @Test
     fun rescanRetriesPermissionForADeviceThatIsStillAttachedAfterDenial() {
         val host = FakeUsbHost(attached = listOf(deviceA))
         val registry = UsbSessionRegistry()
@@ -515,6 +629,7 @@ class UsbSessionCoordinatorTest {
     ) : UsbHost {
         val permissionRequests = mutableListOf<String>()
         val claims = mutableListOf<String>()
+        var onClaim: (UsbTransportHandle) -> Unit = { }
         var stopped = false
             private set
 
@@ -540,7 +655,7 @@ class UsbSessionCoordinatorTest {
         override fun claim(candidate: UsbInterfaceCandidate): UsbClaimResult {
             claims += candidate.device.deviceName
             claimFailure?.let { return UsbClaimResult.Failed(it) }
-            return UsbClaimResult.Claimed(FakeHandle(candidate))
+            return UsbClaimResult.Claimed(FakeHandle(candidate).also { onClaim(it) })
         }
     }
 
@@ -597,6 +712,7 @@ class UsbSessionCoordinatorTest {
         override val candidate: UsbInterfaceCandidate,
     ) : UsbTransportHandle {
         private var released = false
+        var onClose: () -> Unit = { }
 
         override val held: Boolean
             get() = !released
@@ -630,7 +746,10 @@ class UsbSessionCoordinatorTest {
         }
 
         override fun close() {
-            released = true
+            if (!released) {
+                released = true
+                onClose()
+            }
         }
     }
 

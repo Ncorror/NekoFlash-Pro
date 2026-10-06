@@ -9,30 +9,12 @@ import io.github.ncorror.nekoflash.core.artifact.ArtifactSource
 import io.github.ncorror.nekoflash.core.diagnostics.DiagnosticSink
 import io.github.ncorror.nekoflash.core.model.SessionGeneration
 import io.github.ncorror.nekoflash.protocol.adb.AdbConnection
-import io.github.ncorror.nekoflash.protocol.adb.AdbHandshakeFailure
-import io.github.ncorror.nekoflash.protocol.adb.AdbMailboxEnd
-import io.github.ncorror.nekoflash.protocol.adb.AdbHandshakeOutcome
 import io.github.ncorror.nekoflash.protocol.adb.AdbKeyStore
-import io.github.ncorror.nekoflash.protocol.adb.AdbShellOutcome
-import io.github.ncorror.nekoflash.usb.api.UsbAutoConnectPolicy
-import io.github.ncorror.nekoflash.usb.api.UsbClaimResult
 import io.github.ncorror.nekoflash.protocol.adb.AdbShellMode
 import io.github.ncorror.nekoflash.usb.api.UsbSession
 import io.github.ncorror.nekoflash.usb.api.UsbSessionCoordinator
-import io.github.ncorror.nekoflash.usb.api.UsbInterfaceKind
-import io.github.ncorror.nekoflash.usb.api.UsbSessionState
 import java.util.concurrent.Executor
-import java.util.concurrent.ConcurrentHashMap
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-
-/** Удерживается ли интерфейс этой сессии прямо сейчас. */
-private fun isHeld(session: UsbSession): Boolean =
-    !session.closed && session.state == UsbSessionState.CLAIMED
-
-/** Существует ли сессия ещё. */
-private fun isPresent(session: UsbSession): Boolean = !session.closed
 
 /**
  * Владелец ADB-соединения на уровне приложения.
@@ -95,10 +77,6 @@ public class AdbLinkController(
      */
     private val holdProcess: () -> Unit,
 ) {
-    private val mutableState = MutableStateFlow<AdbLinkState>(AdbLinkState.Idle)
-
-    private val mutableCommand = MutableStateFlow<AdbCommandState>(AdbCommandState.None)
-
     /**
      * Владелец интерактивных сессий.
      *
@@ -159,30 +137,28 @@ public class AdbLinkController(
         networkPermission = networkPermission,
     )
 
-    /**
-     * Живое соединение.
-     *
-     * Хранится, потому что после рукопожатия оно продолжает быть нужным: через
-     * него идут команды. Обнуляется вместе со сбросом состояния — соединение
-     * поверх отпущенного интерфейса недействительно.
-     */
-    @Volatile
-    private var connection: AdbConnection? = null
+    private val lifecycle = AdbLinkLifecycle(
+        coordinator, keyStore, apiLevel, executor, diagnostics,
+        onConnected = { live ->
+            // Bind the inbound handler before reverseSource starts the reader.
+            live.acceptInboundStreams(reverseController)
+            reverseController.bind(live.reverseSource(diagnostics))
+        },
+        onDisconnected = {
+            shellTabs.stopAll()
+            forwardController.stopAll("transport is gone")
+            reverseController.bind(null)
+        },
+    )
 
-    /**
-     * Поколения, к которым автоматически подключаться больше не нужно.
-     *
-     * Попытка была: она удалась, провалилась или пользователь отключился сам.
-     * Множество живёт до конца процесса, а поколения монотонны и не
-     * переиспользуются, так что перепутать их между устройствами нельзя.
-     */
-    private val handled = ConcurrentHashMap.newKeySet<Long>()
+    private val connection: AdbConnection?
+        get() = lifecycle.connection
 
     /** Состояние соединения. Экран подписывается и ничего не опрашивает. */
-    public val state: StateFlow<AdbLinkState> = mutableState.asStateFlow()
+    public val state: StateFlow<AdbLinkState> = lifecycle.state
 
     /** Состояние последней команды. */
-    public val command: StateFlow<AdbCommandState> = mutableCommand.asStateFlow()
+    public val command: StateFlow<AdbCommandState> = lifecycle.command
 
     /** Состояние интерактивной оболочки. */
     public val terminals: StateFlow<TerminalTabs> = shellTabs.state
@@ -398,7 +374,7 @@ public class AdbLinkController(
          */
         public fun sideloadFrom(stagingDirectory: File, origin: () -> ArtifactSource) {
             val live = connection ?: return
-            val shown = mutableState.value
+            val shown = state.value
             if (shown !is AdbLinkState.Connected || sideloads.active) return
             val target = targetOf(shown.generation) ?: return
             sideloads.startFrom(live, shown.peerMode, stagingDirectory, target, shown.generation, origin)
@@ -485,37 +461,7 @@ public class AdbLinkController(
      * (`docs/03`), а не в списке разрешённых команд.
      */
     public fun runCommand(command: String) {
-        val trimmed = command.trim()
-        val live = connection
-        // Пустая команда, отсутствующее соединение и уже занятый слот
-        // результата — три разные причины ничего не делать, и ни одна из них
-        // не ошибка.
-        if (trimmed.isEmpty() || live == null || mutableCommand.value is AdbCommandState.Running) {
-            return
-        }
-
-        mutableCommand.value = AdbCommandState.Running(trimmed)
-        executor.execute {
-            val outcome = runCatching { live.shell(trimmed) }
-            mutableCommand.value = when (val result = outcome.getOrNull()) {
-                is AdbShellOutcome.Finished -> AdbCommandState.Finished(
-                    command = trimmed,
-                    output = result.output.stdout.trimEnd('\n', '\r'),
-                    errorOutput = result.output.stderr.trimEnd('\n', '\r'),
-                    exitCode = result.output.exitCode,
-                )
-
-                is AdbShellOutcome.Failed -> AdbCommandState.Failed(
-                    trimmed,
-                    "${result.reason.name}: ${result.detail}",
-                )
-
-                null -> AdbCommandState.Failed(
-                    trimmed,
-                    outcome.exceptionOrNull()?.let { it.message ?: it.javaClass.simpleName } ?: "unknown",
-                )
-            }
-        }
+        lifecycle.runCommand(command)
     }
 
     /**
@@ -526,27 +472,7 @@ public class AdbLinkController(
      * экран.
      */
     public fun connect(generation: SessionGeneration) {
-        // Второе подключение поверх живого — это второй CNXN и второй читатель.
-        // Оба запрещены контрактом, поэтому отказ здесь, а не попытка.
-        if (mutableState.value !is AdbLinkState.Idle && mutableState.value !is AdbLinkState.Failed) {
-            return
-        }
-        handled.add(generation.value)
-        mutableState.value = AdbLinkState.Connecting(generation)
-
-        when (val claim = coordinator.claim(generation)) {
-            is UsbClaimResult.Failed -> {
-                mutableState.value = AdbLinkState.Failed(
-                    generation = generation,
-                    reason = AdbHandshakeFailure.TRANSPORT_CLOSED,
-                    detail = claim.reason.name,
-                )
-            }
-
-            is UsbClaimResult.Claimed -> executor.execute {
-                runHandshake(generation, claim)
-            }
-        }
+        lifecycle.connect(generation)
     }
 
     /**
@@ -557,18 +483,9 @@ public class AdbLinkController(
      * а не второй `CNXN` в том же соединении.
      */
     public fun disconnect(generation: SessionGeneration) {
-        handled.add(generation.value)
-        coordinator.release(generation)
-        forgetConnection()
+        lifecycle.disconnect(generation)
     }
 
-    /**
-     * Забывает соединение вместе с его состоянием.
-     *
-     * Вывод последней команды тоже уходит: он относился к устройству, которого
-     * больше нет, и оставлять его на экране значило бы приписывать его
-     * следующему.
-     */
     /**
      * Цель этого поколения.
      *
@@ -579,165 +496,8 @@ public class AdbLinkController(
     private fun targetOf(generation: SessionGeneration): TargetId? =
         coordinator.sessions.value.firstOrNull { session -> session.generation == generation }?.targetId
 
-    private fun forgetConnection() {
-        shellTabs.stopAll()
-        // Слушатели переживают отдельную команду, но не транспорт: проброс
-        // поверх мёртвого соединения принимал бы клиентов в никуда.
-        // Слушатели переживают отдельную команду, но не транспорт: проброс
-        // поверх мёртвого соединения принимал бы клиентов в никуда, а ожидание
-        // обратного — поток, идти по которому уже некуда.
-        forwardController.stopAll("transport is gone")
-        reverseController.bind(null)
-        // Цикл раскладки принадлежит соединению и обязан кончиться вместе с
-        // ним: иначе он пережил бы SessionGeneration и продолжил читать
-        // отпущенный интерфейс (ADR-0003 §2, ADR-0004 §4).
-        connection?.close()
-        connection = null
-        mutableCommand.value = AdbCommandState.None
-        mutableState.value = AdbLinkState.Idle
-    }
-
-    private fun runHandshake(generation: SessionGeneration, claim: UsbClaimResult.Claimed) {
-        val connection = AdbConnection(
-            handle = claim.handle,
-            keyStore = keyStore,
-            apiLevel = apiLevel,
-            diagnostics = diagnostics,
-            onPublicKeySent = {
-                val current = mutableState.value
-                if (current is AdbLinkState.Connecting && current.generation == generation) {
-                    mutableState.value = AdbLinkState.WaitingForAuthorization(generation)
-                }
-            },
-            // Соединение, потерявшее кадр, больше не соединение: прогон этапа 2
-            // показывал «Подключено», а каждая операция кончалась
-            // `FRAMING_LOST`. Причина остаётся на экране, интерфейс отпускается,
-            // и подключиться заново можно той же кнопкой.
-            onTransportEnd = { reason, detail ->
-                val current = mutableState.value
-                if (current is AdbLinkState.Connected && current.generation == generation) {
-                    forgetConnection()
-                    releaseAfterFailure(generation)
-                    mutableState.value = AdbLinkState.Failed(
-                        generation = generation,
-                        reason = if (reason == AdbMailboxEnd.FRAMING_LOST) {
-                            AdbHandshakeFailure.FRAMING_LOST
-                        } else {
-                            AdbHandshakeFailure.TRANSPORT_CLOSED
-                        },
-                        detail = detail,
-                        afterConnect = true,
-                    )
-                }
-            },
-        )
-
-        val outcome = runCatching { connection.connect() }
-        mutableState.value = when (val result = outcome.getOrNull()) {
-            is AdbHandshakeOutcome.Connected -> {
-                this.connection = connection
-                // Право принимать потоки отдаётся сразу после рукопожатия, а не
-                // при первом запросе: устройство может слушать с прошлого раза —
-                // `reverse` переживает переподключение, — и тогда поток придёт
-                // раньше, чем оператор о чём-нибудь попросит.
-                reverseController.bind(connection.reverseSource(diagnostics))
-                connection.acceptInboundStreams(reverseController)
-                AdbLinkState.Connected(
-                    generation = generation,
-                    peerMode = result.banner.peerMode,
-                    banner = result.banner.banner,
-                    features = result.banner.features,
-                )
-            }
-
-            is AdbHandshakeOutcome.Failed -> {
-                releaseAfterFailure(generation)
-                AdbLinkState.Failed(generation, result.reason, result.detail)
-            }
-
-            null -> {
-                releaseAfterFailure(generation)
-                AdbLinkState.Failed(
-                    generation = generation,
-                    reason = AdbHandshakeFailure.TRANSPORT_CLOSED,
-                    detail = outcome.exceptionOrNull()?.let { error ->
-                        error.message ?: error.javaClass.simpleName
-                    } ?: "unknown",
-                )
-            }
-        }
-    }
-
-    /**
-     * Сверяет соединение с действительным состоянием сессий USB.
-     *
-     * Соединение существует ровно столько, сколько удерживается интерфейс.
-     * Отпустить его можно не только кнопкой «Отключиться»: устройство могли
-     * выдернуть, сессию — закрыть, интерфейс — освободить другим путём. Во всех
-     * этих случаях `UsbTransportHandle` уже закрыт, и оставлять на экране
-     * «подключено» значит выдавать несуществующее за существующее.
-     *
-     * Прогон 2026-09-03 показал это ровно так: после освобождения интерфейса
-     * экран продолжал утверждать, что ADB подключён (`07` §6.12).
-     */
+    /** Reconciles only the selected USB session supplied by the application. */
     public fun onUsbSessionsChanged(sessions: List<UsbSession>) {
-        dropLinkIfInterfaceNoLongerHeld(sessions)
-        connectToNewlyReadyDevice(sessions)
-    }
-
-    private fun dropLinkIfInterfaceNoLongerHeld(sessions: List<UsbSession>) {
-        when (val state = mutableState.value) {
-            AdbLinkState.Idle -> Unit
-
-            // Живое соединение существует ровно столько, сколько удерживается
-            // интерфейс.
-            is AdbLinkState.Connecting -> dropUnless(state.generation, sessions, ::isHeld)
-            is AdbLinkState.WaitingForAuthorization -> dropUnless(state.generation, sessions, ::isHeld)
-            is AdbLinkState.Connected -> dropUnless(state.generation, sessions, ::isHeld)
-
-            // Причина отказа остаётся на экране до тех пор, пока устройство то
-            // же самое: она единственное, что есть у пользователя для разбора.
-            // Но пережить это устройство она не должна — иначе одна неудача
-            // отменила бы автоподключение до перезапуска приложения.
-            is AdbLinkState.Failed -> dropUnless(state.generation, sessions, ::isPresent)
-        }
-    }
-
-    private fun dropUnless(
-        generation: SessionGeneration,
-        sessions: List<UsbSession>,
-        alive: (UsbSession) -> Boolean,
-    ) {
-        if (sessions.none { it.generation == generation && alive(it) }) {
-            forgetConnection()
-        }
-    }
-
-    /**
-     * Подключается к устройству, которое только что стало готовым.
-     *
-     * Занятость проверяется по состоянию, а не по флагу: пока идёт одно
-     * рукопожатие, второе начинать нельзя — физический читатель один.
-     */
-    private fun connectToNewlyReadyDevice(sessions: List<UsbSession>) {
-        if (mutableState.value !is AdbLinkState.Idle) return
-        val candidate = sessions.firstOrNull { session ->
-            !session.closed &&
-                session.state == UsbSessionState.READY &&
-                session.candidate.kind == UsbInterfaceKind.ADB &&
-                UsbAutoConnectPolicy.allowsAutomaticConnect(session.candidate) &&
-                !handled.contains(session.generation.value)
-        } ?: return
-        connect(candidate.generation)
-    }
-
-    /**
-     * Освобождает интерфейс после неудачи.
-     *
-     * Держать его дальше нельзя: рукопожатие на этом транспорте больше не
-     * повторить, а исключительный захват мешал бы другим владельцам USB.
-     */
-    private fun releaseAfterFailure(generation: SessionGeneration) {
-        coordinator.release(generation)
+        lifecycle.onUsbSessionsChanged(sessions)
     }
 }

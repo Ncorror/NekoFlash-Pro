@@ -53,6 +53,8 @@ public class UsbSessionCoordinator(
     private val handles = java.util.concurrent.ConcurrentHashMap<Long, UsbTransportHandle>()
     /** Serializes handle publication with detach/release cleanup. */
     private val handleLock = Any()
+    /** A late platform claim cannot replace a newer claim or undo release. */
+    private val pendingClaims = mutableMapOf<Long, Any>()
 
     private val mutableLastScan = MutableStateFlow(UsbScanSummary.NEVER_SCANNED)
 
@@ -95,46 +97,61 @@ public class UsbSessionCoordinator(
         }
     }
 
-    private fun claimReadySession(generation: SessionGeneration, session: UsbSession): UsbClaimResult =
-        when (val result = host.claim(session.candidate)) {
-            is UsbClaimResult.Claimed -> {
-                val marked = registry.markClaimed(generation)
-                val markedSession = (marked as? UsbSessionTransition.Applied)?.session
-                val accepted = synchronized(handleLock) {
-                    if (!canPublishClaim(generation, markedSession)) {
-                        false
+    private fun claimReadySession(generation: SessionGeneration, session: UsbSession): UsbClaimResult {
+        val request = Any()
+        synchronized(handleLock) { pendingClaims[generation.value] = request }
+        return try {
+            when (val result = host.claim(session.candidate)) {
+                is UsbClaimResult.Claimed -> {
+                    val publication = publishClaim(generation, request, result.handle)
+                    val markedSession = publication.first
+                    publication.second?.close()
+                    if (markedSession == null) {
+                        // Detach can win between host.claim() and publication. The
+                        // claimed handle still belongs to this call and must be
+                        // closed even though the session is already gone.
+                        result.handle.close()
+                        val current = registry.session(generation)
+                        val gone = current == null || current.closed
+                        emit("claim_rejected_superseded_or_closed", current ?: session)
+                        UsbClaimResult.Failed(if (gone) UsbClaimFailure.DEVICE_GONE else UsbClaimFailure.SUPERSEDED)
                     } else {
-                        handles.put(generation.value, result.handle)?.close()
-                        true
+                        emit("interface_claimed", markedSession)
+                        result
                     }
                 }
-                if (!accepted) {
-                    // Detach can win between host.claim() and publication. The
-                    // claimed handle still belongs to this call and must be
-                    // closed even though the session is already gone.
-                    result.handle.close()
-                    emit("claim_rejected_session_closed", registry.session(generation) ?: session)
-                    UsbClaimResult.Failed(UsbClaimFailure.DEVICE_GONE)
-                } else {
-                    emit("interface_claimed", markedSession ?: session)
+
+                is UsbClaimResult.Failed -> {
+                    emit(
+                        message = "claim_failed",
+                        session = session,
+                        fields = mapOf("reason" to result.reason.name),
+                    )
                     result
                 }
             }
-
-            is UsbClaimResult.Failed -> {
-                emit(
-                    message = "claim_failed",
-                    session = session,
-                    fields = mapOf("reason" to result.reason.name),
-                )
-                result
+        } finally {
+            synchronized(handleLock) {
+                if (pendingClaims[generation.value] === request) pendingClaims.remove(generation.value)
             }
         }
+    }
 
-    private fun canPublishClaim(generation: SessionGeneration, marked: UsbSession?): Boolean {
-        if (marked == null) return false
+    private fun publishClaim(
+        generation: SessionGeneration,
+        request: Any,
+        handle: UsbTransportHandle,
+    ): Pair<UsbSession?, UsbTransportHandle?> = synchronized(handleLock) {
+        if (!canPublishClaim(generation, request)) return@synchronized null to null
+        val marked = (registry.markClaimed(generation) as? UsbSessionTransition.Applied)?.session
+            ?: return@synchronized null to null
+        marked to handles.put(generation.value, handle)
+    }
+
+    private fun canPublishClaim(generation: SessionGeneration, request: Any): Boolean {
+        if (pendingClaims[generation.value] !== request) return false
         val current = registry.session(generation) ?: return false
-        return !current.closed && current.state == UsbSessionState.CLAIMED
+        return !current.closed && (current.state == UsbSessionState.READY || current.state == UsbSessionState.CLAIMED)
     }
 
     /**
@@ -144,13 +161,23 @@ public class UsbSessionCoordinator(
      * же: меняется лишь то, держим мы интерфейс или нет. Возможность отпустить
      * устройство обязательна — удерживать его без способа освободить было бы
      * ограничением, созданным приложением.
+     *
+     * [expectedHandle] releases only that claim; stale cleanup must not release
+     * a newer handle belonging to the same generation.
      */
-    public fun release(generation: SessionGeneration) {
-        val handle = synchronized(handleLock) { handles.remove(generation.value) }
-        handle?.close()
-        val session = registry.session(generation) ?: return
-        if (session.state != UsbSessionState.CLAIMED) return
-        emit("interface_released", registry.markReady(generation).or(session))
+    public fun release(generation: SessionGeneration, expectedHandle: UsbTransportHandle? = null) {
+        val released = synchronized(handleLock) {
+            if (expectedHandle != null && handles[generation.value] !== expectedHandle) return
+            // An unconditional release cancels pending platform claims as well.
+            if (expectedHandle == null) pendingClaims.remove(generation.value)
+            val handle = handles.remove(generation.value)
+            val session = registry.session(generation)
+            val ready = session?.takeIf { it.state == UsbSessionState.CLAIMED }
+                ?.let { registry.markReady(generation).or(it) }
+            handle to ready
+        }
+        released.first?.close()
+        released.second?.let { emit("interface_released", it) }
     }
 
     /** Недавно завершённые сессии. Нужны отчёту после отключения устройства. */
