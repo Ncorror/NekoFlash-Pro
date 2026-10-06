@@ -105,8 +105,9 @@ class AdbOperationQueueTest(private val kind: Kind) {
                 }, { c.active }, { c.state.value }, { it is AdbTransferState.Failed })
             }
             Kind.INSTALL -> AdbInstallController(f.tasks, diagnostics).let { c ->
-                Control(c::bind, { live, origin -> c.install(live, listOf(origin), emptyList(), false) },
-                    { c.active }, { c.state.value }, { it is AdbInstallState.Failed })
+                Control(c::bind, { live, origin ->
+                    c.install(live, temporary.root, listOf(origin), emptyList(), false)
+                }, { c.active }, { c.state.value }, { it is AdbInstallState.Failed })
             }
             Kind.RAW -> AdbRawServiceController(f.tasks).let { c ->
                 Control(c::bind, { live, _ -> c.call(live, "shell:echo queued") },

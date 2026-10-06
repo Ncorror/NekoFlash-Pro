@@ -309,9 +309,14 @@ public class AdbLinkController(
     /** Установка пакетов: одна грань, чтобы не раздувать сам контроллер. */
     public inner class PackageActions internal constructor() {
         /** Устанавливает выбранные файлы; [several] — сессией, как `install-multiple`. */
-        public fun install(origins: List<() -> ArtifactSource>, options: List<String>, several: Boolean) {
+        public fun install(
+            stagingDirectory: File,
+            origins: List<() -> ArtifactSource>,
+            options: List<String>,
+            several: Boolean,
+        ) {
             val live = connection ?: return
-            installs.install(live, origins, options, several)
+            installs.install(live, stagingDirectory, origins, options, several)
         }
     }
 

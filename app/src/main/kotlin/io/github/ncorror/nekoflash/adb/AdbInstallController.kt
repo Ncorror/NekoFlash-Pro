@@ -1,10 +1,13 @@
 package io.github.ncorror.nekoflash.adb
 
+import io.github.ncorror.nekoflash.artifact.ArtifactStagingOutcome
+import io.github.ncorror.nekoflash.artifact.StagedArtifactSource
 import io.github.ncorror.nekoflash.core.artifact.ArtifactSource
 import io.github.ncorror.nekoflash.core.diagnostics.DiagnosticEvent
 import io.github.ncorror.nekoflash.core.diagnostics.DiagnosticSink
 import io.github.ncorror.nekoflash.protocol.adb.AdbByteChannel
 import io.github.ncorror.nekoflash.protocol.adb.AdbConnection
+import java.io.File
 import java.io.InputStream
 import java.time.Instant
 import java.util.concurrent.CountDownLatch
@@ -39,8 +42,8 @@ public sealed interface AdbInstallState {
  * не осталось половины установки.
  *
  * Размер каждого файла обязан быть известен до первого байта: он уходит в
- * саму команду. Файл, размер которого провайдер не сообщает, отвергается до
- * отправки.
+ * саму команду. Если SAF-провайдер его не сообщает, источник сначала одним
+ * проходом стажируется во временный файл, где размер становится доказанным.
  */
 public class AdbInstallController(
     private val executor: Executor,
@@ -58,6 +61,7 @@ public class AdbInstallController(
     /** Устанавливает [origins]; [several] — сессией `install-multiple`, даже для одного файла. */
     public fun install(
         connection: AdbConnection,
+        stagingDirectory: File,
         origins: List<() -> ArtifactSource>,
         options: List<String>,
         several: Boolean,
@@ -65,18 +69,45 @@ public class AdbInstallController(
         if (origins.isEmpty()) return
         val request = slot.begin(connection, AdbInstallState.Running("open", 0, 0), retainOutcome = true) ?: return
         slot.submit(executor, request, failure = { AdbInstallState.Failed(it.javaClass.simpleName) }) {
-            val outcome = runCatching {
-                val sources = origins.map { request.requireConnected(); it() }
-                val sizes = sources.map { it.identity.sizeBytes }
-                if (sizes.any { it == null }) {
-                    AdbInstallState.Failed(NO_SIZE)
-                } else {
-                    Install(request, sources, sizes.map { it!! }, options).run(several)
+            val staged = mutableListOf<StagedArtifactSource>()
+            val outcome = try {
+                val sources = origins.mapIndexed { index, origin ->
+                    request.requireConnected()
+                    prepare(request, origin(), stagingDirectory, index, origins.size, staged)
                 }
-            }.getOrElse { AdbInstallState.Failed(it.javaClass.simpleName) }
+                request.requireConnected()
+                val sizes = sources.map { source -> checkNotNull(source.identity.sizeBytes) }
+                Install(request, sources, sizes, options).run(several)
+            } catch (failure: InstallStagingFailure) {
+                AdbInstallState.Failed(failure.detail)
+            } catch (failure: Throwable) {
+                AdbInstallState.Failed(failure.javaClass.simpleName)
+            } finally {
+                staged.forEach(StagedArtifactSource::close)
+            }
             if (request.current) emit(outcome)
             outcome
         }
+    }
+
+    private fun prepare(
+        request: AdbOperationSlot.Request<AdbInstallState>,
+        source: ArtifactSource,
+        stagingDirectory: File,
+        index: Int,
+        count: Int,
+        staged: MutableList<StagedArtifactSource>,
+    ): ArtifactSource {
+        if (source.identity.sizeBytes != null) return source
+        val stage = "stage ${index + 1}/$count"
+        return when (
+            val outcome = StagedArtifactSource.stage(source, stagingDirectory) { bytes ->
+                request.publish(AdbInstallState.Running(stage, bytes, 0))
+            }
+        ) {
+            is ArtifactStagingOutcome.Staged -> outcome.source.also(staged::add)
+            is ArtifactStagingOutcome.Failed -> throw InstallStagingFailure(outcome.detail)
+        }.also { request.requireConnected() }
     }
 
     private fun emit(outcome: AdbInstallState) {
@@ -206,10 +237,11 @@ public class AdbInstallController(
         fun answer(): String = synchronized(answer) { answer.toString() }
     }
 
+    private class InstallStagingFailure(val detail: String) : RuntimeException()
+
     private companion object {
         const val CATEGORY = "adb"
         const val MAX_ANSWER = 16 * 1024
-        const val NO_SIZE = "provider does not report a file size; install declares it before the first byte"
     }
 }
 

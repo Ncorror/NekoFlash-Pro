@@ -172,7 +172,7 @@ internal class ControllerCommandTargets(
     ) = adb.storage.push({ pushSources(localNames, picked) }, remotePath, sync, AdbPushMode(dryRun, compression))
     override fun adbSideload(origin: () -> ArtifactSource) = adb.recovery.sideloadFrom(stagingDirectory, origin)
     override fun adbInstall(origins: List<() -> ArtifactSource>, options: List<String>, several: Boolean) =
-        adb.packages.install(origins, options, several)
+        adb.packages.install(stagingDirectory, origins, options, several)
 
     override fun localReport(tool: TerminalParser.Tool, kind: LocalReportKind): String {
         val identity = { generation: SessionGeneration ->

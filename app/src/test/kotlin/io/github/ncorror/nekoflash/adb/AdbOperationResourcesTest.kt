@@ -36,7 +36,7 @@ class AdbOperationResourcesTest {
         f.host.handles.single().serviceHook = { header, _ ->
             f.host.handles.single().enqueue(AdbCommand.OKAY, 77, header.arg0)
         }
-        c.install(live, listOf({ artifact }), emptyList(), false)
+        c.install(live, temporary.root, listOf({ artifact }), emptyList(), false)
         val worker = f.tasks.takeFirst()
         f.tasks.rejected = true
         worker.run()
@@ -44,6 +44,46 @@ class AdbOperationResourcesTest {
         assertFalse(c.active)
         assertTrue(c.state.value is AdbInstallState.Failed)
         assertTrue(AdbCommand.CLSE in f.host.handles.single().sent)
+    }
+
+    @Test fun unknownSizeInstallStagingIsRemovedWhenTheTargetIsReplaced() = withFixture { f ->
+        val c = AdbInstallController(f.tasks, DiagnosticSink { })
+        val live = checkNotNull(f.lifecycle.connection)
+        c.bind(live)
+        f.bindHook = { c.bind(it) }
+        f.unbindHook = { c.bind(null) }
+        f.replacingHook = { c.bind(null, discard = true) }
+        val folder = temporary.newFolder()
+        var sourceClosed = false
+        var switched = false
+        val artifact = object : AdbTestArtifact() {
+            override val identity = ArtifactIdentity("unknown.apk", null, ArtifactAccess.NON_SEEKABLE)
+            override fun open(): InputStream = object : ByteArrayInputStream(byteArrayOf(1, 2, 3)) {
+                override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+                    if (!switched) {
+                        switched = true
+                        f.lifecycle.connect(f.second)
+                        f.tasks.runFirst()
+                    }
+                    return super.read(buffer, offset, length)
+                }
+
+                override fun close() {
+                    sourceClosed = true
+                    super.close()
+                }
+            }
+        }
+
+        c.install(live, folder, listOf({ artifact }), emptyList(), false)
+        f.tasks.runFirst()
+
+        assertTrue(switched)
+        assertTrue(sourceClosed)
+        assertTrue(folder.listFiles().orEmpty().isEmpty())
+        assertFalse(c.active)
+        assertEquals(AdbInstallState.None, c.state.value)
+        assertEquals(0, f.host.handles[0].sent.count { it == AdbCommand.WRTE })
     }
 
     @Test fun aThrowingDownloadSinkIsAbandonedAndItsStreamIsClosed() = withFixture { f ->
