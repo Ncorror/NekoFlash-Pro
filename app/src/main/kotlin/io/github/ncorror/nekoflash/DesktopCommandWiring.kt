@@ -52,6 +52,7 @@ internal fun desktopCommandPanel(
     val executor = remember(adbLink, fastbootLink, coordinator) {
         DesktopCommandExecutor(
             ControllerCommandTargets(adbLink, fastbootLink, context.cacheDir) { coordinator.sessions.value },
+            unavailable = { step -> commandUnavailable(adbLink, fastbootLink, step) },
         )
     }
     val terminalEvents = remember { DesktopTerminalEvents() }

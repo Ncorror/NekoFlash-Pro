@@ -44,7 +44,8 @@ class DesktopCommandExecutorTest {
     fun unavailableTransportAnswersBeforeStartingOrRequestingAFile() {
         val blockedCalls = mutableListOf<String>()
         val blocked = DesktopCommandExecutor(
-            RecordingTargets(blockedCalls) { "error: no active transport" },
+            RecordingTargets(blockedCalls),
+            unavailable = { "error: no active transport" },
         )
 
         assertEquals(
@@ -61,7 +62,8 @@ class DesktopCommandExecutorTest {
     @Test
     fun localReportsBypassTransportAdmission() {
         val blocked = DesktopCommandExecutor(
-            RecordingTargets(mutableListOf()) { "error: no active transport" },
+            RecordingTargets(mutableListOf()),
+            unavailable = { "error: no active transport" },
         )
 
         assertEquals(
@@ -220,11 +222,7 @@ class DesktopCommandExecutorTest {
         )
     }
 
-    private class RecordingTargets(
-        private val calls: MutableList<String>,
-        private val blocked: (TerminalPlanStep) -> String? = { null },
-    ) : DesktopCommandTargets {
-        override fun unavailable(step: TerminalPlanStep): String? = blocked(step)
+    private class RecordingTargets(private val calls: MutableList<String>) : DesktopCommandTargets {
         override fun fastbootCommand(command: String) { calls += "command $command" }
         override fun fastbootPlan(commands: List<String>, slot: String?) {
             calls += "plan ${commands.joinToString(",")}" + (slot?.let { " slot=$it" } ?: "")

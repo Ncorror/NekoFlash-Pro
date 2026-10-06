@@ -40,16 +40,6 @@ internal class ControllerCommandTargets(
     /** USB-сессии приложения: по ним `devices` называет серийный номер и порт. */
     private val sessions: () -> List<UsbSession>,
 ) : DesktopCommandTargets {
-    override fun unavailable(step: TerminalPlanStep): String? = when {
-        step is TerminalPlanStep.LocalReport -> null
-        step is AdbForwardListStep || step is AdbForwardRemoveStep || step === AdbForwardRemoveAllStep -> null
-        step.isFastboot() && fastboot.state.value !is FastbootLinkState.Connected ->
-            "error: no active Fastboot transport"
-        !step.isFastboot() && adb.state.value !is AdbLinkState.Connected ->
-            "error: no active ADB transport"
-        else -> null
-    }
-
     override fun fastbootCommand(command: String) = fastboot.runCommand(command)
     override fun fastbootPlan(commands: List<String>, slot: String?) = fastboot.runPlan(commands, slot)
     override fun fastbootVariable(name: String?) =
@@ -190,6 +180,19 @@ internal class ControllerCommandTargets(
     private companion object {
         const val UNKNOWN_SERIAL = "????????????"
     }
+}
+
+/** Host-terminal transport admission without adding another engine target method. */
+internal fun commandUnavailable(
+    adb: AdbLinkController,
+    fastboot: FastbootLinkController,
+    step: TerminalPlanStep,
+): String? = when {
+    step is TerminalPlanStep.LocalReport -> null
+    step is AdbForwardListStep || step is AdbForwardRemoveStep || step === AdbForwardRemoveAllStep -> null
+    step.isFastboot() && fastboot.state.value !is FastbootLinkState.Connected -> "error: no active Fastboot transport"
+    !step.isFastboot() && adb.state.value !is AdbLinkState.Connected -> "error: no active ADB transport"
+    else -> null
 }
 
 /**

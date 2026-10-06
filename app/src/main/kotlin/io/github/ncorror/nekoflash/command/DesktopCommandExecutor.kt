@@ -59,13 +59,7 @@ interface DesktopCommandTargets {
     fun adbService(service: String)
     fun adbReboot(target: String)
 
-    /**
-     * Host-terminal admission check. A non-null result is printed immediately
-     * and no picker or device operation is started.
-     */
-    fun unavailable(step: TerminalPlanStep): String? = null
-
-    /** Long-lived forwarding operations are one capability surface, not six unrelated target functions. */
+/** Long-lived forwarding operations are one capability surface, not six unrelated target functions. */
     val adbForwarding: AdbForwardingTargets
         get() = MissingAdbForwardingTargets
 
@@ -167,7 +161,11 @@ sealed interface DesktopCommandStart {
  * чтобы подписать ожидаемый асинхронный ответ до синхронного `remove` или
  * быстрого ответа устройства и не потерять его из-за гонки.
  */
-class DesktopCommandExecutor(private val targets: DesktopCommandTargets) {
+class DesktopCommandExecutor(
+    private val targets: DesktopCommandTargets,
+    /** Non-null means answer immediately without a picker or a device call. */
+    private val unavailable: (TerminalPlanStep) -> String? = { null },
+) {
     fun execute(
         plan: TerminalPlan,
         file: PickedFile?,
@@ -182,7 +180,7 @@ class DesktopCommandExecutor(private val targets: DesktopCommandTargets) {
         plan: TerminalPlan,
         file: PickedFile?,
     ): DesktopCommandStart? {
-        val unavailable = targets.unavailable(first)
+        val unavailable = unavailable(first)
         return when {
         first is TerminalPlanStep.LocalReport ->
             DesktopCommandStart.Answered(targets.localReport(first.tool, first.kind))
