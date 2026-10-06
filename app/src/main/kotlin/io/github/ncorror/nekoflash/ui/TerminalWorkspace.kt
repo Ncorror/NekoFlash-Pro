@@ -155,7 +155,7 @@ private fun TerminalLifecycle(
     LaunchedEffect(current.ready) {
         if (current.ready) {
             stagedInput.value = ""
-            TerminalUiSession.stagedCursor.value = 0
+            TerminalUiSession.stagedCursor.intValue = 0
         }
     }
 }
