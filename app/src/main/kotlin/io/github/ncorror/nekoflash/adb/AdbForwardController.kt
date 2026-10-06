@@ -216,10 +216,13 @@ public class AdbForwardController(
                     fail("port $requestedPort is already forwarded")
                     return
                 }
-                if (forwards.remove(requestedPort, existing)) {
-                    existing.shutdown(REBOUND_BY_OPERATOR)
-                    emit("forward_rebound", mapOf("localPort" to requestedPort.toString()))
-                }
+                existing.rebind(source, address)
+                emit(
+                    "forward_rebound",
+                    mapOf("localPort" to requestedPort.toString(), "address" to address),
+                )
+                mutableState.value = snapshot(failure = null)
+                return
             }
         }
         val server = try {
@@ -229,7 +232,7 @@ public class AdbForwardController(
             fail("port $requestedPort: $reason (INTERNET=${networkPermission()})")
             return
         }
-        val forward = Forward(server, address)
+        val forward = Forward(server, source, address)
         forwards[server.localPort] = forward
         emit(
             "forward_listening",
@@ -243,10 +246,10 @@ public class AdbForwardController(
             ),
         )
         mutableState.value = snapshot(failure = null)
-        executor.execute { accept(source, forward) }
+        executor.execute { accept(forward) }
     }
 
-    private fun accept(source: AdbForwardSource, forward: Forward) {
+    private fun accept(forward: Forward) {
         while (!forward.server.isClosed) {
             val socket = try {
                 forward.server.accept()
@@ -254,11 +257,11 @@ public class AdbForwardController(
                 // Закрытый слушатель — это снятие проброса, а не беда.
                 return
             }
-            admit(source, forward, socket)
+            admit(forward, socket)
         }
     }
 
-    private fun admit(source: AdbForwardSource, forward: Forward, socket: Socket) {
+    private fun admit(forward: Forward, socket: Socket) {
         forward.accepted()
         emit(
             "forward_accepted",
@@ -275,10 +278,11 @@ public class AdbForwardController(
             )
             return
         }
-        executor.execute { serve(source, forward, socket) }
+        val route = forward.route()
+        executor.execute { serve(route, forward, socket) }
     }
 
-    private fun serve(source: AdbForwardSource, forward: Forward, socket: Socket) {
+    private fun serve(route: ForwardRoute, forward: Forward, socket: Socket) {
         val channel = try {
             AdbSocketChannel(socket)
         } catch (failure: IOException) {
@@ -286,10 +290,10 @@ public class AdbForwardController(
             fail("connection on ${forward.port()}: ${failure.message ?: "socket is gone"}")
             return
         }
-        val stream = source.connect(channel)
+        val stream = route.source.connect(channel)
         forward.opened(stream)
         publish()
-        val refused = stream.open(forward.address)
+        val refused = stream.open(route.address)
         val outcome = refused ?: pumpBothWays(stream)
         forward.closed(stream, outcome)
         publish()
@@ -333,9 +337,22 @@ public class AdbForwardController(
         )
     }
 
+    /** Маршрут одного принятого соединения: источник и адрес меняются атомарно. */
+    private data class ForwardRoute(
+        val source: AdbForwardSource,
+        val address: String,
+    )
+
     /** Один слушатель со своими соединениями. */
-    private class Forward(val server: ServerSocket, val address: String) {
+    private class Forward(
+        val server: ServerSocket,
+        source: AdbForwardSource,
+        address: String,
+    ) {
         private val streams = ConcurrentHashMap.newKeySet<AdbForwardConnection>()
+
+        @Volatile
+        private var currentRoute = ForwardRoute(source, address)
 
         @Volatile
         private var taken = 0
@@ -349,6 +366,14 @@ public class AdbForwardController(
         fun port(): Int = server.localPort
 
         fun live(): Int = streams.size
+
+        fun route(): ForwardRoute = currentRoute
+
+        fun rebind(source: AdbForwardSource, address: String) {
+            currentRoute = ForwardRoute(source, address)
+            streams.forEach { stream -> stream.cancel(REBOUND_BY_OPERATOR) }
+            streams.clear()
+        }
 
         @Synchronized
         fun accepted() {
@@ -375,7 +400,7 @@ public class AdbForwardController(
 
         fun entry(): AdbForwardEntry = AdbForwardEntry(
             localPort = port(),
-            address = address,
+            address = currentRoute.address,
             live = live(),
             accepted = taken,
             served = served,
